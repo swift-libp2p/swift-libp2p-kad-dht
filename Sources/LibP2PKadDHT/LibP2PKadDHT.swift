@@ -6,7 +6,8 @@
 //
 
 import LibP2P
-import CryptoKit
+//import CryptoKit
+import CryptoSwift
 
 struct DHTPeerInfo:Equatable {
     /// The original PeerID of this DHT Peer
@@ -50,9 +51,10 @@ public class KadDHT:EventLoopService {
             /// Store the original ID
             self.original = bytes
             /// Hash the ID for DHT Key conformance
-            var sha = SHA256()
-            sha.update(data: bytes)
-            self.bytes = sha.finalize().toBytes
+            //let sha = SHA256()
+            //try! sha.update(withBytes: bytes)
+            //self.bytes = sha.finalize().toBytes
+            self.bytes = SHA2(variant: .sha256).calculate(for: bytes)
         }
         
         /// Used for testing purposes only
