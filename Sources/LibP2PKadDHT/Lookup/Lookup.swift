@@ -6,7 +6,6 @@
 //
 
 import LibP2P
-import Network
 
 class Lookup {
     let target:PeerID
