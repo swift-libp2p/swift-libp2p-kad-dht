@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreFoundation
 
 protocol UIntToBytesConvertable {
     var toBytes: [UInt8] { get }
