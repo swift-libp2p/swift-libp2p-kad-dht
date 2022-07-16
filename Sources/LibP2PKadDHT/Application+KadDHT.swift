@@ -22,10 +22,10 @@ extension Application.DHTServices.Provider {
     }
     
     /// Configures a KadDHT Node with the specified parameters
-    public static func kadDHT(mode: KadDHT.Mode, options: KadDHT.DHTNodeOptions, bootstrapPeers:[PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes, autoUpdate:Bool = true) -> Self {
+    public static func kadDHT(mode: KadDHT.Mode, options: KadDHT.DHTNodeOptions? = nil, bootstrapPeers:[PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes, autoUpdate:Bool = true) -> Self {
         .init {
             $0.dht.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(network: app, mode: mode, bootstrapPeers: bootstrapPeers, options: options)
+                let dht = try! KadDHT.Node(network: app, mode: mode, bootstrapPeers: bootstrapPeers, options: options ?? KadDHT.DHTNodeOptions())
                 dht.autoUpdate = autoUpdate
                 app.lifecycle.use(dht)
                 app.discovery.use { _ in dht } // Does this work??
