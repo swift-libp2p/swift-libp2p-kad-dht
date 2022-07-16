@@ -97,8 +97,6 @@ Contributions are welcomed! This code is very much a proof of concept. I can gua
 
 Let's make this code better together! 🤝
 
-[![](https://cdn.rawgit.com/jbenet/contribute-ipfs-gif/master/img/contribute.gif)](https://github.com/ipfs/community/blob/master/contributing.md)
-
 ## Credits
 
 - [MPLEX Spec](https://github.com/libp2p/specs/blob/master/mplex/README.md) 
