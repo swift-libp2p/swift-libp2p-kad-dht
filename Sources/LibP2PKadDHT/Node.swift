@@ -191,14 +191,16 @@ extension KadDHT {
         private func _heartbeat(_ task:RepeatedTask? = nil) -> EventLoopFuture<Void> {
             guard self.isRunningHeartbeat == false else { return self.eventLoop.makeSucceededVoidFuture() }
             return self.eventLoop.flatSubmit {
-                self.logger.info("Running Heartbeat")
+                self.logger.notice("Running Heartbeat")
                 self.isRunningHeartbeat = true
+                self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
+                self.logger.notice("Peers<\(self.peerstore.keys.count)> [ \n\(self.peerstore.keys.map { "\($0)" }.joined(separator: ",\n"))]")
                 return self._searchForPeersLookupStyle().always { _ in
-                    self.logger.info("Heartbeat Finished")
+                    self.logger.notice("Heartbeat Finished")
                     self.isRunningHeartbeat = false
                 }
             }
-            
+          
             // /// Search for additional peers
             // return self._searchForPeersLookupStyle().and(
             // /// Share our DHT Keys
@@ -300,7 +302,7 @@ extension KadDHT {
         
         /// Switches over the Query Type and Handles each appropriately
         func _handleQuery(_ query:DHTQuery, from:PeerInfo) -> EventLoopFuture<DHTResponse> {
-            self.logger.debug("Handling Query \(query)")
+            self.logger.notice("Handling Query \(query) from peer \(from.peer)")
             switch query {
             case .ping:
                 return self.eventLoop.makeSucceededFuture( DHTResponse.ping )
