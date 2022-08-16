@@ -165,6 +165,7 @@ public class KadDHT:EventLoopService {
     init(eventLoop:EventLoop, host:Application) {
         self.eventLoop = eventLoop
         self.logger = Logger(label: "KadDHT[\(UUID().uuidString.prefix(5))]")
+        self.logger.logLevel = host.logger.logLevel
         self._mode = .client
         self._state = .stopped
         self.host = host

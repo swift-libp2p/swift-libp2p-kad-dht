@@ -97,6 +97,7 @@ extension KadDHT {
             self.maxPeers = options.maxPeers
             self.routingTable = RoutingTable(eventloop: eventLoop, bucketSize: options.bucketSize, localPeerID: peerID, latency: options.connectionTimeout, peerstoreMetrics: [:], usefulnessGracePeriod: .minutes(5))
             self.logger = Logger(label: "DHTNode\(peerID)")
+            self.logger.logLevel = network.logger.logLevel
             self.metrics = DHTNodeMetrics()
             self.state = .stopped
             self.autoUpdate = true
@@ -174,7 +175,7 @@ extension KadDHT {
             
             /// Set up the heartbeat task
             if self.autoUpdate == true {
-                self.heartbeatTask = self.eventLoop.scheduleRepeatedAsyncTask(initialDelay: .milliseconds(100), delay: .seconds(5), notifying: nil, self._heartbeat)
+                self.heartbeatTask = self.eventLoop.scheduleRepeatedAsyncTask(initialDelay: .milliseconds(500), delay: .seconds(60), notifying: nil, self._heartbeat)
             }
             
             self.state = .started
