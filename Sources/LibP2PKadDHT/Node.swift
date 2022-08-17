@@ -195,7 +195,7 @@ extension KadDHT {
                 self.isRunningHeartbeat = true
                 self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
                 self.logger.notice("Peers<\(self.peerstore.keys.count)> [ \n\(self.peerstore.keys.map { "\($0)" }.joined(separator: ",\n"))]")
-                self.logger.notice(self.routingTable)
+                self.logger.notice("\(self.routingTable.description)")
                 return self._searchForPeersLookupStyle().always { _ in
                     self.logger.notice("Heartbeat Finished")
                     self.isRunningHeartbeat = false
