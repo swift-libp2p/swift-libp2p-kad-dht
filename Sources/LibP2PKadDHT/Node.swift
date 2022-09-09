@@ -6,6 +6,7 @@
 //
 
 import LibP2P
+import CID
 
 extension KadDHT {
     public static var multicodec:String = "/ipfs/kad/1.0.0"
@@ -49,6 +50,9 @@ extension KadDHT {
         /// DHT Peer Store
         let routingTable:RoutingTable
         let maxPeers:Int
+        
+        /// Naive DHT Provider Store
+        var providerStore:[KadDHT.Key:[DHT.Message.Peer]] = [:]
         
         /// The event loop that we're operating on...
         public let eventLoop:EventLoop
@@ -268,16 +272,20 @@ extension KadDHT {
             /// This distinction allows restricted nodes to utilize the DHT, i.e. query the DHT, without decreasing the quality of the distributed hash table, i.e. without polluting the routing tables.
             if self.peerstore[from.b58String] == nil && from.b58String != self.peerID.b58String {
                 self.logger.info("Received a message from a \(from.id) we haven't heard from yet!")
-                /// TODO: We should only proceed with adding this peer if they are currently opperating in Server mode...
-                self.network!.peers.add(key: from).map {
-                    self.network!.peers.getAddresses(forPeer: from).flatMap { addys -> EventLoopFuture<Void> in
-                        self.logger.warning("Adding \(addys.count) existing addresses to \(from) from peerstore")
-                        pInfo = PeerInfo(peer: from, addresses: pInfo.addresses + addys)
-                        return self.addPeerIfSpaceOrCloser(pInfo)
+                /// We should only proceed with adding this peer if they are currently opperating in Server mode...
+                self._isPeerOperatingAsServer(from).map { isActingAsServer -> EventLoopFuture<Void> in
+                    self.logger.info("\(from) \(isActingAsServer ? "is" : "is not") acting as a server...")
+                    return self.network!.peers.add(key: from).flatMap {
+                        self.network!.peers.getAddresses(forPeer: from).flatMap { addys -> EventLoopFuture<Void> in
+                            self.logger.warning("Adding \(addys.count) existing addresses to \(from) from peerstore")
+                            pInfo = PeerInfo(peer: from, addresses: pInfo.addresses + addys)
+                            return self.addPeerIfSpaceOrCloser(pInfo)
+                        }
                     }
                 }.whenComplete { _ in
-                    self.logger.info("Done processing new peer")
+                    self.logger.info("Done processing new peer \(from)")
                 }
+                
             }
             
             /// Handle the query
@@ -303,7 +311,7 @@ extension KadDHT {
         
         /// Switches over the Query Type and Handles each appropriately
         func _handleQuery(_ query:DHTQuery, from:PeerInfo) -> EventLoopFuture<DHTResponse> {
-            self.logger.notice("Handling Query \(query) from peer \(from.peer)")
+            self.logger.notice("Query::Handling Query \(query) from peer \(from.peer)")
             switch query {
             case .ping:
                 return self.eventLoop.makeSucceededFuture( DHTResponse.ping )
@@ -322,6 +330,7 @@ extension KadDHT {
                 }
                 
             case .putValue(let key, let value):
+                self.logger.info("Query::PutValue::Attempting to store value for key: \(key)")
                 return self.addKeyIfSpaceOrCloser(key: key, value: value)
                 //return self.addKeyIfSpaceOrCloser2(key: key, value: value, from: from)
                 
@@ -330,10 +339,12 @@ extension KadDHT {
                 /// If we have the value, send it back!
                 let kid = KadDHT.Key(key, keySpace: .xor)
                 if let val = self.dht[kid] {
+                    self.logger.info("Query::GetValue::Returning value for key: \(key)")
                     return self.eventLoop.makeSucceededFuture( DHTResponse.getValue(key: key, record: val, closerPeers: []) )
                 } else {
                     /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
                     return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
+                        self.logger.info("Query::GetValue::Returning \(peers.count) closer peers for key: \(key)")
                         return self.eventLoop.makeSucceededFuture( DHTResponse.getValue(key: key, record: nil, closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
                     }
                 }
@@ -344,20 +355,36 @@ extension KadDHT {
                 if self.dht[kid] != nil {
                     let pInfo = PeerInfo(peer: self.peerID, addresses: self.network?.listenAddresses ?? [])
                     
+                    self.logger.info("Query::GetProviders::Returning ourselves as a Provider Peer for CID: \(cid)")
                     if let dhtPeer = try? DHT.Message.Peer(pInfo) {
                         return self.eventLoop.makeSucceededFuture( DHTResponse.getProviders(cid: cid, providerPeers: [dhtPeer], closerPeers: []) )
                     }
                     return self.eventLoop.makeSucceededFuture( DHTResponse.getProviders(cid: cid, providerPeers: [], closerPeers: []) )
+                } else if let knownProviders = self.providerStore[kid], !knownProviders.isEmpty {
+                    self.logger.info("Query::GetProviders::Returning \(knownProviders.count) Provider Peers for CID: \(cid)")
+                    return self.eventLoop.makeSucceededFuture( DHTResponse.getProviders(cid: cid, providerPeers: knownProviders, closerPeers: []) )
                 } else {
                     /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
                     return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
+                        self.logger.info("Query::GetProviders::Returning \(peers.count) Closer Peers for CID: \(cid)")
                         return self.eventLoop.makeSucceededFuture( DHTResponse.getProviders(cid: cid, providerPeers: [], closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
                     }
                 }
             
             case .addProvider(let cid):
-                self.logger.warning("TODO: Implement addProvider")
-                return self.eventLoop.makeSucceededFuture( DHTResponse.addProvider(cid: cid, providerPeers: []) )
+                // Ensure the provided CID is valid...
+                guard (try? CID(cid)) != nil else { return self.eventLoop.makeSucceededFuture( DHTResponse.addProvider(cid: cid, providerPeers: []) ) }
+                let kid = KadDHT.Key(cid, keySpace: .xor)
+                guard let provider = try? DHT.Message.Peer(from) else { return self.eventLoop.makeSucceededFuture( DHTResponse.addProvider(cid: cid, providerPeers: []) ) }
+                var knownProviders = self.providerStore[kid, default: []]
+                if !knownProviders.contains(provider) {
+                    knownProviders.append(provider)
+                    self.providerStore[kid] = knownProviders
+                    self.logger.info("Query::AddProvider::Added \(from.peer) as a provider for cid: \(cid)")
+                } else {
+                    self.logger.info("Query::AddProvider::\(from.peer) already a provider for cid: \(cid)")
+                }
+                return self.eventLoop.makeSucceededFuture( DHTResponse.addProvider(cid: cid, providerPeers: [provider]) )
             }
         }
         
@@ -412,6 +439,16 @@ extension KadDHT {
                     }.flatten(on: self.eventLoop)
                 }
             }.flatten(on: self.eventLoop)
+        }
+        
+        /// Checks if the peer specified has announced the "/ipfs/kad/1.0.0" protocol in their Indentify packet.
+        /// Peers are only supposed to announce the protocol when in server mode.
+        private func _isPeerOperatingAsServer(_ pid:PeerID) -> EventLoopFuture<Bool> {
+            guard let network = network else {
+                return self.eventLoop.makeSucceededFuture(false)
+            }
+
+            return network.peers.getProtocols(forPeer: pid).map { $0.contains { $0.stringValue.contains(KadDHT.multicodec) } }
         }
         
 //        public func stop() {
@@ -586,6 +623,17 @@ extension KadDHT {
                         let lookupList = KeyLookup(host: self, target: kid, concurrentRequests: self.maxConcurrentRequest, seeds: seeds)
                         return lookupList.proceedForValue().map({ $0 }).hop(to: self.eventLoop)
                     }
+                }
+            }
+        }
+      
+        public func getProvidersUsingLookupList(_ key:[UInt8]) -> EventLoopFuture<[PeerInfo]> {
+            self.eventLoop.flatSubmit {
+                let kid = KadDHT.Key(key, keySpace: .xor)
+                
+                return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { seeds -> EventLoopFuture<[PeerInfo]> in
+                    let lookupList = KeyLookup(host: self, target: kid, concurrentRequests: self.maxConcurrentRequest, seeds: seeds)
+                    return lookupList.proceedForProvider().map({ $0 }).hop(to: self.eventLoop)
                 }
             }
         }
