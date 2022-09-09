@@ -98,17 +98,17 @@ extension KadDHT {
                 /// Ping is deprecated, we don't send ping messages through DHT anymore! Use the dedicated "ipfs/ping/1.0.0" protocol instead.
                 //throw Errors.encodingError
                 req.type = .ping
-                req.key = Data("test".bytes)
+                req.key = Data(DispatchTime.now().uptimeNanoseconds.toBytes)
                 
             case let .findNode(pid):
                 req.type = .findNode
-                ///  In the request key must be set to the binary PeerId of the node to be found
+                ///  In the request, key must be set to the binary PeerId of the node to be found
                 req.key = Data(pid.id)
 
 
             case let .getValue(key):
                 req.type = .getValue
-                /// In the request key is an unstructured array of bytes.
+                /// In the request, key is an unstructured array of bytes.
                 req.key = Data(key)
 
                 
@@ -149,7 +149,7 @@ extension KadDHT {
             
             switch dht.type {
             case .findNode: /// .findNode
-                /// In the request key must be set to the binary PeerId of the node to be found
+                /// In the request, key must be set to the binary PeerId of the node to be found
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
                 guard let cid = try? PeerID(fromBytesID: Array<UInt8>(dht.key)) else {
                     throw Errors.DecodingErrorInvalidType
@@ -158,13 +158,13 @@ extension KadDHT {
                 
                 
             case .getValue: /// .findValue
-                ///In the request key is an unstructured array of bytes.
+                ///In the request, key is an unstructured array of bytes.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
                 return DHTQuery.getValue(key: Array<UInt8>(dht.key))
                 
                 
             case .putValue: /// .store
-                /// In the request record is set to the record to be stored and key on Message is set to equal key of the Record.
+                /// In the request, record is set to the record to be stored and key on Message is set to equal key of the Record.
                 let rec = try DHT.Record(contiguousBytes: dht.record)
                 guard rec.hasValue, rec.hasKey, !rec.value.isEmpty, !rec.key.isEmpty, dht.key == rec.key else { throw Errors.DecodingErrorInvalidType }
                 //let providers = try dht.providerPeers.map { try $0.toPeerInfo() }
@@ -172,13 +172,13 @@ extension KadDHT {
                 
                 
             case .getProviders:
-                /// In the request key is set to a CID.
+                /// In the request, key is set to a CID.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
                 return DHTQuery.getProviders(cid: Array<UInt8>(dht.key))
                 
                 
             case .addProvider:
-                /// In the request key is set to a CID.
+                /// In the request, key is set to a CID.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
                 return DHTQuery.addProvider(cid: Array<UInt8>(dht.key))
                 
@@ -319,7 +319,8 @@ extension KadDHT {
             case .ping:
                 /// Deprecated...
                 if dht.hasKey {
-                    print("Our Ping Response Contained Key: \(String(data: dht.key, encoding: .utf8) ?? "NIL")")
+                    let tic = UInt64(littleEndian: dht.key.withUnsafeBytes { $0.pointee })
+                    print("Ping took \((DispatchTime.now().uptimeNanoseconds - tic) / 1_000_000)ms")
                 }
                 return DHTResponse.ping
                 //throw Errors.DecodingErrorInvalidType
