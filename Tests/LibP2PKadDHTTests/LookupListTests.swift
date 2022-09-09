@@ -54,13 +54,15 @@ class LookupListTests: XCTestCase {
         for i in 0..<contacts.count - 1 {
             XCTAssertEqual(ourID.compareDistancesFromSelf(to: contacts[i].peer, and: contacts[i + 1].peer), 1)
         }
+      
+        print(list.dumpMetrics())
     }
 
     func testLookupListNext() throws {
         let list = LookupList(id: KadDHT.Key.ZeroKey, capacity: 20)
 
         /// Insert a few keys
-        let randomPeers = try (0..<5).map { _ in try generateRandomPeerInfo() }
+        let randomPeers = try (0..<20).map { _ in try generateRandomPeerInfo() }
         let sorted = randomPeers.map { $0.peer }.sortedAbsolutely()
 
         /// Insert the peers in random order
@@ -81,6 +83,21 @@ class LookupListTests: XCTestCase {
         XCTAssertEqual(list.next()!.peer, sorted[2])
         XCTAssertEqual(list.next()!.peer, sorted[3])
         XCTAssertEqual(list.next()!.peer, sorted[4])
+        XCTAssertEqual(list.next()!.peer, sorted[5])
+        XCTAssertEqual(list.next()!.peer, sorted[6])
+        XCTAssertEqual(list.next()!.peer, sorted[7])
+        XCTAssertEqual(list.next()!.peer, sorted[8])
+        XCTAssertEqual(list.next()!.peer, sorted[9])
+        XCTAssertEqual(list.next()!.peer, sorted[10])
+        XCTAssertEqual(list.next()!.peer, sorted[11])
+        XCTAssertEqual(list.next()!.peer, sorted[12])
+        XCTAssertEqual(list.next()!.peer, sorted[13])
+        XCTAssertEqual(list.next()!.peer, sorted[14])
+        XCTAssertEqual(list.next()!.peer, sorted[15])
+        XCTAssertEqual(list.next()!.peer, sorted[16])
+        XCTAssertEqual(list.next()!.peer, sorted[17])
+        XCTAssertEqual(list.next()!.peer, sorted[18])
+        XCTAssertEqual(list.next()!.peer, sorted[19])
         XCTAssertNil( list.next() )
     }
     
