@@ -200,7 +200,9 @@ extension KadDHT {
                 self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
                 self.logger.notice("Peers<\(self.peerstore.keys.count)> [ \n\(self.peerstore.keys.map { "\($0)" }.joined(separator: ",\n"))]")
                 self.logger.notice("\(self.routingTable.description)")
-                return self._searchForPeersLookupStyle().always { _ in
+                return self._shareDHTKVs().flatMap {
+                    self._searchForPeersLookupStyle()
+                }.always { _ in
                     self.logger.notice("Heartbeat Finished")
                     self.isRunningHeartbeat = false
                 }
@@ -330,7 +332,7 @@ extension KadDHT {
                 }
                 
             case .putValue(let key, let value):
-                self.logger.info("Query::PutValue::Attempting to store value for key: \(key)")
+                self.logger.notice("Query::PutValue::Attempting to store value for key: \(key)")
                 return self.addKeyIfSpaceOrCloser(key: key, value: value)
                 //return self.addKeyIfSpaceOrCloser2(key: key, value: value, from: from)
                 
@@ -339,12 +341,12 @@ extension KadDHT {
                 /// If we have the value, send it back!
                 let kid = KadDHT.Key(key, keySpace: .xor)
                 if let val = self.dht[kid] {
-                    self.logger.info("Query::GetValue::Returning value for key: \(key)")
+                    self.logger.notice("Query::GetValue::Returning value for key: \(key)")
                     return self.eventLoop.makeSucceededFuture( DHTResponse.getValue(key: key, record: val, closerPeers: []) )
                 } else {
                     /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
                     return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                        self.logger.info("Query::GetValue::Returning \(peers.count) closer peers for key: \(key)")
+                        self.logger.notice("Query::GetValue::Returning \(peers.count) closer peers for key: \(key)")
                         return self.eventLoop.makeSucceededFuture( DHTResponse.getValue(key: key, record: nil, closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
                     }
                 }
@@ -355,18 +357,18 @@ extension KadDHT {
                 if self.dht[kid] != nil {
                     let pInfo = PeerInfo(peer: self.peerID, addresses: self.network?.listenAddresses ?? [])
                     
-                    self.logger.info("Query::GetProviders::Returning ourselves as a Provider Peer for CID: \(cid)")
+                    self.logger.notice("Query::GetProviders::Returning ourselves as a Provider Peer for CID: \(cid)")
                     if let dhtPeer = try? DHT.Message.Peer(pInfo) {
                         return self.eventLoop.makeSucceededFuture( DHTResponse.getProviders(cid: cid, providerPeers: [dhtPeer], closerPeers: []) )
                     }
                     return self.eventLoop.makeSucceededFuture( DHTResponse.getProviders(cid: cid, providerPeers: [], closerPeers: []) )
                 } else if let knownProviders = self.providerStore[kid], !knownProviders.isEmpty {
-                    self.logger.info("Query::GetProviders::Returning \(knownProviders.count) Provider Peers for CID: \(cid)")
+                    self.logger.notice("Query::GetProviders::Returning \(knownProviders.count) Provider Peers for CID: \(cid)")
                     return self.eventLoop.makeSucceededFuture( DHTResponse.getProviders(cid: cid, providerPeers: knownProviders, closerPeers: []) )
                 } else {
                     /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
                     return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                        self.logger.info("Query::GetProviders::Returning \(peers.count) Closer Peers for CID: \(cid)")
+                        self.logger.notice("Query::GetProviders::Returning \(peers.count) Closer Peers for CID: \(cid)")
                         return self.eventLoop.makeSucceededFuture( DHTResponse.getProviders(cid: cid, providerPeers: [], closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
                     }
                 }
@@ -380,9 +382,9 @@ extension KadDHT {
                 if !knownProviders.contains(provider) {
                     knownProviders.append(provider)
                     self.providerStore[kid] = knownProviders
-                    self.logger.info("Query::AddProvider::Added \(from.peer) as a provider for cid: \(cid)")
+                    self.logger.notice("Query::AddProvider::Added \(from.peer) as a provider for cid: \(cid)")
                 } else {
-                    self.logger.info("Query::AddProvider::\(from.peer) already a provider for cid: \(cid)")
+                    self.logger.notice("Query::AddProvider::\(from.peer) already a provider for cid: \(cid)")
                 }
                 return self.eventLoop.makeSucceededFuture( DHTResponse.addProvider(cid: cid, providerPeers: [provider]) )
             }
@@ -433,6 +435,7 @@ extension KadDHT {
         /// For each KV in our DHT, we send it to the closest two peers we know of (excluding us)
         private func _shareDHTKVs() -> EventLoopFuture<Void> {
             self.dht.compactMap { key, value in
+                self.logger.notice("Sharing \(key) with the 3 closest peers")
                 return self._nearest(3, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Void> in
                     return nearestPeers.filter({ $0.peer.b58String != self.peerID.b58String }).prefix(1).compactMap { peer -> EventLoopFuture<Void> in
                         return self._sendQuery(.putValue(key: key.original, record: value), to: peer).transform(to: ())
