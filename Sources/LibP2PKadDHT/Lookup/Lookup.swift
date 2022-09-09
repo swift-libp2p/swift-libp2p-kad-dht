@@ -161,6 +161,7 @@ class KeyLookup {
     private var began:Bool = false
     private var logger:Logger
     private var value:[DHT.Record] = []
+    private var providers:[PeerInfo] = []
     
     private var queriesInProgress:UInt8 = 0
     private var canceled:Bool = false
@@ -211,6 +212,21 @@ class KeyLookup {
             self.list.dumpMetrics()
             /// We should validate any records we found. Maybe return the one with the most redundancy if we found multiple copies...
             return self.value.first
+        }
+    }
+  
+    func proceedForProvider() -> EventLoopFuture<[PeerInfo]> {
+        guard self.began == false else { return self.eventLoop.makeFailedFuture(KadDHT.Errors.alreadyPerformingLookup) }
+        self.logger.warning("Proceeding with Provider Lookup using \(maxConcurrentRequests) workers")
+        self.began = true
+        return (0..<maxConcurrentRequests).compactMap { _ -> EventLoopFuture<Void> in
+            self.logger.info("Deploying Worker")
+            return _recursivelyQueryForProvider(on: self.group.next())
+        }.flatten(on: self.eventLoop).map {
+            self.logger.warning("Completed!")
+            self.list.dumpMetrics()
+            /// We should validate any records we found. Maybe return the one with the most redundancy if we found multiple copies...
+            return self.providers
         }
     }
     
@@ -317,6 +333,62 @@ class KeyLookup {
                                 self.logger.warning("Query to peer \(next.peer) failed, removing them from our list")
                                 self.list.remove(next.peer)
                                 return self._recursivelyQueryForValue(on: on, decrementingQueries: true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+  
+    /// TODO: Support minimum providers before terminating
+    private func _recursivelyQueryForProvider(on:EventLoop, decrementingQueries:Bool = false) -> EventLoopFuture<Void> {
+        self.eventLoop.flatSubmit {
+            if decrementingQueries { self.queriesInProgress -= 1 }
+            guard !self.canceled else { self.logger.warning("Lookup Canceled"); return self.eventLoop.makeSucceededVoidFuture() }
+            guard let next = self.list.next() else {
+                if self.queriesInProgress > 0 {
+                    /// We have an outstanding query that might return more work, lets check back in a few ms...
+                    return self.eventLoop.flatScheduleTask(in: .milliseconds(50)) { self._recursivelyQueryForProvider(on: on) }.futureResult
+                }
+                self.logger.warning("Done Processing Peers");
+                return self.eventLoop.makeSucceededVoidFuture()
+            }
+            self.logger.warning("Querying \(next.peer.b58String) for cid: \(String(data: Data(self.target.original), encoding: .utf8) ?? "???")")
+            self.queriesInProgress += 1
+            return on.flatSubmit {
+                return self.host._sendQuery(.getProviders(cid: self.target.original), to: next, on: on).flatMapAlways{ result in
+                    switch result {
+                    case .failure(let error):
+                        return self.eventLoop.flatSubmit {
+                            self.logger.warning("Query to peer \(next.peer) failed due to \(error), removing them from our list")
+                            self.list.remove(next.peer)
+                            return self._recursivelyQueryForProvider(on: on, decrementingQueries: true)
+                        }
+                    case .success(let response):
+                        if case let .getProviders(cid, providers, closerPeers) = response, cid == self.target.original {
+                            /// If we found a provider, store it...
+                            if !providers.isEmpty {
+                                let providerPeers = providers.compactMap { try? $0.toPeerInfo() }
+                                self.providers.append(contentsOf: providerPeers)
+                                
+                                /// Terminate Lookup now that we have a value...
+                                
+                                //self.list.cancel()
+                                //self.canceled = true
+                                //return self.eventLoop.makeSucceededVoidFuture()
+                            }
+                            
+                            return self.eventLoop.flatSubmit {
+                                self.list.insertMany(closerPeers.compactMap { try? $0.toPeerInfo() })
+                                self.logger.warning("Query to peer \(next.peer) succeeded, got \(closerPeers.count) additional peers")
+                                return self._recursivelyQueryForProvider(on: on, decrementingQueries: true)
+                            }
+                        } else {
+                            return self.eventLoop.flatSubmit {
+                                self.logger.warning("Query to peer \(next.peer) failed, removing them from our list")
+                                self.list.remove(next.peer)
+                                return self._recursivelyQueryForProvider(on: on, decrementingQueries: true)
                             }
                         }
                     }
