@@ -342,6 +342,7 @@ extension KadDHT {
                 
             case .putValue(let key, let value):
                 // TODO: Validate Key:Value
+                self.logger.notice("🚨🚨🚨 PutValue Request 🚨🚨🚨")
                 if let namespace = self.extractNamespace(key) {
                     if let validator = self.validators[namespace] {
                         if (try? validator.validate(key: String(data: value.key, encoding: .utf8) ?? "", value: value.value.bytes)) != nil {
