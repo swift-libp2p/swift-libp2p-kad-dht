@@ -8,6 +8,11 @@
 import LibP2P
 import CID
 
+protocol Validator {
+    func validate(key:String, value:[UInt8]) throws
+    func select(key:String, values:[[UInt8]]) throws -> Int
+}
+
 extension KadDHT {
     public static var multicodec:String = "/ipfs/kad/1.0.0"
     public class Node:DHTCore, EventLoopService, LifecycleHandler {
@@ -88,6 +93,10 @@ extension KadDHT {
         private var handler:LibP2P.ProtocolHandler?
         
         private var isRunningHeartbeat:Bool = false
+        
+        //private var defaultValidator:Validator = Validator(validate: { return true }, select: { return 0 } )
+        /// [Namespace:Validator]
+        private var validators:[[UInt8]:Validator] = [:]
         
         init(eventLoop:EventLoop, network:Application, mode:KadDHT.Mode, peerID:PeerID, bootstrapedPeers:[PeerInfo], options:DHTNodeOptions) {
             self.eventLoop = eventLoop
@@ -332,6 +341,21 @@ extension KadDHT {
                 }
                 
             case .putValue(let key, let value):
+                // TODO: Validate Key:Value
+                if let namespace = self.extractNamespace(key) {
+                    if let validator = self.validators[namespace] {
+                        if (try? validator.validate(key: String(data: value.key, encoding: .utf8) ?? "", value: value.value.bytes)) != nil {
+                            self.logger.notice("Query::PutValue::KeyVal passed validation for namespace \(String(data: Data(namespace), encoding: .utf8) ?? "???")")
+                        } else {
+                            self.logger.notice("Query::PutValue::KeyVal failed validation for namespace \(String(data: Data(namespace), encoding: .utf8) ?? "???")")
+                        }
+                    } else {
+                        self.logger.notice("Query::PutValue::No Validator Set For Namespace \(String(data: Data(namespace), encoding: .utf8) ?? "???")")
+                    }
+                } else {
+                    self.logger.notice("Query::PutValue::Unknown Namespace...")
+                }
+                
                 self.logger.notice("Query::PutValue::Attempting to store value for key: \(key)")
                 return self.addKeyIfSpaceOrCloser(key: key, value: value)
                 //return self.addKeyIfSpaceOrCloser2(key: key, value: value, from: from)
@@ -452,6 +476,13 @@ extension KadDHT {
             }
 
             return network.peers.getProtocols(forPeer: pid).map { $0.contains { $0.stringValue.contains(KadDHT.multicodec) } }
+        }
+        
+        /// "/" in utf8 == 47
+        private func extractNamespace(_ key:[UInt8]) -> [UInt8]? {
+            guard key.first == UInt8(47) else { return nil }
+            guard let idx = key.dropFirst().firstIndex(of: UInt8(47)) else { return nil }
+            return Array(key[1..<idx])
         }
         
 //        public func stop() {
@@ -806,14 +837,14 @@ extension KadDHT {
                 /// Update the value...
                 dht[kid] = value
                 added = true
-                self.logger.info("We already have `\(key):\(value)` in our DHT, updating it...")
+                self.logger.notice("We already have `\(key):\(value)` in our DHT, updating it...")
                 //return self.eventLoop.makeSucceededFuture(.stored(added))
                 
             } else if dht.count < self.dhtSize {
                 /// We have space, so lets add it...
                 dht[kid] = value
                 added = true
-                self.logger.info("We have excess space in DHT, storing `\(key):\(value)`")
+                self.logger.notice("We have excess space in DHT, storing `\(key):\(value)`")
                 
             } else {
                 /// Fetch all current keys, sort by distance to us, if this key is closer than the furthest one, replace it
@@ -827,11 +858,11 @@ extension KadDHT {
                     let replacedValue = dht.removeValue(forKey: furthestKey)
                     dht[kid] = value
                     added = true
-                    self.logger.info("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: replacedValue))` with `\(key)`:`\(value)`")
+                    self.logger.notice("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: replacedValue))` with `\(key)`:`\(value)`")
                 } else {
                     /// This new value is further away then all of our current keys, lets drop it...
                     added = false
-                    self.logger.info("New Key Value is further away from all current key value pairs, dropping store request.")
+                    self.logger.notice("New Key Value is further away from all current key value pairs, dropping store request.")
                 }
                 
             }
@@ -839,7 +870,7 @@ extension KadDHT {
             return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: added ? value : nil))
         }
         
-        /// This version sends the key:value pair onto the next 2 closest peers, as long as they aren't us or the sender
+        /// This version sends the key:value pair onto the next N closest peers, as long as they aren't us or the sender
         private func addKeyIfSpaceOrCloser2(key:[UInt8], value:DHT.Record, from:Multiaddr) -> EventLoopFuture<DHTResponse> {
             let kid = KadDHT.Key(key, keySpace: .xor)
             var added:Bool = false
