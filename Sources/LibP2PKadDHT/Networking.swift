@@ -9,26 +9,26 @@ import LibP2P
 
 extension KadDHT {
     
-    struct DHTNodeMetrics {
-        var history:[(date:TimeInterval, event:DHTEvent)] = []
+    struct NodeMetrics {
+        var history:[(date:TimeInterval, event:KadDHT.Event)] = []
         
-        mutating func add(event:DHTEvent) {
+        mutating func add(event:KadDHT.Event) {
             self.history.append((Date().timeIntervalSince1970, event))
         }
     }
 
-    enum DHTEvent {
+    enum Event {
         case initialized
         case peerDiscovered(PeerInfo)
         case dialedPeer(Multiaddr, Bool)
         case addedPeer(PeerInfo)
-        case droppedPeer(PeerInfo, DHTDropPeerReason)
-        case queriedPeer(PeerInfo, DHTQuery)
-        case queryResponse(PeerInfo, DHTResponse)
+        case droppedPeer(PeerInfo, DropPeerReason)
+        case queriedPeer(PeerInfo, Query)
+        case queryResponse(PeerInfo, Response)
         case deinitialized
     }
 
-    enum DHTDropPeerReason {
+    enum DropPeerReason {
         case closerPeerFound
         case maxLatencyExceeded
         case brokenConnection
@@ -55,7 +55,7 @@ extension KadDHT {
         case peerIDMultiaddrEncapsulationFailed
     }
 
-    public struct DHTNodeOptions {
+    public struct NodeOptions {
         let connectionTimeout:TimeAmount
         let maxConcurrentConnections:Int
         let bucketSize:Int
@@ -70,12 +70,12 @@ extension KadDHT {
             self.maxKeyValueStoreSize = maxKeyValueStoreEntries
         }
         
-        static var `default`:DHTNodeOptions {
+        static var `default`:NodeOptions {
             return .init()
         }
     }
     
-    enum DHTQuery {
+    enum Query {
         /// In the request key must be set to the binary PeerId of the node to be found
         case findNode(id:PeerID)
         /// In the request key is an unstructured array of bytes.
@@ -140,7 +140,7 @@ extension KadDHT {
         }
         
         /// This is someone sending our node a query, the remote peer is the initiator, we're just reacting...
-        static func decode(_ bytes:[UInt8]) throws -> DHTQuery {
+        static func decode(_ bytes:[UInt8]) throws -> Query {
             let prefix = uVarInt(bytes)
             guard prefix.value > 0, prefix.value == (bytes.count - prefix.bytesRead) else { throw Errors.DecodingErrorInvalidLength }
             let payload:[UInt8] = Array<UInt8>(bytes.dropFirst(prefix.bytesRead))
@@ -154,13 +154,13 @@ extension KadDHT {
                 guard let cid = try? PeerID(fromBytesID: Array<UInt8>(dht.key)) else {
                     throw Errors.DecodingErrorInvalidType
                 }
-                return DHTQuery.findNode(id: cid)
+                return Query.findNode(id: cid)
                 
                 
             case .getValue: /// .findValue
                 ///In the request, key is an unstructured array of bytes.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
-                return DHTQuery.getValue(key: Array<UInt8>(dht.key))
+                return Query.getValue(key: Array<UInt8>(dht.key))
                 
                 
             case .putValue: /// .store
@@ -168,23 +168,23 @@ extension KadDHT {
                 let rec = try DHT.Record(contiguousBytes: dht.record)
                 guard rec.hasValue, rec.hasKey, !rec.value.isEmpty, !rec.key.isEmpty, dht.key == rec.key else { throw Errors.DecodingErrorInvalidType }
                 //let providers = try dht.providerPeers.map { try $0.toPeerInfo() }
-                return DHTQuery.putValue(key: Array<UInt8>(dht.key), record: rec)
+                return Query.putValue(key: Array<UInt8>(dht.key), record: rec)
                 
                 
             case .getProviders:
                 /// In the request, key is set to a CID.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
-                return DHTQuery.getProviders(cid: Array<UInt8>(dht.key))
+                return Query.getProviders(cid: Array<UInt8>(dht.key))
                 
                 
             case .addProvider:
                 /// In the request, key is set to a CID.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
-                return DHTQuery.addProvider(cid: Array<UInt8>(dht.key))
+                return Query.addProvider(cid: Array<UInt8>(dht.key))
                 
                 
             case .ping: /// .ping (deprecated)
-                return DHTQuery.ping
+                return Query.ping
                 
                 
             default:
@@ -193,7 +193,7 @@ extension KadDHT {
         }
     }
     
-    enum DHTResponse {
+    enum Response {
         /// In the response closerPeers is set to the k closest Peers.
         case findNode(closerPeers:[DHT.Message.Peer])
         /// In the response the record is set to the value for the given key (if found in the datastore) and closerPeers is set to the k closest peers.
@@ -258,7 +258,7 @@ extension KadDHT {
             return putUVarInt(UInt64(payload.count)) + payload
         }
         
-        static func decode(_ bytes:[UInt8]) throws -> DHTResponse {
+        static func decode(_ bytes:[UInt8]) throws -> Response {
             let prefix = uVarInt(bytes)
             guard prefix.value > 0, prefix.value == (bytes.count - prefix.bytesRead) else { throw Errors.DecodingErrorInvalidLength }
             let payload:[UInt8] = Array<UInt8>(bytes.dropFirst(prefix.bytesRead))
@@ -272,7 +272,7 @@ extension KadDHT {
                 /// In the response closerPeers is set to the k closest Peers.
                 //guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
                 //let id = try PeerID(fromBytesID: Array<UInt8>(dht.key))
-                return DHTResponse.findNode(closerPeers: dht.closerPeers)
+                return Response.findNode(closerPeers: dht.closerPeers)
             
             
             case .getValue:
@@ -286,7 +286,7 @@ extension KadDHT {
                     rec = nil
                 }
                                 
-                return DHTResponse.getValue(key: Array<UInt8>(dht.key), record: rec, closerPeers: dht.closerPeers)
+                return Response.getValue(key: Array<UInt8>(dht.key), record: rec, closerPeers: dht.closerPeers)
                 
             
             case .putValue:
@@ -300,29 +300,29 @@ extension KadDHT {
                     rec = nil
                 }
                 
-                return DHTResponse.putValue(key: Array<UInt8>(dht.key), record: rec)
+                return Response.putValue(key: Array<UInt8>(dht.key), record: rec)
                 
             
             case .getProviders:
                 /// In the response the target node returns the closest known providerPeers (if any) and the k closest known closerPeers.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
                 
-                return DHTResponse.getProviders(cid: Array<UInt8>(dht.key), providerPeers: dht.providerPeers, closerPeers: dht.closerPeers)
+                return Response.getProviders(cid: Array<UInt8>(dht.key), providerPeers: dht.providerPeers, closerPeers: dht.closerPeers)
             
                 
             case .addProvider:
                 /// Do we receive a response from addProvider? Is it the list of providerPeers??
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
                 
-                return DHTResponse.addProvider(cid: Array<UInt8>(dht.key), providerPeers: dht.providerPeers)
+                return Response.addProvider(cid: Array<UInt8>(dht.key), providerPeers: dht.providerPeers)
                 
             case .ping:
                 /// Deprecated...
                 if dht.hasKey {
-                    let tic = UInt64(littleEndian: dht.key.withUnsafeBytes { $0.pointee })
+                    let tic = UInt64(littleEndian: dht.key.withUnsafeBytes({ $0.pointee }))
                     print("Ping took \((DispatchTime.now().uptimeNanoseconds - tic) / 1_000_000)ms")
                 }
-                return DHTResponse.ping
+                return Response.ping
                 //throw Errors.DecodingErrorInvalidType
                 
             default:

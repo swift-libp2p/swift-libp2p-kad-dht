@@ -23,22 +23,22 @@ class NetworkTests: XCTestCase {
     
     func testDHTFauxNetworkQuery_Ping() throws {
         /// Test Query.ping and Response.ping
-        let query = KadDHT.DHTQuery.ping
+        let query = KadDHT.Query.ping
         let encodedQuery = try query.encode()
 
         /// Send it over the wire...
 
-        let decodedQuery = try KadDHT.DHTQuery.decode(encodedQuery)
+        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
         print("Recovered Query: \(decodedQuery)")
 
         guard case .ping = decodedQuery else { return XCTFail() }
 
-        let response = KadDHT.DHTResponse.ping
+        let response = KadDHT.Response.ping
         let encodedResponse = try response.encode()
 
         /// Send the response back over the wire...
 
-        let decodedResponse = try KadDHT.DHTResponse.decode(encodedResponse)
+        let decodedResponse = try KadDHT.Response.decode(encodedResponse)
 
         guard case .ping = decodedResponse else { return XCTFail() }
     }
@@ -46,24 +46,24 @@ class NetworkTests: XCTestCase {
     func testDHTFauxNetworkQuery_Store_Success() throws {
         /// Test Query.store and Response.stored
         let thingToStore:(key:String, value:String) = (key: "test", value: "Kademlia DHT")
-        let query = KadDHT.DHTQuery.putValue(key: thingToStore.key.bytes, record: DHT.Record())
+        let query = KadDHT.Query.putValue(key: thingToStore.key.bytes, record: DHT.Record())
         let encodedQuery = try query.encode()
 
         /// Send it over the wire...
 
-        let decodedQuery = try KadDHT.DHTQuery.decode(encodedQuery)
+        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
         print("Recovered Query: \(decodedQuery)")
 
         guard case .putValue(let qKey, let qRecord) = decodedQuery else { return XCTFail() }
 
         /// Assume we can store the value
         print("Storing Value: '\(qRecord)' for Key: '\(qKey)'")
-        let response = KadDHT.DHTResponse.putValue(key: qKey, record: qRecord)
+        let response = KadDHT.Response.putValue(key: qKey, record: qRecord)
         let encodedResponse = try response.encode()
 
         /// Send the response back over the wire...
 
-        let decodedResponse = try KadDHT.DHTResponse.decode(encodedResponse)
+        let decodedResponse = try KadDHT.Response.decode(encodedResponse)
 
         guard case .putValue(let key, let record) = decodedResponse else { return XCTFail() }
 
@@ -71,32 +71,37 @@ class NetworkTests: XCTestCase {
         XCTAssertEqual(record, DHT.Record())
     }
 
-//    func testDHTFauxNetworkQuery_Store_Failure() throws {
-//        /// Test Query.store and Response.stored
-//        let thingToStore:(key:String, value:String) = (key: "test", value: "Kademlia DHT")
-//        let query = KadDHT.Query.store(key: thingToStore.key, value: thingToStore.value)
-//        let encodedQuery = try query.encode()
-//
-//        /// Send it over the wire...
-//
-//        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
-//        print("Recovered Query: \(decodedQuery)")
-//
-//        guard case .store(let key, let value) = decodedQuery else { return XCTFail() }
-//
-//        /// Assume we can't store the value for some reason
-//        print("Failed to store Value: '\(value)' for Key: '\(key)'")
-//        let response = KadDHT.Response.stored(false)
-//        let encodedResponse = try response.encode()
-//
-//        /// Send the response back over the wire...
-//
-//        let decodedResponse = try KadDHT.Response.decode(encodedResponse)
-//
-//        guard case .stored(let wasStored) = decodedResponse else { return XCTFail() }
-//
-//        XCTAssertEqual(wasStored, false)
-//    }
+    func testDHTFauxNetworkQuery_Store_Failure() throws {
+        /// Test Query.store and Response.stored
+        let record = DHT.Record.with({ rec in
+            rec.key = Data("test".utf8)
+            rec.value = Data("hello!".utf8)
+        })
+        let thingToStore:(key:String, value:DHT.Record) = (key: "test", value: record)
+        let query = KadDHT.Query.putValue(key: thingToStore.key.bytes, record: thingToStore.value)
+        let encodedQuery = try query.encode()
+
+        /// Send it over the wire...
+
+        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
+        print("Recovered Query: \(decodedQuery)")
+
+        guard case .putValue(let key, let value) = decodedQuery else { return XCTFail() }
+
+        /// Assume we can't store the value for some reason
+        print("Failed to store Value: '\(value)' for Key: '\(key)'")
+        let response = KadDHT.Response.putValue(key: "test".bytes, record: nil)
+        let encodedResponse = try response.encode()
+
+        /// Send the response back over the wire...
+
+        let decodedResponse = try KadDHT.Response.decode(encodedResponse)
+
+        guard case .putValue(let key, let value) = decodedResponse else { return XCTFail() }
+
+        XCTAssertEqual(key, "test".bytes)
+        XCTAssertEqual(value, nil)
+    }
 //
 //    func testDHTFauxNetworkQuery_FindNode() throws {
 //        let testAddresses = try (0..<10).map { i -> Multiaddr in
@@ -213,7 +218,7 @@ class NetworkTests: XCTestCase {
 //            address: try Multiaddr("/ip4/127.0.0.1/tcp/1000"),
 //            peerID: try PeerID(.Ed25519),
 //            bootstrapedPeers: [],
-//            options: KadDHT.DHTNodeOptions(
+//            options: KadDHT.NodeOptions(
 //                connection: .gigabit,
 //                connectionTimeout: .seconds(3),
 //                maxConcurrentConnections: 4,
@@ -229,7 +234,7 @@ class NetworkTests: XCTestCase {
 //            address: try Multiaddr("/ip4/127.0.0.1/tcp/1001"),
 //            peerID: try PeerID(.Ed25519),
 //            bootstrapedPeers: [node1.address],
-//            options: KadDHT.DHTNodeOptions(
+//            options: KadDHT.NodeOptions(
 //                connection: .gigabit,
 //                connectionTimeout: .seconds(3),
 //                maxConcurrentConnections: 4,
@@ -274,7 +279,7 @@ class NetworkTests: XCTestCase {
 //            address: try Multiaddr("/ip4/127.0.0.1/tcp/1001"),
 //            peerID: try PeerID(.Ed25519),
 //            bootstrapedPeers: [],
-//            options: KadDHT.DHTNodeOptions(
+//            options: KadDHT.NodeOptions(
 //                connection: .gigabit,
 //                connectionTimeout: .seconds(3),
 //                maxConcurrentConnections: 4,
@@ -290,7 +295,7 @@ class NetworkTests: XCTestCase {
 //            address: try Multiaddr("/ip4/127.0.0.1/tcp/1002"),
 //            peerID: try PeerID(.Ed25519),
 //            bootstrapedPeers: [node1.address],
-//            options: KadDHT.DHTNodeOptions(
+//            options: KadDHT.NodeOptions(
 //                connection: .gigabit,
 //                connectionTimeout: .seconds(3),
 //                maxConcurrentConnections: 4,
@@ -306,7 +311,7 @@ class NetworkTests: XCTestCase {
 //            address: try Multiaddr("/ip4/127.0.0.1/tcp/1003"),
 //            peerID: try PeerID(.Ed25519),
 //            bootstrapedPeers: [node2.address],
-//            options: KadDHT.DHTNodeOptions(
+//            options: KadDHT.NodeOptions(
 //                connection: .gigabit,
 //                connectionTimeout: .seconds(3),
 //                maxConcurrentConnections: 4,
@@ -760,7 +765,6 @@ class NetworkTests: XCTestCase {
     
 
     
-//
 //    private func generateFauxNetworkWith(_ nodeCount:Int, nodesOnGroup group:EventLoopGroup, bucketSize:Int = 20, maxConcurrentConnections:Int = 4, maxPeers:Int = 10, dhtSize:Int = 5) throws -> (KadDHT.FauxBasicNetwork, [KadDHT.Node]) {
 //        let network = KadDHT.FauxBasicNetwork()
 //        var lastNodeMultiaddress:Multiaddr? = nil
@@ -771,7 +775,7 @@ class NetworkTests: XCTestCase {
 //                address: try Multiaddr("/ip4/127.0.0.1/tcp/\(1000 + i)"),
 //                peerID: try PeerID(.Ed25519),
 //                bootstrapedPeers: lastNodeMultiaddress != nil ? [lastNodeMultiaddress!] : [],
-//                options: KadDHT.DHTNodeOptions(
+//                options: KadDHT.NodeOptions(
 //                    connection: .mobile(.G5),
 //                    connectionTimeout: .seconds(3),
 //                    maxConcurrentConnections: maxConcurrentConnections,
@@ -792,6 +796,5 @@ class NetworkTests: XCTestCase {
 //
 //        return (network, nodes)
 //    }
-//
 
 }

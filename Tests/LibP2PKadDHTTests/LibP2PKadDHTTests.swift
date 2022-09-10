@@ -192,6 +192,26 @@ class LibP2PKadDHTTests: XCTestCase {
         print(pub.b58String)
         print(pub.cidString)
     }
+    
+    func testExtractNamespaceFromKey() throws {
+        let peerID = "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+        //let peerID = "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN"
+        
+        let key = try "/pk/".bytes + CID(peerID).multihash.value
+        
+        print(key)
+        
+        print(extractNamespace(key))
+        
+        print(String(data: Data(extractNamespace(key)!), encoding: .utf8))
+    }
+    
+    /// "/" in utf8 == 47
+    private func extractNamespace(_ key:[UInt8]) -> [UInt8]? {
+        guard key.first == UInt8(47) else { return nil }
+        guard let idx = key.dropFirst().firstIndex(of: UInt8(47)) else { return nil }
+        return Array(key[1..<idx])
+    }
   
     /// **********************************************************
     ///    Testing Internal KadDHT - Single Query - FindProvider
@@ -289,6 +309,15 @@ class LibP2PKadDHTTests: XCTestCase {
         lib.shutdown()
         
         print("All Done!")
+    }
+    
+    func testInternalNetwork() throws {
+        let numberOfNodes = 2
+        let nodes = try (0..<numberOfNodes).map { _ in try makeHost() }
+        
+        try nodes.forEach { try $0.start() }
+        
+        
     }
     
     var nextPort:Int = 10000

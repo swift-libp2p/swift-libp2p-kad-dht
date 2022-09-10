@@ -13,7 +13,7 @@ extension Application.DHTServices.Provider {
     public static var kadDHT: Self {
         .init {
             $0.dht.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(network: app, mode: .client, bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes, options: KadDHT.DHTNodeOptions())
+                let dht = try! KadDHT.Node(network: app, mode: .client, bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes, options: KadDHT.NodeOptions())
                 app.lifecycle.use(dht)
                 app.discovery.use { _ in dht } // Does this work??
                 return dht
@@ -22,10 +22,10 @@ extension Application.DHTServices.Provider {
     }
     
     /// Configures a KadDHT Node with the specified parameters
-    public static func kadDHT(mode: KadDHT.Mode, options: KadDHT.DHTNodeOptions? = nil, bootstrapPeers:[PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes, autoUpdate:Bool = true) -> Self {
+    public static func kadDHT(mode: KadDHT.Mode, options: KadDHT.NodeOptions? = nil, bootstrapPeers:[PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes, autoUpdate:Bool = true) -> Self {
         .init {
             $0.dht.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(network: app, mode: mode, bootstrapPeers: bootstrapPeers, options: options ?? KadDHT.DHTNodeOptions())
+                let dht = try! KadDHT.Node(network: app, mode: mode, bootstrapPeers: bootstrapPeers, options: options ?? KadDHT.NodeOptions())
                 dht.autoUpdate = autoUpdate
                 app.lifecycle.use(dht)
                 app.discovery.use { _ in dht } // Does this work??
@@ -51,7 +51,7 @@ extension Application.DHTServices.Provider {
                     network: app,
                     mode: mode,
                     bootstrapPeers: bootstrappedPeers,
-                    options: KadDHT.DHTNodeOptions(
+                    options: KadDHT.NodeOptions(
                         connectionTimeout: connectionTimeout,
                         maxConcurrentConnections: maxConcurrentConnections,
                         bucketSize: bucketSize,
@@ -86,7 +86,7 @@ extension Application.DiscoveryServices.Provider {
     public static var kadDHT: Self {
         .init {
             $0.discovery.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(network: app, mode: .client, bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes, options: KadDHT.DHTNodeOptions())
+                let dht = try! KadDHT.Node(network: app, mode: .client, bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes, options: KadDHT.NodeOptions())
                 app.lifecycle.use(dht)
                 app.dht.use { _ in dht } // Does this work??
                 return dht
