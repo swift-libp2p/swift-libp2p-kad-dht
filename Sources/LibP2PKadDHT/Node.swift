@@ -266,8 +266,11 @@ extension KadDHT {
                 self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
                 self.logger.notice("Peers<\(self.peerstore.keys.count)> [ \n\(self.peerstore.keys.map { "\($0)" }.joined(separator: ",\n"))]")
                 self.logger.notice("\(self.routingTable.description)")
-                return self._shareDHTKVs().flatMap {
-                    self._searchForPeersLookupStyle()
+                return self.network!.peers.count().flatMap { peerStoreCount in
+                    self.logger.notice("PeerStore<\(peerStoreCount)>")
+                    return self._shareDHTKVs().flatMap {
+                        self._searchForPeersLookupStyle()
+                    }
                 }.always { _ in
                     self.logger.notice("Heartbeat Finished")
                     self.isRunningHeartbeat = false
@@ -400,6 +403,8 @@ extension KadDHT {
             case .putValue(let key, let value):
                 // TODO: Validate Key:Value
                 self.logger.notice("🚨🚨🚨 PutValue Request 🚨🚨🚨")
+                self.logger.notice("DHTRecordKey(HEX)::\(key.toHexString())")
+                self.logger.notice("DHTRecordValue(HEX)::\((try? value.serializedData().toHexString()) ?? "NIL")")
                 if let namespace = self.extractNamespace(key) {
                     if let validator = self.validators[namespace] {
                         if (try? validator.validate(key: value.key.bytes, value: value.value.bytes)) != nil {
