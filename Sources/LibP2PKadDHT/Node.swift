@@ -518,10 +518,26 @@ extension KadDHT {
         private func _shareDHTKVs() -> EventLoopFuture<Void> {
             self.dht.compactMap { key, value in
                 self.logger.notice("Sharing \(key) with the 3 closest peers")
+                var successfulPuts:[PeerID] = []
                 return self._nearest(3, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Void> in
-                    return nearestPeers.filter({ $0.peer.b58String != self.peerID.b58String }).prefix(1).compactMap { peer -> EventLoopFuture<Void> in
-                        return self._sendQuery(.putValue(key: key.original, record: value), to: peer).transform(to: ())
-                    }.flatten(on: self.eventLoop)
+                    return nearestPeers.filter({ $0.peer.b58String != self.peerID.b58String }).prefix(3).compactMap { peer -> EventLoopFuture<Void> in
+                        return self._sendQuery(.putValue(key: key.original, record: value), to: peer).flatMapAlways { result -> EventLoopFuture<Void> in
+                            switch result {
+                            case .success(let res):
+                                self.logger.debug("Shared key:value with \(peer.peer)")
+                                guard case .putValue(let k, let v) = res else { self.logger.warning("Failed to share key:value with \(peer.peer)"); return self.eventLoop.makeSucceededVoidFuture() }
+                                guard k == key.original, v != nil else { self.logger.warning("Failed to share key:value with \(peer.peer)"); return self.eventLoop.makeSucceededVoidFuture() }
+                                self.logger.debug("They Stored It!")
+                                successfulPuts.append(peer.peer)
+                                
+                            case .failure(let error):
+                                self.logger.warning("Failed to share key:value with \(peer.peer) -> \(error)")
+                            }
+                            return self.eventLoop.makeSucceededVoidFuture()
+                        }
+                    }.flatten(on: self.eventLoop).always { _ in
+                        self.logger.notice("Done Sharing KVs with \(successfulPuts.count)/3 peers")
+                    }
                 }
             }.flatten(on: self.eventLoop)
         }
@@ -625,8 +641,9 @@ extension KadDHT {
             let value = value.toProtobuf()
             return self._nearest(self.routingTable.bucketSize, peersToKey: targetID).flatMap { seeds -> EventLoopFuture<Bool> in
                 let lookup = KeyLookup(host: self, target: targetID, concurrentRequests: self.maxConcurrentRequest, seeds: seeds)
-                return lookup.proceedForPeers().hop(to: self.eventLoop).flatMap { closestPeers -> EventLoopFuture<Bool> in
+                return lookup.proceedForPeers().hop(to: self.eventLoop).flatMap { nearestPeers -> EventLoopFuture<Bool> in
                     /// Jump back onto our main event loop to ensure that we're not piggy backing on the lookup's eventloop that's trying to shutdown...
+                    let closestPeers = nearestPeers.compactMap { $0.peer == self.peerID ? nil : $0 }
                     /// We have the closest peers to this key that the network knows of...
                     /// Take this opportunity to process / store these new peers
                     return self.addPeersIfSpaceOrCloser(closestPeers).flatMapAlways { _ -> EventLoopFuture<Bool> in
@@ -642,12 +659,25 @@ extension KadDHT {
                         record.value = value.value
                         //record.timeReceived = value.timeReceived
                         return closestPeers.prefix(4).compactMap { peer in
-                            return self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop).flatMap { res -> EventLoopFuture<Bool> in
-                                self.logger.info("PutValue Response -> \(res)")
-                                guard case .putValue(let k, let rec) = res else {
+                            return self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop).flatMapAlways { res -> EventLoopFuture<Bool> in
+                                switch res {
+                                case .success(let response):
+                                    self.logger.info("PutValue Response -> \(response)")
+                                    guard case .putValue(let k, let rec) = response else {
+                                        return self.eventLoop.makeSucceededFuture(false)
+                                    }
+                                    self.logger.info("PutValue Response from...")
+                                    self.logger.info("Peer: \(peer.peer.b58String)")
+                                    self.logger.info("Addresses: \(peer.addresses)")
+                                    self.logger.info("Query Key: \(key)")
+                                    self.logger.info("Response Key: \(k)")
+                                    self.logger.info("Query Rec: \(value)")
+                                    self.logger.info("Response Rec: \(rec)")
+                                    return self.eventLoop.makeSucceededFuture((rec != nil && k == key))
+                                case .failure(let error):
+                                    self.logger.info("PutValue Error -> \(error)")
                                     return self.eventLoop.makeSucceededFuture(false)
                                 }
-                                return self.eventLoop.makeSucceededFuture((rec == value && k == key))
                             }
                         }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
                             self.logger.warning("\(results.filter({$0}).count)/\(results.count) peers were able to store the value \(value)")
