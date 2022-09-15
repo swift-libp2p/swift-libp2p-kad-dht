@@ -369,8 +369,15 @@ class KeyLookup {
                         if case let .getProviders(cid, providers, closerPeers) = response, cid == self.target.original {
                             /// If we found a provider, store it...
                             if !providers.isEmpty {
-                                let providerPeers = providers.compactMap { try? $0.toPeerInfo() }
-                                self.providers.append(contentsOf: providerPeers)
+                                let providerPeers = providers.compactMap { try? $0.toPeerInfo() }.filter { pInfo in
+                                    !pInfo.addresses.isEmpty
+                                }
+                                for prov in providerPeers {
+                                    if !self.providers.contains(where: { $0.peer == prov.peer }) {
+                                        self.providers.append(prov)
+                                    }
+                                }
+                                //self.providers.append(contentsOf: providerPeers)
                                 
                                 /// Terminate Lookup now that we have a value...
                                 
