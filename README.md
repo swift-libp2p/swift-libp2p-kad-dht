@@ -88,7 +88,34 @@ app.discovery.use(.kadDHT)
 
 ### API
 ```Swift
-TODO
+
+extension StorageKeys {
+    static let MyDHT = "MyDHT"
+}
+
+let dht = BasicKadDHT(protocolPrefix: "mydht", version: "1.0.0", k: 20, alpha: 4, peerstore: .shared(app.peerstore) ?? .basicInMemory, kvstore: .basicInMemory...)
+app.use(dht, id: .MyDHT)
+
+dht.handle(namespace: "pk", valueAs: PublicKey.self, withValidator: { msg in msg.record.value.multihash == msg.key && msg.key }).onPutSuccess({ msg in ... }).onPutFailed({ msg, error in ...})
+
+dht.handle(namespace: "ipfs", valueAs: IPNSRecord.self, withValidator: { msg in ... }).onPutSuccess({ msg in ... }).onPutFailed({ msg, error in ...})
+
+// ... or ...
+app.dht.group("myDHT") { myDHT in
+    myDHT.on("pk", validator: ...) { pk in ... }
+    myDHT.on("ipld", validator: ...) { ipld in ... }
+} 
+
+/// Somewhere else without reference to `dht`
+app.dht.getValue(forKey: "Qm12...") { value in .... } //if you only have one DHT running
+/// or
+app.dhts.for(id: .MyDHT).put(value: Record, forKey: "Qm12...") { success in ... }
+/// or
+let val = await app.dhts.for(id: "MyDHT").findNode("Qm13...")
+let routingTableInfo = await app.dhts.for(id: "MyDHT").routingTableInfo()
+
+}
+
 ```
 
 ## Contributing
