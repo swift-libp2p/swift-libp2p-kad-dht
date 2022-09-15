@@ -16,8 +16,40 @@ import LibP2P
 import CID
 
 protocol Validator {
-    func validate(key:String, value:[UInt8]) throws
-    func select(key:String, values:[[UInt8]]) throws -> Int
+    func validate(key:[UInt8], value:[UInt8]) throws
+    func select(key:[UInt8], values:[[UInt8]]) throws -> Int
+}
+
+extension DHT {
+    struct BaseValidator:Validator {
+        let validateFunction:((_ key:[UInt8], _ value:[UInt8]) throws -> Void)
+        let selectFunction:((_ key:[UInt8], _ values:[[UInt8]]) throws -> Int)
+        
+        init(validationFunction:@escaping (_ key:[UInt8], _ value:[UInt8]) throws -> Void, selectFunction:@escaping (_ key:[UInt8], _ values:[[UInt8]]) throws -> Int) {
+            self.validateFunction = validationFunction
+            self.selectFunction = selectFunction
+        }
+        
+        func validate(key:[UInt8], value:[UInt8]) throws {
+            return try self.validateFunction(key, value)
+        }
+        
+        func select(key:[UInt8], values:[[UInt8]]) throws -> Int {
+            return try selectFunction(key, values)
+        }
+    }
+    
+    struct PubKeyValidator:Validator {
+        func validate(key: [UInt8], value: [UInt8]) throws {
+            let record = try DHT.Record(contiguousBytes: value)
+            guard Data(key) == record.key else { throw NSError(domain: "Validator::Key Mismatch. Expected \(Data(key)) got \(record.key) ", code: 0) }
+            let _ = try PeerID(marshaledPublicKey: Data(record.value))
+        }
+        
+        func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
+            return 0
+        }
+    }
 }
 
 /// If we abstract the Application into a Network protocol then we can create a FauxNetwork for testing purposes...
@@ -36,8 +68,11 @@ protocol Network {
 
 extension KadDHT {
     public static var multicodec:String = "/ipfs/kad/1.0.0"
-    public class Node:DHTCore, EventLoopService, LifecycleHandler {
+    public class Node:DHTCore, EventLoopService, LifecycleHandler, PeerRouting {
         public static var key: String = "KadDHT"
+        
+        /// This is why there is a "/lan/kad/1.0.0" protocol...
+        let isRunningLocally:Bool = false
         
         enum State {
             case started
@@ -174,9 +209,6 @@ extension KadDHT {
                 self.logger.info("Registering KadDHT endpoint for opperation as Server")
                 /// register the `/ipfs/kad/1.0.0` endpoint
                 try! registerDHTRoute(self.network!)
-                //self.handler = network.register(protocol: SemVerProtocol("/ipfs/kad/1.0.0")!)
-                //self.handler!.onReady = onReady
-                //self.handler!.onData = onData
             } else {
                 self.logger.info("Operating in Client Only Mode")
             }
@@ -215,6 +247,10 @@ extension KadDHT {
             self.state = .started
             
             self.logger.info("Started")
+        }
+        
+        public func findPeer(peer: PeerID) -> EventLoopFuture<PeerInfo> {
+            self.eventLoop.makeFailedFuture(Errors.noNetwork)
         }
         
         public func heartbeat() -> EventLoopFuture<Void> {
@@ -256,7 +292,7 @@ extension KadDHT {
         public var onPeerDiscovered: ((PeerInfo) -> ())? = nil
         
         
-        func processRequest(_ req:Request) -> EventLoopFuture<ResponseType<ByteBuffer>> {
+        func processRequest(_ req:Request) -> EventLoopFuture<LibP2P.Response<ByteBuffer>> {
             guard self.mode == .server else {
                 self.logger.warning("We received a request while in clientOnly mode")
                 return req.eventLoop.makeSucceededFuture(.close)
@@ -274,12 +310,12 @@ extension KadDHT {
             }
         }
         
-        private func onReady(_ req:Request) -> EventLoopFuture<ResponseType<ByteBuffer>> {
+        private func onReady(_ req:Request) -> EventLoopFuture<LibP2P.Response<ByteBuffer>> {
             self.logger.info("An inbound stream has been opened \(String(describing: req.remotePeer))")
             return req.eventLoop.makeSucceededFuture(.stayOpen)
         }
         
-        private func onData(request:Request) -> EventLoopFuture<ResponseType<ByteBuffer>> {
+        private func onData(request:Request) -> EventLoopFuture<LibP2P.Response<ByteBuffer>> {
             self.logger.info("We received data from \(String(describing: request.remotePeer))")
             
             /// Is this data from a legitimate peer?
@@ -303,7 +339,7 @@ extension KadDHT {
             /// Nodes, both those operating in client and server mode, add another node to their routing table if and only if that node operates in server mode.
             /// This distinction allows restricted nodes to utilize the DHT, i.e. query the DHT, without decreasing the quality of the distributed hash table, i.e. without polluting the routing tables.
             if self.peerstore[from.b58String] == nil && from.b58String != self.peerID.b58String {
-                self.logger.info("Received a message from a \(from.id) we haven't heard from yet!")
+                self.logger.info("Received a message from a \(from) we haven't heard from yet!")
                 /// We should only proceed with adding this peer if they are currently opperating in Server mode...
                 self._isPeerOperatingAsServer(from).map { isActingAsServer -> EventLoopFuture<Void> in
                     self.logger.info("\(from) \(isActingAsServer ? "is" : "is not") acting as a server...")
@@ -366,7 +402,7 @@ extension KadDHT {
                 self.logger.notice("🚨🚨🚨 PutValue Request 🚨🚨🚨")
                 if let namespace = self.extractNamespace(key) {
                     if let validator = self.validators[namespace] {
-                        if (try? validator.validate(key: String(data: value.key, encoding: .utf8) ?? "", value: value.value.bytes)) != nil {
+                        if (try? validator.validate(key: value.key.bytes, value: value.value.bytes)) != nil {
                             self.logger.notice("Query::PutValue::KeyVal passed validation for namespace \(String(data: Data(namespace), encoding: .utf8) ?? "???")")
                         } else {
                             self.logger.notice("Query::PutValue::KeyVal failed validation for namespace \(String(data: Data(namespace), encoding: .utf8) ?? "???")")
@@ -457,7 +493,7 @@ extension KadDHT {
                 /// We should loop through the addresses and determine which one to dial
                 /// - Any already open?
                 /// - If not, any preferred transports?
-                network.dialableAddress(to.addresses, externalAddressesOnly: true, on: on ?? self.eventLoop).flatMap { dialableAddresses in
+                network.dialableAddress(to.addresses, externalAddressesOnly: !isRunningLocally, on: on ?? self.eventLoop).flatMap { dialableAddresses in
                     guard !dialableAddresses.isEmpty else { return (on ?? self.eventLoop).makeFailedFuture( Errors.noDialableAddressesForPeer ) }
                     guard let addy = dialableAddresses.first else { return (on ?? self.eventLoop).makeFailedFuture( Errors.peerIDMultiaddrEncapsulationFailed ) }
                     do {
