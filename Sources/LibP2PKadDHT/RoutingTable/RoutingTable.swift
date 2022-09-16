@@ -85,7 +85,7 @@ class RoutingTable:EventLoopService {
         self._state = .stopped
         self.logger = Logger(label: "RoutingTable[\(localPeerID.b58String.prefix(8))]")
         /// Default to our global LOG_LEVEL
-        self.logger.logLevel = .trace //LOG_LEVEL
+        self.logger.logLevel = .info //LOG_LEVEL
         
         self.bucketSize = bucketSize
         
