@@ -20,6 +20,22 @@ protocol Validator {
     func select(key:[UInt8], values:[[UInt8]]) throws -> Int
 }
 
+extension KadDHT {
+    public func createPubKeyRecord(peerID:PeerID) throws -> DHTRecord {
+        let df = ISO8601DateFormatter()
+        df.formatOptions.insert(.withFractionalSeconds)
+        
+        let key = "/pk/".bytes + peerID.id
+        let record = try DHT.Record.with { rec in
+            rec.key = Data(key)
+            rec.value = try Data(peerID.marshalPublicKey())
+            rec.timeReceived = df.string(from: Date())
+        }
+        
+        return record
+    }
+}
+
 extension DHT {
     struct BaseValidator:Validator {
         let validateFunction:((_ key:[UInt8], _ value:[UInt8]) throws -> Void)
@@ -408,12 +424,12 @@ extension KadDHT {
                 if let namespace = self.extractNamespace(key) {
                     if let validator = self.validators[namespace] {
                         if (try? validator.validate(key: value.key.bytes, value: value.value.bytes)) != nil {
-                            self.logger.notice("Query::PutValue::KeyVal passed validation for namespace \(String(data: Data(namespace), encoding: .utf8) ?? "???")")
+                            self.logger.notice("Query::PutValue::KeyVal passed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
                         } else {
-                            self.logger.notice("Query::PutValue::KeyVal failed validation for namespace \(String(data: Data(namespace), encoding: .utf8) ?? "???")")
+                            self.logger.notice("Query::PutValue::KeyVal failed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
                         }
                     } else {
-                        self.logger.notice("Query::PutValue::No Validator Set For Namespace \(String(data: Data(namespace), encoding: .utf8) ?? "???")")
+                        self.logger.notice("Query::PutValue::No Validator Set For Namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
                     }
                 } else {
                     self.logger.notice("Query::PutValue::Unknown Namespace...")
