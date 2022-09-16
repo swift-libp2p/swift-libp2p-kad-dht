@@ -21,7 +21,7 @@ protocol Validator {
 }
 
 extension KadDHT {
-    public func createPubKeyRecord(peerID:PeerID) throws -> DHTRecord {
+    static public func createPubKeyRecord(peerID:PeerID) throws -> DHTRecord {
         let df = ISO8601DateFormatter()
         df.formatOptions.insert(.withFractionalSeconds)
         
