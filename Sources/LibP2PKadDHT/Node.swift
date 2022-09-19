@@ -15,7 +15,7 @@
 import LibP2P
 import CID
 
-protocol Validator {
+public protocol Validator {
     func validate(key:[UInt8], value:[UInt8]) throws
     func select(key:[UInt8], values:[[UInt8]]) throws -> Int
 }
@@ -87,7 +87,7 @@ extension KadDHT {
     public class Node:DHTCore, EventLoopService, LifecycleHandler, PeerRouting {
         public static var key: String = "KadDHT"
         
-        /// This is why there is a "/lan/kad/1.0.0" protocol...
+        /// This is why there is a "ipfs/lan/kad/1.0.0" protocol...
         let isRunningLocally:Bool = false
         
         enum State {
@@ -311,7 +311,7 @@ extension KadDHT {
         public var onPeerDiscovered: ((PeerInfo) -> ())? = nil
         
         
-        func processRequest(_ req:Request) -> EventLoopFuture<LibP2P.Response<ByteBuffer>> {
+        func processRequest(_ req:Request, isInternal:Bool) -> EventLoopFuture<LibP2P.Response<ByteBuffer>> {
             guard self.mode == .server else {
                 self.logger.warning("We received a request while in clientOnly mode")
                 return req.eventLoop.makeSucceededFuture(.close)
@@ -443,6 +443,13 @@ extension KadDHT {
             case .getValue(let key):
                 /// If we have the value, send it back!
                 let kid = KadDHT.Key(key, keySpace: .xor)
+                if let namespaceBytes = self.extractNamespace(key), let namespace = String(data: Data(namespaceBytes), encoding: .utf8) {
+                    if let cid = try? CID(Array(key.dropFirst(namespaceBytes.count + 2))) {
+                        self.logger.notice("Query::GetValue:: /\(namespace)/\(cid.multihash.b58String)")
+                    } else {
+                        self.logger.notice("/\(namespace)/\(key.dropFirst(namespaceBytes.count + 2))")
+                    }
+                }
                 if let val = self.dht[kid] {
                     self.logger.notice("Query::GetValue::Returning value for key: \(key)")
                     return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: val, closerPeers: []) )
@@ -456,38 +463,39 @@ extension KadDHT {
                 
             case .getProviders(let cid):
                 /// Is this correct?? The same thing a getValue?
+                guard let CID = try? CID(cid) else { return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: []) ) }
                 let kid = KadDHT.Key(cid, keySpace: .xor)
                 if self.dht[kid] != nil {
                     let pInfo = PeerInfo(peer: self.peerID, addresses: self.network?.listenAddresses ?? [])
                     
-                    self.logger.notice("Query::GetProviders::Returning ourselves as a Provider Peer for CID: \(cid)")
+                    self.logger.notice("Query::GetProviders::Returning ourself as a Provider Peer for CID: \(CID.multihash.b58String)")
                     if let dhtPeer = try? DHT.Message.Peer(pInfo) {
                         return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: [dhtPeer], closerPeers: []) )
                     }
                     return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: [], closerPeers: []) )
                 } else if let knownProviders = self.providerStore[kid], !knownProviders.isEmpty {
-                    self.logger.notice("Query::GetProviders::Returning \(knownProviders.count) Provider Peers for CID: \(cid)")
+                    self.logger.notice("Query::GetProviders::Returning \(knownProviders.count) Provider Peers for CID: \(CID.multihash.b58String)")
                     return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: knownProviders, closerPeers: []) )
                 } else {
                     /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
                     return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                        self.logger.notice("Query::GetProviders::Returning \(peers.count) Closer Peers for CID: \(cid)")
+                        self.logger.notice("Query::GetProviders::Returning \(peers.count) Closer Peers for CID: \(CID.multihash.b58String)")
                         return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: [], closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
                     }
                 }
             
             case .addProvider(let cid):
                 // Ensure the provided CID is valid...
-                guard (try? CID(cid)) != nil else { return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: []) ) }
+                guard let CID = try? CID(cid) else { return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: []) ) }
                 let kid = KadDHT.Key(cid, keySpace: .xor)
                 guard let provider = try? DHT.Message.Peer(from) else { return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: []) ) }
                 var knownProviders = self.providerStore[kid, default: []]
                 if !knownProviders.contains(provider) {
                     knownProviders.append(provider)
                     self.providerStore[kid] = knownProviders
-                    self.logger.notice("Query::AddProvider::Added \(from.peer) as a provider for cid: \(cid)")
+                    self.logger.notice("Query::AddProvider::Added \(from.peer) as a provider for cid: \(CID.multihash.b58String)")
                 } else {
-                    self.logger.notice("Query::AddProvider::\(from.peer) already a provider for cid: \(cid)")
+                    self.logger.notice("Query::AddProvider::\(from.peer) already a provider for cid: \(CID.multihash.b58String)")
                 }
                 return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: [provider]) )
             }
