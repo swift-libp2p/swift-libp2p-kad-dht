@@ -311,7 +311,7 @@ extension KadDHT {
         public var onPeerDiscovered: ((PeerInfo) -> ())? = nil
         
         
-        func processRequest(_ req:Request, isInternal:Bool) -> EventLoopFuture<LibP2P.Response<ByteBuffer>> {
+        func processRequest(_ req:Request) -> EventLoopFuture<LibP2P.Response<ByteBuffer>> {
             guard self.mode == .server else {
                 self.logger.warning("We received a request while in clientOnly mode")
                 return req.eventLoop.makeSucceededFuture(.close)
