@@ -320,7 +320,10 @@ extension KadDHT {
             case .ready:
                 return onReady(req)
             case .data:
-                return onData(request: req)
+                return onData(request: req).flatMapError { error -> EventLoopFuture<LibP2P.Response<ByteBuffer>> in
+                    self.logger.warning("KadDHT::OnData::Error -> \(error)")
+                    return req.eventLoop.makeSucceededFuture(.close)
+                }
             case .closed:
                 return req.eventLoop.makeSucceededFuture(.close)
             case .error(let error):
