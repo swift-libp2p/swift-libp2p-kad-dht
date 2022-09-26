@@ -440,7 +440,7 @@ extension KadDHT {
                     self.logger.notice("Query::PutValue::Unknown Namespace...")
                 }
                 
-                self.logger.notice("Query::PutValue::Attempting to store value for key: \(key)")
+                self.logger.notice("Query::PutValue::Attempting to store value for key: \(keyToHumanReadableString(key))")
                 return self.addKeyIfSpaceOrCloser(key: key, value: value)
                 //return self.addKeyIfSpaceOrCloser2(key: key, value: value, from: from)
                 
@@ -448,20 +448,14 @@ extension KadDHT {
             case .getValue(let key):
                 /// If we have the value, send it back!
                 let kid = KadDHT.Key(key, keySpace: .xor)
-                if let namespaceBytes = self.extractNamespace(key), let namespace = String(data: Data(namespaceBytes), encoding: .utf8) {
-                    if let cid = try? CID(Array(key.dropFirst(namespaceBytes.count + 2))) {
-                        self.logger.notice("Query::GetValue:: /\(namespace)/\(cid.multihash.b58String)")
-                    } else {
-                        self.logger.notice("/\(namespace)/\(key.dropFirst(namespaceBytes.count + 2))")
-                    }
-                }
+                self.logger.notice("Query::GetValue::\(keyToHumanReadableString(key))")
                 if let val = self.dht[kid] {
-                    self.logger.notice("Query::GetValue::Returning value for key: \(key)")
+                    self.logger.notice("Query::GetValue::Returning value for key: \(keyToHumanReadableString(key))")
                     return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: val, closerPeers: []) )
                 } else {
                     /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
                     return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                        self.logger.notice("Query::GetValue::Returning \(peers.count) closer peers for key: \(key)")
+                        self.logger.notice("Query::GetValue::Returning \(peers.count) closer peers for key: \(self.keyToHumanReadableString(key))")
                         return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: nil, closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
                     }
                 }
@@ -557,7 +551,7 @@ extension KadDHT {
         
         /// Given a KV pair, this method will find the nearest X peers and attempt to share the KV with them.
         private func _shareDHTKVWithNearestPeers(key:KadDHT.Key, value:DHT.Record, nearestPeers peerCount:Int) -> EventLoopFuture<Void> {
-            self.logger.notice("Sharing \((try? CID(key.original).multihash.b58String) ?? "???") with the \(peerCount) closest peers")
+            self.logger.notice("Sharing \(keyToHumanReadableString(key.original)) with the \(peerCount) closest peers")
             var successfulPuts:[PeerID] = []
             return self._nearest(peerCount, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Void> in
                 return nearestPeers.compactMap { peer -> EventLoopFuture<Void> in
@@ -576,7 +570,7 @@ extension KadDHT {
                         return self.eventLoop.makeSucceededVoidFuture()
                     }
                 }.flatten(on: self.eventLoop).always { _ in
-                    self.logger.notice("Done Sharing Key:\((try? CID(key.original).multihash.b58String) ?? "???") with \(successfulPuts.count)/\(nearestPeers) peers")
+                    self.logger.notice("Done Sharing Key:\(self.keyToHumanReadableString(key.original)) with \(successfulPuts.count)/\(nearestPeers.count) peers")
                 }
             }
         }
@@ -604,6 +598,22 @@ extension KadDHT {
             guard key.first == UInt8(47) else { return nil }
             guard let idx = key.dropFirst().firstIndex(of: UInt8(47)) else { return nil }
             return Array(key[1..<idx])
+        }
+        
+        private func keyToHumanReadableString(_ key:[UInt8]) -> String {
+            if let namespaceBytes = extractNamespace(key), let namespace = String(data: Data(namespaceBytes), encoding: .utf8) {
+                if let cid = try? CID(Array(key.dropFirst(namespace.count + 2))) {
+                    return "/\(namespace)/\(cid.multihash.b58String)"
+                } else {
+                    return "/\(namespace)/\(key.dropFirst(namespaceBytes.count + 2))"
+                }
+            } else {
+                if let cid = try? CID(key) {
+                    return "\(cid.multihash.b58String)"
+                } else {
+                    return "\(key)"
+                }
+            }
         }
         
 //        public func stop() {
