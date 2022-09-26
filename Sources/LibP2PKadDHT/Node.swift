@@ -285,7 +285,9 @@ extension KadDHT {
                 return self.network!.peers.count().flatMap { peerStoreCount in
                     self.logger.notice("PeerStore<\(peerStoreCount)>")
                     return self._shareDHTKVs().flatMap {
-                        self._searchForPeersLookupStyle()
+                        //self._shareProviderRecords().flatMap {
+                            self._searchForPeersLookupStyle()
+                        //}
                     }
                 }.always { _ in
                     self.logger.notice("Heartbeat Finished")
@@ -549,30 +551,43 @@ extension KadDHT {
         /// For each KV in our DHT, we send it to the closest two peers we know of (excluding us)
         private func _shareDHTKVs() -> EventLoopFuture<Void> {
             self.dht.compactMap { key, value in
-                self.logger.notice("Sharing \(key) with the 3 closest peers")
-                var successfulPuts:[PeerID] = []
-                return self._nearest(3, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Void> in
-                    return nearestPeers.filter({ $0.peer.b58String != self.peerID.b58String }).prefix(3).compactMap { peer -> EventLoopFuture<Void> in
-                        return self._sendQuery(.putValue(key: key.original, record: value), to: peer).flatMapAlways { result -> EventLoopFuture<Void> in
-                            switch result {
-                            case .success(let res):
-                                self.logger.debug("Shared key:value with \(peer.peer)")
-                                guard case .putValue(let k, let v) = res else { self.logger.warning("Failed to share key:value with \(peer.peer)"); return self.eventLoop.makeSucceededVoidFuture() }
-                                guard k == key.original, v != nil else { self.logger.warning("Failed to share key:value with \(peer.peer)"); return self.eventLoop.makeSucceededVoidFuture() }
-                                self.logger.debug("They Stored It!")
-                                successfulPuts.append(peer.peer)
-                                
-                            case .failure(let error):
-                                self.logger.warning("Failed to share key:value with \(peer.peer) -> \(error)")
-                            }
-                            return self.eventLoop.makeSucceededVoidFuture()
-                        }
-                    }.flatten(on: self.eventLoop).always { _ in
-                        self.logger.notice("Done Sharing KVs with \(successfulPuts.count)/3 peers")
-                    }
-                }
+                self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3)
             }.flatten(on: self.eventLoop)
         }
+        
+        /// Given a KV pair, this method will find the nearest X peers and attempt to share the KV with them.
+        private func _shareDHTKVWithNearestPeers(key:KadDHT.Key, value:DHT.Record, nearestPeers peerCount:Int) -> EventLoopFuture<Void> {
+            self.logger.notice("Sharing \((try? CID(key.original).multihash.b58String) ?? "???") with the \(peerCount) closest peers")
+            var successfulPuts:[PeerID] = []
+            return self._nearest(peerCount, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Void> in
+                return nearestPeers.compactMap { peer -> EventLoopFuture<Void> in
+                    return self._sendQuery(.putValue(key: key.original, record: value), to: peer).flatMapAlways { result -> EventLoopFuture<Void> in
+                        switch result {
+                        case .success(let res):
+                            self.logger.debug("Shared key:value with \(peer.peer)")
+                            guard case .putValue(let k, let v) = res else { self.logger.warning("Failed to share key:value with \(peer.peer)"); return self.eventLoop.makeSucceededVoidFuture() }
+                            guard k == key.original, v != nil else { self.logger.warning("Failed to share key:value with \(peer.peer)"); return self.eventLoop.makeSucceededVoidFuture() }
+                            self.logger.debug("They Stored It!")
+                            successfulPuts.append(peer.peer)
+                            
+                        case .failure(let error):
+                            self.logger.warning("Failed to share key:value with \(peer.peer) -> \(error)")
+                        }
+                        return self.eventLoop.makeSucceededVoidFuture()
+                    }
+                }.flatten(on: self.eventLoop).always { _ in
+                    self.logger.notice("Done Sharing Key:\((try? CID(key.original).multihash.b58String) ?? "???") with \(successfulPuts.count)/\(nearestPeers) peers")
+                }
+            }
+        }
+        
+        // - TODO: Implement me
+//        private func _shareProviderRecords() -> EventLoopFuture<Void> {
+//            return self.eventLoop.makeSucceededVoidFuture()
+////            self.providerStore.compactMap { key, value in
+////
+////            }
+//        }
         
         /// Checks if the peer specified has announced the "/ipfs/kad/1.0.0" protocol in their Indentify packet.
         /// Peers are only supposed to announce the protocol when in server mode.
