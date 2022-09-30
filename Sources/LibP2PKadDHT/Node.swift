@@ -64,7 +64,38 @@ extension DHT {
         }
         
         func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
-            return 0
+            let records = values.map { try? DHT.Record(contiguousBytes: $0) }
+            guard !records.compactMap({ $0 }).isEmpty else { throw NSError(domain: "Validator::No Records to select", code: 0) }
+            guard records.count > 1 && records[0] != nil else { return 0 }
+            
+            //let df = DateFormatter()
+            //df.locale = Locale(identifier: "en_US_POSIX")
+            //df.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSS'Z'"
+            
+            var bestValueIndex:Int = 0
+            var bestValue:DHT.Record? = nil
+            for (index, record) in records.enumerated() {
+                guard let record = record else { continue }
+                //guard let newRecord = df.date(from: record.timeReceived) else { continue }
+                guard let newRecord = try? RFC3339Date(string: record.timeReceived) else { continue }
+                
+                if let currentBest = bestValue {
+                    //guard let currentRecord = df.date(from: currentBest.timeReceived) else { continue }
+                    guard let currentRecord = try? RFC3339Date(string: currentBest.timeReceived) else { continue }
+                    // If this record is more recent then our currentBest, update our current best!
+                    if newRecord > currentRecord {
+                        bestValue = record
+                        bestValueIndex = index
+                    }
+                } else {
+                    // If we don't have a current best, set it!
+                    bestValue = record
+                    bestValueIndex = index
+                }
+            }
+            
+            guard bestValue != nil else { throw NSError(domain: "Validator::Failed to select a valid record", code: 0) }
+            return bestValueIndex
         }
     }
 }
@@ -313,6 +344,32 @@ extension KadDHT {
         
         public var onPeerDiscovered: ((PeerInfo) -> ())? = nil
         
+        /// Handles a new namespace via the provided validator.
+        /// - Parameters:
+        ///   - namespace: The namespace prefix for the DHT KV pair
+        ///   - validator: The validator that ensures the Value being stored is valid and the most desirable
+        /// - Returns: Void upon succes, error upon failure.
+        public func handle(namespace:String, validator:Validator) -> EventLoopFuture<Void> {
+            self.eventLoop.submit {
+                if self.validators.updateValue(validator, forKey: namespace.bytes) != nil {
+                    self.logger.warning("Overriding Validator for Namesapce: \(namespace)")
+                }
+            }
+        }
+        
+        /// Removes the Validator bound to the specified namespace
+        /// - Parameter namespace: The namespace whos validator should be removed
+        /// - Returns: `true` if there was a validator to remove, `false` otherwise.
+        /// - Note: Should we remove all stored DHT keys for this namespace? Or just let them expire?
+        public func removeValidator(forNamespace namespace: String) -> EventLoopFuture<Bool> {
+            self.eventLoop.submit {
+                if self.validators.removeValue(forKey: namespace.bytes) != nil {
+                    return true
+                } else {
+                    return false
+                }
+            }
+        }
         
         func processRequest(_ req:Request) -> EventLoopFuture<LibP2P.Response<ByteBuffer>> {
             guard self.mode == .server else {
@@ -423,24 +480,27 @@ extension KadDHT {
                 }
                 
             case .putValue(let key, let value):
-                // TODO: Validate Key:Value
                 self.logger.notice("🚨🚨🚨 PutValue Request 🚨🚨🚨")
                 self.logger.notice("DHTRecordKey(HEX)::\(key.toHexString())")
                 self.logger.notice("DHTRecordValue(HEX)::\((try? value.serializedData().toHexString()) ?? "NIL")")
-                if let namespace = self.extractNamespace(key) {
-                    if let validator = self.validators[namespace] {
-                        if (try? validator.validate(key: value.key.bytes, value: value.value.bytes)) != nil {
-                            self.logger.notice("Query::PutValue::KeyVal passed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
-                        } else {
-                            self.logger.notice("Query::PutValue::KeyVal failed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
-                        }
-                    } else {
-                        self.logger.notice("Query::PutValue::No Validator Set For Namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
-                    }
-                } else {
-                    self.logger.notice("Query::PutValue::Unknown Namespace...")
+                guard let namespace = self.extractNamespace(key) else {
+                    self.logger.warning("Failed to extract namespace for DHT PUT request")
+                    self.logger.warning("DHTRecordKey(HEX)::\(key.toHexString())")
+                    self.logger.warning("DHTRecordValue(HEX)::\((try? value.serializedData().toHexString()) ?? "NIL")")
+                    return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil))
+                }
+
+                guard let validator = self.validators[namespace] else {
+                    self.logger.warning("Query::PutValue::No Validator Set For Namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
+                    return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil))
                 }
                 
+                guard (try? validator.validate(key: key, value: value.serializedData().bytes)) != nil else {
+                    self.logger.warning("Query::PutValue::KeyVal failed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
+                    return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil))
+                }
+                
+                self.logger.notice("Query::PutValue::KeyVal passed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
                 self.logger.notice("Query::PutValue::Attempting to store value for key: \(keyToHumanReadableString(key))")
                 return self.addKeyIfSpaceOrCloser(key: key, value: value)
                 //return self.addKeyIfSpaceOrCloser2(key: key, value: value, from: from)
