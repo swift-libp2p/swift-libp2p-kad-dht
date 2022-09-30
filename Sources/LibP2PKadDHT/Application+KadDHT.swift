@@ -134,7 +134,7 @@ extension Application.DHTServices.Provider {
                 dht.autoUpdate = autoUpdate
                 if case .server = mode {
                     let _ = dht.handle(namespace: "pk", validator: DHT.PubKeyValidator())
-                    //dht.handle(namespace: "ipns", validator:)
+                    let _ = dht.handle(namespace: "ipns", validator: DHT.IPNSValidator())
                 }
                 app.lifecycle.use(dht)
                 app.discovery.use { _ in dht } // Does this work??
@@ -173,7 +173,7 @@ extension Application.DHTServices.Provider {
                 dht.autoUpdate = autoUpdate
                 if case .server = mode {
                     let _ = dht.handle(namespace: "pk", validator: DHT.PubKeyValidator())
-                    //dht.handle(namespace: "ipns", validator:)
+                    let _ = dht.handle(namespace: "ipns", validator: DHT.IPNSValidator())
                 }
                 app.lifecycle.use(dht)
                 app.discovery.use { _ in dht } // Does this work??
