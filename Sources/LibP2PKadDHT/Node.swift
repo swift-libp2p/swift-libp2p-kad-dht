@@ -14,6 +14,7 @@
 // Started at 10:35am
 import LibP2P
 import CID
+import Multihash
 
 public protocol Validator {
     func validate(key:[UInt8], value:[UInt8]) throws
@@ -584,7 +585,9 @@ extension KadDHT {
 //        }
         
         /// Checks if the peer specified has announced the "/ipfs/kad/1.0.0" protocol in their Indentify packet.
-        /// Peers are only supposed to announce the protocol when in server mode.
+        /// - Parameter pid: The PeerID to check
+        /// - Returns: True if this peer is announcing the /ipfs/kad/1.0.0 protocol
+        /// - Note: Peers are only supposed to announce the protocol when in server mode.
         private func _isPeerOperatingAsServer(_ pid:PeerID) -> EventLoopFuture<Bool> {
             guard let network = network else {
                 return self.eventLoop.makeSucceededFuture(false)
@@ -593,22 +596,33 @@ extension KadDHT {
             return network.peers.getProtocols(forPeer: pid).map { $0.contains { $0.stringValue.contains(KadDHT.multicodec) } }
         }
         
-        /// "/" in utf8 == 47
+        /// This method attempts to extract a namespace prefixed key of the form "/namespace/<multihash>"
+        /// - Parameter key: The key to extract the prefixed namespace from
+        /// - Returns: The namespace bytes if they exist (excluding the forward slashes), or nil if the key isn't prefixed with a namespace
+        /// - Note: "/" in utf8 == 47
         private func extractNamespace(_ key:[UInt8]) -> [UInt8]? {
             guard key.first == UInt8(47) else { return nil }
             guard let idx = key.dropFirst().firstIndex(of: UInt8(47)) else { return nil }
             return Array(key[1..<idx])
         }
         
+        
+        /// This method attempts to take a key in the form of bytes and convert it into a human readable "/<namespace>/<multihash>" string for debugging
+        /// - Parameter key: The key in bytes that you'd like to log
+        /// - Returns: The most human readable string we can make
         private func keyToHumanReadableString(_ key:[UInt8]) -> String {
             if let namespaceBytes = extractNamespace(key), let namespace = String(data: Data(namespaceBytes), encoding: .utf8) {
-                if let cid = try? CID(Array(key.dropFirst(namespace.count + 2))) {
+                if let mh = try? Multihash(Array(key.dropFirst(namespace.count + 2))) {
+                    return "/\(namespace)/\(mh.b58String)"
+                } else if let cid = try? CID(Array(key.dropFirst(namespace.count + 2))) {
                     return "/\(namespace)/\(cid.multihash.b58String)"
                 } else {
                     return "/\(namespace)/\(key.dropFirst(namespaceBytes.count + 2))"
                 }
             } else {
-                if let cid = try? CID(key) {
+                if let mh = try? Multihash(key) {
+                    return "\(mh.b58String)"
+                } else if let cid = try? CID(key) {
                     return "\(cid.multihash.b58String)"
                 } else {
                     return "\(key)"
