@@ -67,20 +67,51 @@ extension DHT {
             let records = values.map { try? DHT.Record(contiguousBytes: $0) }
             guard !records.compactMap({ $0 }).isEmpty else { throw NSError(domain: "Validator::No Records to select", code: 0) }
             guard records.count > 1 && records[0] != nil else { return 0 }
+
+            var bestValueIndex:Int = 0
+            var bestValue:DHT.Record? = nil
+            for (index, record) in records.enumerated() {
+                guard let record = record else { continue }
+                guard let newRecord = try? RFC3339Date(string: record.timeReceived) else { continue }
+                
+                if let currentBest = bestValue {
+                    guard let currentRecord = try? RFC3339Date(string: currentBest.timeReceived) else { continue }
+                    // If this record is more recent then our currentBest, update our current best!
+                    if newRecord > currentRecord {
+                        bestValue = record
+                        bestValueIndex = index
+                    }
+                } else {
+                    // If we don't have a current best, set it!
+                    bestValue = record
+                    bestValueIndex = index
+                }
+            }
             
-            //let df = DateFormatter()
-            //df.locale = Locale(identifier: "en_US_POSIX")
-            //df.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSS'Z'"
+            guard bestValue != nil else { throw NSError(domain: "Validator::Failed to select a valid record", code: 0) }
+            return bestValueIndex
+        }
+    }
+    
+    struct IPNSValidator:Validator {
+        func validate(key: [UInt8], value: [UInt8]) throws {
+            let record = try DHT.Record(contiguousBytes: value)
+            guard Data(key) == record.key else { throw NSError(domain: "Validator::Key Mismatch. Expected \(Data(key)) got \(record.key) ", code: 0) }
+            let _ = try IpnsEntry(contiguousBytes: record.value)
+        }
+        
+        func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
+            let records = values.map { try? DHT.Record(contiguousBytes: $0) }
+            guard !records.compactMap({ $0 }).isEmpty else { throw NSError(domain: "Validator::No Records to select", code: 0) }
+            guard records.count > 1 && records[0] != nil else { return 0 }
             
             var bestValueIndex:Int = 0
             var bestValue:DHT.Record? = nil
             for (index, record) in records.enumerated() {
                 guard let record = record else { continue }
-                //guard let newRecord = df.date(from: record.timeReceived) else { continue }
                 guard let newRecord = try? RFC3339Date(string: record.timeReceived) else { continue }
                 
                 if let currentBest = bestValue {
-                    //guard let currentRecord = df.date(from: currentBest.timeReceived) else { continue }
                     guard let currentRecord = try? RFC3339Date(string: currentBest.timeReceived) else { continue }
                     // If this record is more recent then our currentBest, update our current best!
                     if newRecord > currentRecord {
@@ -502,7 +533,7 @@ extension KadDHT {
                 
                 self.logger.notice("Query::PutValue::KeyVal passed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
                 self.logger.notice("Query::PutValue::Attempting to store value for key: \(keyToHumanReadableString(key))")
-                return self.addKeyIfSpaceOrCloser(key: key, value: value)
+                return self.addKeyIfSpaceOrCloser(key: key, value: value, usingValidator: validator)
                 //return self.addKeyIfSpaceOrCloser2(key: key, value: value, from: from)
                 
                 
@@ -606,31 +637,32 @@ extension KadDHT {
         /// For each KV in our DHT, we send it to the closest two peers we know of (excluding us)
         private func _shareDHTKVs() -> EventLoopFuture<Void> {
             self.dht.compactMap { key, value in
-                self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3)
+                self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3).transform(to: ())
             }.flatten(on: self.eventLoop)
         }
         
         /// Given a KV pair, this method will find the nearest X peers and attempt to share the KV with them.
-        private func _shareDHTKVWithNearestPeers(key:KadDHT.Key, value:DHT.Record, nearestPeers peerCount:Int) -> EventLoopFuture<Void> {
+        private func _shareDHTKVWithNearestPeers(key:KadDHT.Key, value:DHT.Record, nearestPeers peerCount:Int) -> EventLoopFuture<Bool> {
             self.logger.notice("Sharing \(keyToHumanReadableString(key.original)) with the \(peerCount) closest peers")
             var successfulPuts:[PeerID] = []
-            return self._nearest(peerCount, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Void> in
-                return nearestPeers.compactMap { peer -> EventLoopFuture<Void> in
-                    return self._sendQuery(.putValue(key: key.original, record: value), to: peer).flatMapAlways { result -> EventLoopFuture<Void> in
+            return self._nearest(peerCount, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Bool> in
+                return nearestPeers.compactMap { peer -> EventLoopFuture<Bool> in
+                    return self._sendQuery(.putValue(key: key.original, record: value), to: peer).flatMapAlways { result -> EventLoopFuture<Bool> in
                         switch result {
                         case .success(let res):
                             self.logger.debug("Shared key:value with \(peer.peer)")
-                            guard case .putValue(let k, let v) = res else { self.logger.warning("Failed to share key:value with \(peer.peer)"); return self.eventLoop.makeSucceededVoidFuture() }
-                            guard k == key.original, v != nil else { self.logger.warning("Failed to share key:value with \(peer.peer)"); return self.eventLoop.makeSucceededVoidFuture() }
+                            guard case .putValue(let k, let v) = res else { self.logger.warning("Failed to share key:value with \(peer.peer)"); return self.eventLoop.makeSucceededFuture(false) }
+                            guard k == key.original, v != nil else { self.logger.warning("Failed to share key:value with \(peer.peer)"); return self.eventLoop.makeSucceededFuture(false) }
                             self.logger.debug("They Stored It!")
                             successfulPuts.append(peer.peer)
+                            return self.eventLoop.makeSucceededFuture(true)
                             
                         case .failure(let error):
                             self.logger.warning("Failed to share key:value with \(peer.peer) -> \(error)")
+                            return self.eventLoop.makeSucceededFuture(false)
                         }
-                        return self.eventLoop.makeSucceededVoidFuture()
                     }
-                }.flatten(on: self.eventLoop).always { _ in
+                }.flatten(on: self.eventLoop).map( { $0.contains(true) } ).always { results in
                     self.logger.notice("Done Sharing Key:\(self.keyToHumanReadableString(key.original)) with \(successfulPuts.count)/\(nearestPeers.count) peers")
                 }
             }
@@ -1049,16 +1081,25 @@ extension KadDHT {
         }
         
         /// This method adds a key:value pair to our dht if we either have excess capacity or if the key is closer to us than the furthest current key in the dht
-        private func addKeyIfSpaceOrCloser(key:[UInt8], value:DHT.Record) -> EventLoopFuture<Response> {
+        private func addKeyIfSpaceOrCloser(key:[UInt8], value:DHT.Record, usingValidator validator:Validator) -> EventLoopFuture<Response> {
             let kid = KadDHT.Key(key, keySpace: .xor)
             var added:Bool = false
-            if dht[kid] != nil {
-                /// Update the value...
-                dht[kid] = value
-                added = true
-                self.logger.notice("We already have `\(key):\(value)` in our DHT, updating it...")
-                //return self.eventLoop.makeSucceededFuture(.stored(added))
+            if let existingRecord = dht[kid] {
+                /// Store the best record...
+                let values = [existingRecord, value].compactMap { try? $0.serializedData().bytes }
+                let bestIndex = (try? validator.select(key: key, values: values)) ?? 0
+                let best = (try? DHT.Record(contiguousBytes: values[bestIndex])) ?? existingRecord
                 
+                if best == existingRecord {
+                    self.logger.notice("We already have `\(key):\(value)` in our DHT")
+                } else {
+                    self.logger.notice("We already have `\(key):\(value)` in our DHT, but this is a newer record, updating it...")
+                }
+                
+                /// Update the value...
+                dht[kid] = best
+                added = true
+                                
             } else if dht.count < self.dhtSize {
                 /// We have space, so lets add it...
                 dht[kid] = value
@@ -1083,7 +1124,6 @@ extension KadDHT {
                     added = false
                     self.logger.notice("New Key Value is further away from all current key value pairs, dropping store request.")
                 }
-                
             }
             
             return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: added ? value : nil))
@@ -1128,33 +1168,14 @@ extension KadDHT {
                     added = false
                     self.logger.info("New Key Value is further away from all current key value pairs, dropping store request.")
                     
-                    /// Find the closest peer to the kid and send it their way...
-                    return self._nearest(3, peersToKey: kid).flatMap { nearestPeers -> EventLoopFuture<Response> in
-                        let filtered = nearestPeers.filter { pInfo in
-                            /// TODO: Double check this logic
-                            pInfo.peer.b58String != self.peerID.b58String && pInfo.peer.b58String != from.getPeerID()
-                        }
-                        
-                        if filtered.isEmpty { return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil)) }
-                        
-                        return filtered.prefix(1).compactMap { nearestPeer -> EventLoopFuture<Response> in
-                            return self._sendQuery(.putValue(key: key, record: value), to: nearestPeer).map { res in
-                                guard case .putValue = res else {
-                                    return .putValue(key: key, record: nil)
-                                }
-                                return res
-                            }
-                        }.flatten(on: self.eventLoop).flatMap { responses in
-                            if added { return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value)) }
-                            else if responses.contains(where: { response in
-                                    guard case let .putValue(_, record) = response else { return false }
-                                    return record != nil
-                            }) {
-                                return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value))
-                            } else {
-                                return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil))
-                            }
-                        }
+                }
+                
+                /// If we can't store it, lets ask the closest peers ew know about to store it...
+                return self._shareDHTKVWithNearestPeers(key: kid, value: value, nearestPeers: 3).map { stored in
+                    if stored {
+                        return .putValue(key: key, record: value)
+                    } else {
+                        return .putValue(key: key, record: nil)
                     }
                 }
             }
