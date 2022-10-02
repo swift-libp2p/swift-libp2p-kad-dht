@@ -75,7 +75,7 @@ extension KadDHT {
         }
     }
     
-    enum Query {
+    enum Query:CustomStringConvertible {
         /// In the request key must be set to the binary PeerId of the node to be found
         case findNode(id:PeerID)
         /// In the request key is an unstructured array of bytes.
@@ -189,6 +189,23 @@ extension KadDHT {
                 
             default:
                 throw Errors.DecodingErrorInvalidType
+            }
+        }
+        
+        var description: String {
+            switch self {
+            case .findNode(let peerID):
+                return "Query::FindNode(peerID: \(peerID.b58String))"
+            case .getValue(let key):
+                return "Query::GetValue(key: \(DHT.keyToHumanReadableString(key)))"
+            case .putValue(let key, let record):
+                return "Query::PutValue(key: \(DHT.keyToHumanReadableString(key)), record: \(record))"
+            case .getProviders(let cid):
+                return "Query::GetProviders(cid: \(DHT.keyToHumanReadableString(cid)))"
+            case .addProvider(let cid):
+                return "Query::AddProviders(cid: \(DHT.keyToHumanReadableString(cid)))"
+            case .ping:
+                return "Query::PING"
             }
         }
     }
