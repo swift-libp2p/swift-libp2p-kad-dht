@@ -145,6 +145,69 @@ protocol Network {
 
 //extension Application: Network { }
 
+extension DHT {
+    /// This method attempts to take a key in the form of bytes and convert it into a human readable "/<namespace>/<multihash>" string for debugging
+    /// - Parameter key: The key in bytes that you'd like to log
+    /// - Returns: The most human readable string we can make
+    static func keyToHumanReadableString(_ key:[UInt8]) -> String {
+        if let namespaceBytes = DHT.extractNamespace(key), let namespace = String(data: Data(namespaceBytes), encoding: .utf8) {
+            if let mh = try? Multihash(Array(key.dropFirst(namespace.count + 2))) {
+                return "/\(namespace)/\(mh.b58String)"
+            } else if let cid = try? CID(Array(key.dropFirst(namespace.count + 2))) {
+                return "/\(namespace)/\(cid.multihash.b58String)"
+            } else {
+                return "/\(namespace)/\(key.dropFirst(namespaceBytes.count + 2))"
+            }
+        } else {
+            if let mh = try? Multihash(key) {
+                return "\(mh.b58String)"
+            } else if let cid = try? CID(key) {
+                return "\(cid.multihash.b58String)"
+            } else {
+                return "\(key)"
+            }
+        }
+    }
+    
+    /// This method attempts to extract a namespace prefixed key of the form "/namespace/<multihash>"
+    /// - Parameter key: The key to extract the prefixed namespace from
+    /// - Returns: The namespace bytes if they exist (excluding the forward slashes), or nil if the key isn't prefixed with a namespace
+    /// - Note: "/" in utf8 == 47
+    static func extractNamespace(_ key:[UInt8]) -> [UInt8]? {
+        guard key.first == UInt8(47) else { return nil }
+        guard let idx = key.dropFirst().firstIndex(of: UInt8(47)) else { return nil }
+        return Array(key[1..<idx])
+    }
+}
+
+//extension DHT.Record:CustomStringConvertible {
+//    public var description: String {
+//        let header = "--- 📒 DHT Record 📒 ---"
+//        return """
+//            \(header)
+//            Key: \(self.key)
+//            Value: \(self.value)
+//            Time Received: \(self.timeReceived)
+//            \(String(repeating: "-", count: header.count + 2))
+//            """
+//    }
+//}
+//
+//extension IpnsEntry:CustomStringConvertible {
+//    public var description: String {
+//        let header = "--- 🌎 IPNS Record 🌎 ---"
+//        return """
+//            \(header)
+//            Bytes: \(self.value.asString(base: .base16))
+//            Signature<V1>: \(self.signatureV1.asString(base: .base16))
+//            Validity<EOL>: \(self.validity.asString(base: .base16))
+//            Sequence: \(self.sequence)
+//            TTL: \(self.ttl)
+//            \(String(repeating: "-", count: header.count + 2))
+//            """
+//    }
+//}
+
 extension KadDHT {
     public static var multicodec:String = "/ipfs/kad/1.0.0"
     public class Node:DHTCore, EventLoopService, LifecycleHandler, PeerRouting {
@@ -514,7 +577,7 @@ extension KadDHT {
                 self.logger.notice("🚨🚨🚨 PutValue Request 🚨🚨🚨")
                 self.logger.notice("DHTRecordKey(HEX)::\(key.toHexString())")
                 self.logger.notice("DHTRecordValue(HEX)::\((try? value.serializedData().toHexString()) ?? "NIL")")
-                guard let namespace = self.extractNamespace(key) else {
+                guard let namespace = DHT.extractNamespace(key) else {
                     self.logger.warning("Failed to extract namespace for DHT PUT request")
                     self.logger.warning("DHTRecordKey(HEX)::\(key.toHexString())")
                     self.logger.warning("DHTRecordValue(HEX)::\((try? value.serializedData().toHexString()) ?? "NIL")")
@@ -532,7 +595,7 @@ extension KadDHT {
                 }
                 
                 self.logger.notice("Query::PutValue::KeyVal passed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
-                self.logger.notice("Query::PutValue::Attempting to store value for key: \(keyToHumanReadableString(key))")
+                self.logger.notice("Query::PutValue::Attempting to store value for key: \(DHT.keyToHumanReadableString(key))")
                 return self.addKeyIfSpaceOrCloser(key: key, value: value, usingValidator: validator)
                 //return self.addKeyIfSpaceOrCloser2(key: key, value: value, from: from)
                 
@@ -540,14 +603,14 @@ extension KadDHT {
             case .getValue(let key):
                 /// If we have the value, send it back!
                 let kid = KadDHT.Key(key, keySpace: .xor)
-                self.logger.notice("Query::GetValue::\(keyToHumanReadableString(key))")
+                self.logger.notice("Query::GetValue::\(DHT.keyToHumanReadableString(key))")
                 if let val = self.dht[kid] {
-                    self.logger.notice("Query::GetValue::Returning value for key: \(keyToHumanReadableString(key))")
+                    self.logger.notice("Query::GetValue::Returning value for key: \(DHT.keyToHumanReadableString(key))")
                     return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: val, closerPeers: []) )
                 } else {
                     /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
                     return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                        self.logger.notice("Query::GetValue::Returning \(peers.count) closer peers for key: \(self.keyToHumanReadableString(key))")
+                        self.logger.notice("Query::GetValue::Returning \(peers.count) closer peers for key: \(DHT.keyToHumanReadableString(key))")
                         return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: nil, closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
                     }
                 }
@@ -643,7 +706,7 @@ extension KadDHT {
         
         /// Given a KV pair, this method will find the nearest X peers and attempt to share the KV with them.
         private func _shareDHTKVWithNearestPeers(key:KadDHT.Key, value:DHT.Record, nearestPeers peerCount:Int) -> EventLoopFuture<Bool> {
-            self.logger.notice("Sharing \(keyToHumanReadableString(key.original)) with the \(peerCount) closest peers")
+            self.logger.notice("Sharing \(DHT.keyToHumanReadableString(key.original)) with the \(peerCount) closest peers")
             var successfulPuts:[PeerID] = []
             return self._nearest(peerCount, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Bool> in
                 return nearestPeers.compactMap { peer -> EventLoopFuture<Bool> in
@@ -663,7 +726,7 @@ extension KadDHT {
                         }
                     }
                 }.flatten(on: self.eventLoop).map( { $0.contains(true) } ).always { results in
-                    self.logger.notice("Done Sharing Key:\(self.keyToHumanReadableString(key.original)) with \(successfulPuts.count)/\(nearestPeers.count) peers")
+                    self.logger.notice("Done Sharing Key:\(DHT.keyToHumanReadableString(key.original)) with \(successfulPuts.count)/\(nearestPeers.count) peers")
                 }
             }
         }
@@ -686,40 +749,6 @@ extension KadDHT {
             }
 
             return network.peers.getProtocols(forPeer: pid).map { $0.contains { $0.stringValue.contains(KadDHT.multicodec) } }
-        }
-        
-        /// This method attempts to extract a namespace prefixed key of the form "/namespace/<multihash>"
-        /// - Parameter key: The key to extract the prefixed namespace from
-        /// - Returns: The namespace bytes if they exist (excluding the forward slashes), or nil if the key isn't prefixed with a namespace
-        /// - Note: "/" in utf8 == 47
-        private func extractNamespace(_ key:[UInt8]) -> [UInt8]? {
-            guard key.first == UInt8(47) else { return nil }
-            guard let idx = key.dropFirst().firstIndex(of: UInt8(47)) else { return nil }
-            return Array(key[1..<idx])
-        }
-        
-        
-        /// This method attempts to take a key in the form of bytes and convert it into a human readable "/<namespace>/<multihash>" string for debugging
-        /// - Parameter key: The key in bytes that you'd like to log
-        /// - Returns: The most human readable string we can make
-        private func keyToHumanReadableString(_ key:[UInt8]) -> String {
-            if let namespaceBytes = extractNamespace(key), let namespace = String(data: Data(namespaceBytes), encoding: .utf8) {
-                if let mh = try? Multihash(Array(key.dropFirst(namespace.count + 2))) {
-                    return "/\(namespace)/\(mh.b58String)"
-                } else if let cid = try? CID(Array(key.dropFirst(namespace.count + 2))) {
-                    return "/\(namespace)/\(cid.multihash.b58String)"
-                } else {
-                    return "/\(namespace)/\(key.dropFirst(namespaceBytes.count + 2))"
-                }
-            } else {
-                if let mh = try? Multihash(key) {
-                    return "\(mh.b58String)"
-                } else if let cid = try? CID(key) {
-                    return "\(cid.multihash.b58String)"
-                } else {
-                    return "\(key)"
-                }
-            }
         }
         
 //        public func stop() {
