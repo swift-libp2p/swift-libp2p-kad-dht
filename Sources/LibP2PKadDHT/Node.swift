@@ -699,9 +699,23 @@ extension KadDHT {
         
         /// For each KV in our DHT, we send it to the closest two peers we know of (excluding us)
         private func _shareDHTKVs() -> EventLoopFuture<Void> {
-            self.dht.compactMap { key, value in
-                self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3).transform(to: ())
+            guard self.dht.count <= 2 else { return self._shareDHTKVsSequentially() }
+            return self.dht.compactMap { key, value in
+                self.eventLoop.next().submit {
+                    self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3)
+                }.transform(to: ())
             }.flatten(on: self.eventLoop)
+        }
+        
+        private func _shareDHTKVsSequentially() -> EventLoopFuture<Void> {
+            let group = MultiThreadedEventLoopGroup(numberOfThreads: 2)
+            return self.dht.compactMap { key, value in
+                group.next().flatSubmit {
+                    self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3).transform(to: ())
+                }
+            }.flatten(on: self.eventLoop).always { _ in
+                try! group.syncShutdownGracefully()
+            }
         }
         
         /// Given a KV pair, this method will find the nearest X peers and attempt to share the KV with them.
