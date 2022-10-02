@@ -714,7 +714,7 @@ extension KadDHT {
                     self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3).transform(to: ())
                 }
             }.flatten(on: self.eventLoop).always { _ in
-                try! group.syncShutdownGracefully()
+                group.shutdownGracefully(queue: .global()) { _ in print("DHT KV ELG shutdown") }
             }
         }
         
