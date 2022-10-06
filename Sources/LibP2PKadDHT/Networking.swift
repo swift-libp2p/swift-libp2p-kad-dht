@@ -11,9 +11,14 @@ extension KadDHT {
     
     struct NodeMetrics {
         var history:[(date:TimeInterval, event:KadDHT.Event)] = []
+        private let record:Bool
+        
+        init(record:Bool = true) {
+            self.record = record
+        }
         
         mutating func add(event:KadDHT.Event) {
-            self.history.append((Date().timeIntervalSince1970, event))
+            if record { self.history.append((Date().timeIntervalSince1970, event)) }
         }
     }
 

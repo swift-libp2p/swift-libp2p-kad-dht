@@ -309,7 +309,7 @@ extension KadDHT {
             self.routingTable = RoutingTable(eventloop: eventLoop, bucketSize: options.bucketSize, localPeerID: peerID, latency: options.connectionTimeout, peerstoreMetrics: [:], usefulnessGracePeriod: .minutes(5))
             self.logger = Logger(label: "DHTNode\(peerID)")
             self.logger.logLevel = network.logger.logLevel
-            self.metrics = NodeMetrics()
+            self.metrics = NodeMetrics(record: false)
             self.state = .stopped
             self.autoUpdate = true
             
