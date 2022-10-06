@@ -408,6 +408,7 @@ extension KadDHT {
                 self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
                 self.logger.notice("Peers<\(self.peerstore.keys.count)> [ \n\(self.peerstore.keys.map { "\($0)" }.joined(separator: ",\n"))]")
                 self.logger.notice("\(self.routingTable.description)")
+                self.logger.notice("ProviderStore<\(self.providerStore.count)>")
                 return self.network!.peers.count().flatMap { peerStoreCount in
                     self.logger.notice("PeerStore<\(peerStoreCount)>")
                     return self._shareDHTKVs().flatMap {
@@ -707,7 +708,7 @@ extension KadDHT {
             }.flatten(on: self.eventLoop)
         }
         
-        private func _shareDHTKVsSequentially() -> EventLoopFuture<Void> {
+        private func _shareDHTKVsSequentially2() -> EventLoopFuture<Void> {
             let group = MultiThreadedEventLoopGroup(numberOfThreads: 2)
             return self.dht.compactMap { key, value in
                 group.next().flatSubmit {
@@ -717,6 +718,31 @@ extension KadDHT {
                 group.shutdownGracefully(queue: .global()) { _ in print("DHT KV ELG shutdown") }
             }
         }
+        
+        private var kvsToShare:[KadDHT.Key : DHT.Record] = [:]
+        private func _shareDHTKVsSequentially() -> EventLoopFuture<Void> {
+            self.eventLoop.flatSubmit {
+                guard self.kvsToShare.isEmpty else { self.logger.warning("Already Sharing KVs, skipping..."); return self.eventLoop.makeSucceededVoidFuture() }
+                self.kvsToShare = self.dht
+                
+                return self._recursiveShare().always { _ in
+                    self.logger.notice("Done Sharing DHT KVs")
+                }
+            }
+        }
+        
+        private func _recursiveShare() -> EventLoopFuture<Void> {
+            self.eventLoop.flatSubmit {
+                if let kv = self.kvsToShare.popFirst() {
+                    return self._shareDHTKVWithNearestPeers(key: kv.key, value: kv.value, nearestPeers: 3).flatMap { _ in
+                        self._recursiveShare()
+                    }
+                } else {
+                    return self.eventLoop.makeSucceededVoidFuture()
+                }
+            }
+        }
+        
         
         /// Given a KV pair, this method will find the nearest X peers and attempt to share the KV with them.
         private func _shareDHTKVWithNearestPeers(key:KadDHT.Key, value:DHT.Record, nearestPeers peerCount:Int) -> EventLoopFuture<Bool> {
