@@ -1132,7 +1132,7 @@ extension KadDHT {
         private func addPeerIfSpaceOrCloser(_ peer:PeerInfo) -> EventLoopFuture<Void> {
             //guard let pid = try? PeerID(fromBytesID: peer.id.bytes), pid.b58String != self.peerID.b58String else { return self.eventLoop.makeFailedFuture( Errors.unknownPeer ) }
             return self.routingTable.addPeer(peer.peer, isQueryPeer: true, isReplaceable: true, replacementStrategy: self.replacementStrategy).map { success in
-                self.logger.notice("\(success ? "Added" : "Did not add") \(peer) to routing table")
+                self.logger.trace("\(success ? "Added" : "Did not add") \(peer) to routing table")
                 if let network = self.network {
                     network.peers.getPeerInfo(byID: peer.peer.b58String).whenComplete { result in
                         switch result {
