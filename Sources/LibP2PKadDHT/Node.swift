@@ -256,6 +256,7 @@ extension KadDHT {
         
         /// Naive DHT Provider Store
         var providerStore:[KadDHT.Key:[DHT.Message.Peer]] = [:]
+        let maxProviderStoreSize:Int
         
         /// The event loop that we're operating on...
         public let eventLoop:EventLoop
@@ -273,7 +274,9 @@ extension KadDHT {
         var logger:Logger
         
         /// Known Peers
-        //var peerstore:[String:PeerInfo] = [:]
+        var peerstore:PeerStore {
+            self.network!.peers
+        }
         
         /// Wether the node should start a timer that triggers the heartbeat method, or if it should wait for an external service to call the heartbeat method explicitly
         public var autoUpdate:Bool
@@ -305,6 +308,7 @@ extension KadDHT {
             self.maxConcurrentRequest = options.maxConcurrentConnections
             self.connectionTimeout = options.connectionTimeout
             self.dhtSize = options.maxKeyValueStoreSize
+            self.maxProviderStoreSize = options.maxProviderStoreSize
             self.maxPeers = options.maxPeers
             self.routingTable = RoutingTable(eventloop: eventLoop, bucketSize: options.bucketSize, localPeerID: peerID, latency: options.connectionTimeout, peerstoreMetrics: [:], usefulnessGracePeriod: .minutes(5))
             self.logger = Logger(label: "DHTNode\(peerID)")
@@ -414,26 +418,21 @@ extension KadDHT {
                 self.logger.notice("Running Heartbeat")
                 self.isRunningHeartbeat = true
                 return self.network!.peers.all().flatMap { peers in
-                    self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
                     self.logger.notice("\(self.routingTable.description)")
-                    self.logger.notice("PeerStore<\(peers.count)> [ \n\(peers.map { "\($0.id.b58String)" }.joined(separator: ",\n"))]")
                     self.logger.notice("ProviderStore<\(self.providerStore.count)>")
-                    return self._shareDHTKVs().flatMap {
-                        //self._shareProviderRecords().flatMap {
+                    self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
+                    self.logger.notice("PeerStore<\(peers.count)> [ \n\(peers.map { "\($0.id.b58String)" }.joined(separator: ",\n"))]")
+                    return self.pruneProviders().flatMap {
+                        self._shareDHTKVs().flatMap {
+                            // TODO: Share Provider Records
                             self._searchForPeersLookupStyle()
-                        //}
+                        }
                     }
                 }.always { _ in
                     self.logger.notice("Heartbeat Finished")
                     self.isRunningHeartbeat = false
                 }
             }
-          
-            // /// Search for additional peers
-            // return self._searchForPeersLookupStyle().and(
-            // /// Share our DHT Keys
-            // self._shareDHTKVs()
-            // ).transform(to: ())
         }
         
         public func advertise(service: String, options: Options?) -> EventLoopFuture<TimeAmount> {
@@ -469,6 +468,19 @@ extension KadDHT {
                     return true
                 } else {
                     return false
+                }
+            }
+        }
+        
+        /// Prunes the first 10% of provider keys with the fewest providers...
+        /// - TODO: We should keep track of when we added entries so we can expire/prune them appropriately
+        private func pruneProviders() -> EventLoopFuture<Void> {
+            self.eventLoop.submit {
+                guard self.providerStore.count > self.maxProviderStoreSize else { return }
+                self.providerStore.sorted(by: { lhs, rhs in
+                    lhs.value.count < rhs.value.count
+                }).prefix(Int(Double(self.maxProviderStoreSize) * 0.1)).map { $0.key }.forEach {
+                    self.providerStore.removeValue(forKey: $0)
                 }
             }
         }
@@ -716,12 +728,19 @@ extension KadDHT {
         }
         
         private var kvsToShare:[KadDHT.Key : DHT.Record] = [:]
-        private func _shareDHTKVsSequentially() -> EventLoopFuture<Void> {
+        private func _shareDHTKVsSequentially(concurrentSharers workers:Int = 4) -> EventLoopFuture<Void> {
             self.eventLoop.flatSubmit {
+                guard workers >= 1 else { self.logger.warning("Invalid Worker Count"); return self.eventLoop.makeSucceededVoidFuture() }
                 guard self.kvsToShare.isEmpty else { self.logger.warning("Already Sharing KVs, skipping..."); return self.eventLoop.makeSucceededVoidFuture() }
                 self.kvsToShare = self.dht
                 
-                return self._recursiveShare().always { _ in
+                /// Launch 4 concurrent recursive share routines...
+                self.logger.notice("Launching \(workers) workers in order to share \(self.kvsToShare.count) KV pairs!")
+                return (0..<workers).map { idx in
+                    self._recursiveShare().always { _ in
+                        self.logger.notice("DHTKVSharer[\(idx)]::Done Sharing DHT KVs")
+                    }
+                }.flatten(on: self.eventLoop).always { _ in
                     self.logger.notice("Done Sharing DHT KVs")
                 }
             }
