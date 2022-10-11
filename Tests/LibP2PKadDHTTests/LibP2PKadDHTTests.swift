@@ -83,7 +83,7 @@ class LibP2PKadDHTTests: XCTestCase {
         }
       
         print("*** After Lookup ***")
-        print("(DHT Peerstore: \(lib.dht.kadDHT.peerstore.count)) - \(lib.dht.kadDHT.peerstore)")
+        print("(DHT Peerstore: \(try lib.dht.kadDHT.peerstore.count().wait()) - \(lib.dht.kadDHT.peerstore)")
         print("")
        
         print("*** After Lookup ***")
@@ -549,7 +549,7 @@ class LibP2PKadDHTTests: XCTestCase {
         }
                 
         print("*** After Lookup ***")
-        print("(DHT Peerstore: \(lib.dht.kadDHT.peerstore.count)) - \(lib.dht.kadDHT.peerstore)")
+        print("(DHT Peerstore: \(try lib.dht.kadDHT.peerstore.count().wait()) - \(lib.dht.kadDHT.peerstore)")
         print("")
        
         print("*** After Lookup ***")
