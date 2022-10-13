@@ -214,7 +214,7 @@ extension KadDHT {
         public static var key: String = "KadDHT"
         
         /// This is why there is a "ipfs/lan/kad/1.0.0" protocol...
-        let isRunningLocally:Bool = true
+        let isRunningLocally:Bool = false
         
         enum State {
             case started
