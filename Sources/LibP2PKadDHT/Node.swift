@@ -477,11 +477,17 @@ extension KadDHT {
         private func pruneProviders() -> EventLoopFuture<Void> {
             self.eventLoop.submit {
                 guard self.providerStore.count > self.maxProviderStoreSize else { return }
-                self.providerStore.sorted(by: { lhs, rhs in
-                    lhs.value.count < rhs.value.count
-                }).prefix(Int(Double(self.maxProviderStoreSize) * 0.1)).map { $0.key }.forEach {
-                    self.providerStore.removeValue(forKey: $0)
+                (0..<self.providerStore.count - self.maxProviderStoreSize).forEach { _ in
+                    if let randElem = self.providerStore.randomElement()?.key {
+                        self.providerStore.removeValue(forKey: randElem)
+                    }
                 }
+                
+                //self.providerStore.sorted(by: { lhs, rhs in
+                //    lhs.value.count > rhs.value.count
+                //}).prefix(Int(Double(self.maxProviderStoreSize) * 0.1)).map { $0.key }.forEach {
+                //    self.providerStore.removeValue(forKey: $0)
+                //}
             }
         }
         
