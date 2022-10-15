@@ -1150,24 +1150,27 @@ extension KadDHT {
         /// This method adds a peer to our routingTable and peerstore if we either have excess capacity or if the peer is closer to us than the furthest current peer
         private func addPeerIfSpaceOrCloser(_ peer:PeerInfo) -> EventLoopFuture<Void> {
             //guard let pid = try? PeerID(fromBytesID: peer.id.bytes), pid.b58String != self.peerID.b58String else { return self.eventLoop.makeFailedFuture( Errors.unknownPeer ) }
-            return self.routingTable.addPeer(peer.peer, isQueryPeer: true, isReplaceable: true, replacementStrategy: self.replacementStrategy).map { success in
-                self.logger.trace("\(success ? "Added" : "Did not add") \(peer) to routing table")
-                if let network = self.network {
-                    network.peers.getPeerInfo(byID: peer.peer.b58String).whenComplete { result in
-                        switch result {
-                        case .success:
-                            return
-                        case .failure:
-                            let _ = network.peers.add(peerInfo: peer).map { _ in
-                                self.metrics.add(event: .peerDiscovered(peer))
+            return self._isPeerOperatingAsServer(peer.peer).flatMap { isQueryPeer in
+                guard isQueryPeer else { return self.eventLoop.makeSucceededVoidFuture() }
+                return self.routingTable.addPeer(peer.peer, isQueryPeer: true, isReplaceable: true, replacementStrategy: self.replacementStrategy).map { success in
+                    self.logger.trace("\(success ? "Added" : "Did not add") \(peer) to routing table")
+                    if let network = self.network {
+                        network.peers.getPeerInfo(byID: peer.peer.b58String).whenComplete { result in
+                            switch result {
+                            case .success:
+                                return
+                            case .failure:
+                                let _ = network.peers.add(peerInfo: peer).map { _ in
+                                    self.metrics.add(event: .peerDiscovered(peer))
+                                }
                             }
                         }
                     }
+                    if success {
+                        self.metrics.add(event: .addedPeer(peer))
+                    }
+                    return
                 }
-                if success {
-                    self.metrics.add(event: .addedPeer(peer))
-                }
-                return
             }
         }
         
