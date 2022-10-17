@@ -374,6 +374,8 @@ extension KadDHT {
                     self.logger.error("Failed to add bootstrapped peers: \(error)")
                 }
             }
+            
+            self.logger.notice("DHTNode Initialized")
         }
         
         convenience init(network:Application, mode:KadDHT.Mode, bootstrapPeers:[PeerInfo], options:NodeOptions) throws {
