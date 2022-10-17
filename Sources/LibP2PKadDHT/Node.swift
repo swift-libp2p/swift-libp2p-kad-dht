@@ -358,6 +358,7 @@ extension KadDHT {
                         } else {
                             self.metrics.add(event: .droppedPeer(pInfo, .failedToAdd))
                         }
+                        self.logger.notice("\(didAddPeer ? "Added" : "Did not add") \(pInfo.peer) to RoutingTable")
                     case .failure:
                         self.metrics.add(event: .droppedPeer(pInfo, .failedToAdd))
                     }
@@ -368,7 +369,7 @@ extension KadDHT {
                     if bools.contains(false) {
                         self.logger.warning("Failed to add \(bools.filter({ !$0 }).count) of \(bools.count) bootstrap peers")
                     } else {
-                        self.logger.info("Added \(bools.count) bootstrap peers")
+                        self.logger.notice("Added \(bools.count) bootstrap peers")
                     }
                 case .failure(let error):
                     self.logger.error("Failed to add bootstrapped peers: \(error)")
