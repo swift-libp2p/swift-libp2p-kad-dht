@@ -333,11 +333,13 @@ extension KadDHT {
             /// ( if our peerstore prunes a peer that happens to be in the routing table, we'll still have thier information available)
             self.routingTable.peerAddedHandler = { peer in
                 let _ = self.network?.peers.getPeerInfo(byID: peer.b58String).map { pInfo in
+                    self.logger.notice("RoutingTable::Adding Peer \(peer)")
                     self.routingTablePeerInfo[peer.b58String] = pInfo
                 }
             }
             
             self.routingTable.peerRemovedHandler = { peer in
+                self.logger.notice("RoutingTable::Removing Peer \(peer)")
                 self.routingTablePeerInfo.removeValue(forKey: peer.b58String)
             }
             
