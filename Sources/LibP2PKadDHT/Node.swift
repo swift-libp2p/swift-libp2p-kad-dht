@@ -321,6 +321,26 @@ extension KadDHT {
             /// Add our initialized event
             self.metrics.add(event: .initialized)
             
+            if case .server = mode {
+                self.logger.info("Registering KadDHT endpoint for opperation as Server")
+                /// register the `/ipfs/kad/1.0.0` endpoint
+                try! registerDHTRoute(self.network!)
+            } else {
+                self.logger.info("Operating in Client Only Mode")
+            }
+            
+            /// We keep an extra PeerInfo map for our Routing Table Peers
+            /// ( if our peerstore prunes a peer that happens to be in the routing table, we'll still have thier information available)
+            self.routingTable.peerAddedHandler = { peer in
+                let _ = self.network?.peers.getPeerInfo(byID: peer.b58String).map { pInfo in
+                    self.routingTablePeerInfo[peer.b58String] = pInfo
+                }
+            }
+            
+            self.routingTable.peerRemovedHandler = { peer in
+                self.routingTablePeerInfo.removeValue(forKey: peer.b58String)
+            }
+            
             /// Add the bootstrapped peers to our routing table
             bootstrapedPeers.compactMap { pInfo -> EventLoopFuture<Bool> in
 //                guard let pid = self.multiaddressToPeerID(ma) else { return self.eventLoop.makeSucceededFuture( false ) }
@@ -352,27 +372,6 @@ extension KadDHT {
                     self.logger.error("Failed to add bootstrapped peers: \(error)")
                 }
             }
-            
-            if case .server = mode {
-                self.logger.info("Registering KadDHT endpoint for opperation as Server")
-                /// register the `/ipfs/kad/1.0.0` endpoint
-                try! registerDHTRoute(self.network!)
-            } else {
-                self.logger.info("Operating in Client Only Mode")
-            }
-            
-            /// We keep an extra PeerInfo map for our Routing Table Peers
-            /// ( if our peerstore prunes a peer that happens to be in the routing table, we'll still have thier information available)
-            self.routingTable.peerAddedHandler = { peer in
-                let _ = self.network?.peers.getPeerInfo(byID: peer.b58String).map { pInfo in
-                    self.routingTablePeerInfo[peer.b58String] = pInfo
-                }
-            }
-            
-            self.routingTable.peerRemovedHandler = { peer in
-                self.routingTablePeerInfo.removeValue(forKey: peer.b58String)
-            }
-            
         }
         
         convenience init(network:Application, mode:KadDHT.Mode, bootstrapPeers:[PeerInfo], options:NodeOptions) throws {
