@@ -354,7 +354,7 @@ extension KadDHT {
                         if didAddPeer {
                             self.metrics.add(event: .addedPeer(pInfo))
                             let _ = self.network?.peers.add(peerInfo: pInfo)
-                            //self.peerstore[pInfo.peer.b58String] = pInfo
+                            self.routingTablePeerInfo[pInfo.peer.b58String] = pInfo
                         } else {
                             self.metrics.add(event: .droppedPeer(pInfo, .failedToAdd))
                         }
