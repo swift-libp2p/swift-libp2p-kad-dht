@@ -252,6 +252,7 @@ extension KadDHT {
         
         /// DHT Peer Store
         let routingTable:RoutingTable
+        var routingTablePeerInfo:[String:PeerInfo] = [:]
         let maxPeers:Int
         
         /// Naive DHT Provider Store
@@ -358,6 +359,18 @@ extension KadDHT {
                 try! registerDHTRoute(self.network!)
             } else {
                 self.logger.info("Operating in Client Only Mode")
+            }
+            
+            /// We keep an extra PeerInfo map for our Routing Table Peers
+            /// ( if our peerstore prunes a peer that happens to be in the routing table, we'll still have thier information available)
+            self.routingTable.peerAddedHandler = { peer in
+                let _ = self.network?.peers.getPeerInfo(byID: peer.b58String).map { pInfo in
+                    self.routingTablePeerInfo[peer.b58String] = pInfo
+                }
+            }
+            
+            self.routingTable.peerRemovedHandler = { peer in
+                self.routingTablePeerInfo.removeValue(forKey: peer.b58String)
             }
             
         }
@@ -1148,9 +1161,14 @@ extension KadDHT {
         }
         
         private func dhtPeerToPeerInfo(_ dhtPeers:[DHTPeerInfo]) -> EventLoopFuture<[PeerInfo]> {
-            dhtPeers.compactMap {
-                self.network?.peers.getPeerInfo(byID: $0.id.b58String)
-            }.flatten(on: self.eventLoop)
+//            dhtPeers.compactMap {
+//                self.network?.peers.getPeerInfo(byID: $0.id.b58String)
+//            }.flatten(on: self.eventLoop)
+            self.eventLoop.submit {
+                dhtPeers.compactMap {
+                    self.routingTablePeerInfo[ $0.id.b58String ]
+                }
+            }
         }
         
         /// This method adds a peer to our routingTable and peerstore if we either have excess capacity or if the peer is closer to us than the furthest current peer
@@ -1297,17 +1315,23 @@ extension KadDHT {
             guard let peer = self.multiaddressToPeerID(ma) else { return self.eventLoop.makeFailedFuture(Errors.unknownPeer) }
             
             return self.routingTable.nearest(1, peersTo: peer).flatMap { peerInfos in
-                guard let nearest = peerInfos.first, nearest.id.id != self.peerID.id, let network = self.network else {
+                guard let nearest = peerInfos.first, nearest.id.id != self.peerID.id else {
                     return self.eventLoop.makeSucceededFuture(Response.findNode(closerPeers: []))
                 }
                 
-                return network.peers.getPeerInfo(byID: nearest.id.b58String).map { pInfo in
-                    var closerPeer:[DHT.Message.Peer] = []
-                    if let p = try? DHT.Message.Peer(pInfo) {
-                        closerPeer.append(p)
-                    }
-                    return Response.findNode(closerPeers: closerPeer)
+//                return network.peers.getPeerInfo(byID: nearest.id.b58String).map { pInfo in
+//                    var closerPeer:[DHT.Message.Peer] = []
+//                    if let p = try? DHT.Message.Peer(pInfo) {
+//                        closerPeer.append(p)
+//                    }
+//                    return Response.findNode(closerPeers: closerPeer)
+//                }
+                var closerPeer:[DHT.Message.Peer] = []
+                if let pInfo = self.routingTablePeerInfo[nearest.id.b58String], let p = try? DHT.Message.Peer(pInfo) {
+                    closerPeer.append(p)
                 }
+                return self.eventLoop.makeSucceededFuture( Response.findNode(closerPeers: closerPeer) )
+                
             }
         }
         
@@ -1315,13 +1339,22 @@ extension KadDHT {
         private func nearest(_ num:Int, toPeer peer:PeerID) -> EventLoopFuture<Response> {
             //guard let peer = self.multiaddressToPeerID(ma) else { return self.eventLoop.makeFailedFuture(Errors.unknownPeer) }
             
-            return self.routingTable.nearest(num, peersTo: peer).flatMap { peerInfos in
-                return peerInfos.filter { $0.id.id != self.peerID.id }.compactMap {
-                    //self.peerstore[$0.id.b58String]
-                    self.network?.peers.getPeerInfo(byID: $0.id.b58String)
-                }.flatten(on: self.eventLoop).map { ps in
-                    Response.findNode(closerPeers: ps.compactMap { try? DHT.Message.Peer($0) })
+//            return self.routingTable.nearest(num, peersTo: peer).flatMap { peerInfos in
+//                return peerInfos.filter { $0.id.id != self.peerID.id }.compactMap {
+//                    //self.peerstore[$0.id.b58String]
+//                    self.network?.peers.getPeerInfo(byID: $0.id.b58String)
+//                    //self.routingTablePeerInfo[$0.b58String]
+//                }.flatten(on: self.eventLoop).map { ps in
+//                    Response.findNode(closerPeers: ps.compactMap { try? DHT.Message.Peer($0) })
+//                }
+//            }
+            return self.routingTable.nearest(num, peersTo: peer).map { peerInfos in
+                let closerPeers = peerInfos.filter { $0.id.id != self.peerID.id }.compactMap { pid -> DHT.Message.Peer? in
+                    guard let p = self.routingTablePeerInfo[pid.id.b58String] else { return nil }
+                    return try? DHT.Message.Peer(p)
                 }
+                
+                return Response.findNode(closerPeers: closerPeers)
             }
         }
         
@@ -1331,9 +1364,16 @@ extension KadDHT {
         }
         
         private func _nearestPeerTo(_ kid:KadDHT.Key) -> EventLoopFuture<PeerInfo> {
+//            return self.routingTable.nearestPeer(to: kid).flatMap { peer in
+//                if let peer = peer, let network = self.network {
+//                    return network.peers.getPeerInfo(byID: peer.id.b58String)
+//                } else {
+//                    return self.eventLoop.makeFailedFuture( Errors.unknownPeer )
+//                }
+//            }
             return self.routingTable.nearestPeer(to: kid).flatMap { peer in
-                if let peer = peer, let network = self.network {
-                    return network.peers.getPeerInfo(byID: peer.id.b58String)
+                if let peer = peer, let info = self.routingTablePeerInfo[peer.id.b58String] {
+                    return self.eventLoop.makeSucceededFuture(info)
                 } else {
                     return self.eventLoop.makeFailedFuture( Errors.unknownPeer )
                 }
@@ -1342,10 +1382,15 @@ extension KadDHT {
         
         /// Returns up to the specified number of closest peers to the provided multiaddress, excluding ourselves
         private func _nearest(_ num:Int, peersToKey keyID:KadDHT.Key) -> EventLoopFuture<[PeerInfo]> {
-            return self.routingTable.nearest(num, peersToKey: keyID).flatMap { peerInfos in
+//            return self.routingTable.nearest(num, peersToKey: keyID).flatMap { peerInfos in
+//                return peerInfos.filter { $0.id.id != self.peerID.id }.compactMap {
+//                    self.network?.peers.getPeerInfo(byID: $0.id.b58String)
+//                }.flatten(on: self.eventLoop)
+//            }
+            return self.routingTable.nearest(num, peersToKey: keyID).map { peerInfos in
                 return peerInfos.filter { $0.id.id != self.peerID.id }.compactMap {
-                    self.network?.peers.getPeerInfo(byID: $0.id.b58String)
-                }.flatten(on: self.eventLoop)
+                    self.routingTablePeerInfo[$0.id.b58String]
+                }
             }
         }
         
