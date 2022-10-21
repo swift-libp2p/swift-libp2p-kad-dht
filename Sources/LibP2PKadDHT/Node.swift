@@ -421,6 +421,7 @@ extension KadDHT {
             return self.eventLoop.flatSubmit {
                 self.logger.notice("Running Heartbeat")
                 self.isRunningHeartbeat = true
+                let tic = DispatchTime.now()
                 return self.peerstore.all().flatMap { peers in
                     self.logger.notice("\(self.routingTable.description)")
                     if let data = try? JSONEncoder().encode(MetadataBook.PrunableMetadata(prunable: .necessary)).bytes {
@@ -429,14 +430,14 @@ extension KadDHT {
                     self.logger.notice("ProviderStore<\(self.providerStore.count)>")
                     self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
                     self.logger.notice("PeerStore<\(peers.count)> [ \n\(peers.map { "\($0.id.b58String)" }.joined(separator: ",\n"))]")
-                    return self.pruneProviders().flatMap {
+                    return self._pruneProviders().flatMap {
                         self._shareDHTKVs().flatMap {
                             // TODO: Share Provider Records
                             self._searchForPeersLookupStyle()
                         }
                     }
                 }.always { _ in
-                    self.logger.notice("Heartbeat Finished")
+                    self.logger.notice("Heartbeat Finished after \((DispatchTime.now().uptimeNanoseconds - tic.uptimeNanoseconds) / 1_000_000)ms")
                     self.isRunningHeartbeat = false
                 }
             }
@@ -481,10 +482,11 @@ extension KadDHT {
         
         /// Prunes the first 10% of provider keys with the fewest providers...
         /// - TODO: We should keep track of when we added entries so we can expire/prune them appropriately
-        private func pruneProviders() -> EventLoopFuture<Void> {
+        private func _pruneProviders() -> EventLoopFuture<Void> {
             self.eventLoop.submit {
                 guard self.providerStore.count > self.maxProviderStoreSize else { return }
-                (0..<self.providerStore.count - self.maxProviderStoreSize).forEach { _ in
+                let providerEntriesToPrune = max(1, self.providerStore.count - self.maxProviderStoreSize)
+                (0..<providerEntriesToPrune).forEach { _ in
                     if let randElem = self.providerStore.randomElement()?.key {
                         self.providerStore.removeValue(forKey: randElem)
                     }
@@ -928,7 +930,12 @@ extension KadDHT {
                                     self.logger.info("Query Key: \(key)")
                                     self.logger.info("Response Key: \(k)")
                                     self.logger.info("Query Rec: \(value)")
-                                    self.logger.info("Response Rec: \(rec)")
+                                    if let rec = rec {
+                                        self.logger.info("Response Rec: \(rec)")
+                                    } else {
+                                        self.logger.info("Response Rec: NIL")
+                                    }
+                                    
                                     return self.eventLoop.makeSucceededFuture((rec != nil && k == key))
                                 case .failure(let error):
                                     self.logger.info("PutValue Error -> \(error)")
