@@ -16,121 +16,6 @@ import LibP2P
 import CID
 import Multihash
 
-public protocol Validator {
-    func validate(key:[UInt8], value:[UInt8]) throws
-    func select(key:[UInt8], values:[[UInt8]]) throws -> Int
-}
-
-extension KadDHT {
-    static public func createPubKeyRecord(peerID:PeerID) throws -> DHTRecord {
-        let df = ISO8601DateFormatter()
-        df.formatOptions.insert(.withFractionalSeconds)
-        
-        let key = "/pk/".bytes + peerID.id
-        let record = try DHT.Record.with { rec in
-            rec.key = Data(key)
-            rec.value = try Data(peerID.marshalPublicKey())
-            rec.timeReceived = df.string(from: Date())
-        }
-        
-        return record
-    }
-}
-
-extension DHT {
-    struct BaseValidator:Validator {
-        let validateFunction:((_ key:[UInt8], _ value:[UInt8]) throws -> Void)
-        let selectFunction:((_ key:[UInt8], _ values:[[UInt8]]) throws -> Int)
-        
-        init(validationFunction:@escaping (_ key:[UInt8], _ value:[UInt8]) throws -> Void, selectFunction:@escaping (_ key:[UInt8], _ values:[[UInt8]]) throws -> Int) {
-            self.validateFunction = validationFunction
-            self.selectFunction = selectFunction
-        }
-        
-        func validate(key:[UInt8], value:[UInt8]) throws {
-            return try self.validateFunction(key, value)
-        }
-        
-        func select(key:[UInt8], values:[[UInt8]]) throws -> Int {
-            return try selectFunction(key, values)
-        }
-    }
-    
-    struct PubKeyValidator:Validator {
-        func validate(key: [UInt8], value: [UInt8]) throws {
-            let record = try DHT.Record(contiguousBytes: value)
-            guard Data(key) == record.key else { throw NSError(domain: "Validator::Key Mismatch. Expected \(Data(key)) got \(record.key) ", code: 0) }
-            let _ = try PeerID(marshaledPublicKey: Data(record.value))
-        }
-        
-        func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
-            let records = values.map { try? DHT.Record(contiguousBytes: $0) }
-            guard !records.compactMap({ $0 }).isEmpty else { throw NSError(domain: "Validator::No Records to select", code: 0) }
-            guard records.count > 1 && records[0] != nil else { return 0 }
-
-            var bestValueIndex:Int = 0
-            var bestValue:DHT.Record? = nil
-            for (index, record) in records.enumerated() {
-                guard let record = record else { continue }
-                guard let newRecord = try? RFC3339Date(string: record.timeReceived) else { continue }
-                
-                if let currentBest = bestValue {
-                    guard let currentRecord = try? RFC3339Date(string: currentBest.timeReceived) else { continue }
-                    // If this record is more recent then our currentBest, update our current best!
-                    if newRecord > currentRecord {
-                        bestValue = record
-                        bestValueIndex = index
-                    }
-                } else {
-                    // If we don't have a current best, set it!
-                    bestValue = record
-                    bestValueIndex = index
-                }
-            }
-            
-            guard bestValue != nil else { throw NSError(domain: "Validator::Failed to select a valid record", code: 0) }
-            return bestValueIndex
-        }
-    }
-    
-    struct IPNSValidator:Validator {
-        func validate(key: [UInt8], value: [UInt8]) throws {
-            let record = try DHT.Record(contiguousBytes: value)
-            guard Data(key) == record.key else { throw NSError(domain: "Validator::Key Mismatch. Expected \(Data(key)) got \(record.key) ", code: 0) }
-            let _ = try IpnsEntry(contiguousBytes: record.value)
-        }
-        
-        func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
-            let records = values.map { try? DHT.Record(contiguousBytes: $0) }
-            guard !records.compactMap({ $0 }).isEmpty else { throw NSError(domain: "Validator::No Records to select", code: 0) }
-            guard records.count > 1 && records[0] != nil else { return 0 }
-            
-            var bestValueIndex:Int = 0
-            var bestValue:DHT.Record? = nil
-            for (index, record) in records.enumerated() {
-                guard let record = record else { continue }
-                guard let newRecord = try? RFC3339Date(string: record.timeReceived) else { continue }
-                
-                if let currentBest = bestValue {
-                    guard let currentRecord = try? RFC3339Date(string: currentBest.timeReceived) else { continue }
-                    // If this record is more recent then our currentBest, update our current best!
-                    if newRecord > currentRecord {
-                        bestValue = record
-                        bestValueIndex = index
-                    }
-                } else {
-                    // If we don't have a current best, set it!
-                    bestValue = record
-                    bestValueIndex = index
-                }
-            }
-            
-            guard bestValue != nil else { throw NSError(domain: "Validator::Failed to select a valid record", code: 0) }
-            return bestValueIndex
-        }
-    }
-}
-
 /// If we abstract the Application into a Network protocol then we can create a FauxNetwork for testing purposes...
 protocol Network {
     var logger:Logger { get }
@@ -143,42 +28,7 @@ protocol Network {
     func newRequest(to ma:Multiaddr, forProtocol proto:String, withRequest request:Data, style:Application.SingleRequest.Style, withHandlers handlers:HandlerConfig, andMiddleware middleware:MiddlewareConfig, withTimeout timeout:TimeAmount) -> EventLoopFuture<Data>
 }
 
-//extension Application: Network { }
 
-extension DHT {
-    /// This method attempts to take a key in the form of bytes and convert it into a human readable "/<namespace>/<multihash>" string for debugging
-    /// - Parameter key: The key in bytes that you'd like to log
-    /// - Returns: The most human readable string we can make
-    static func keyToHumanReadableString(_ key:[UInt8]) -> String {
-        if let namespaceBytes = DHT.extractNamespace(key), let namespace = String(data: Data(namespaceBytes), encoding: .utf8) {
-            if let mh = try? Multihash(Array(key.dropFirst(namespace.count + 2))) {
-                return "/\(namespace)/\(mh.b58String)"
-            } else if let cid = try? CID(Array(key.dropFirst(namespace.count + 2))) {
-                return "/\(namespace)/\(cid.multihash.b58String)"
-            } else {
-                return "/\(namespace)/\(key.dropFirst(namespaceBytes.count + 2))"
-            }
-        } else {
-            if let mh = try? Multihash(key) {
-                return "\(mh.b58String)"
-            } else if let cid = try? CID(key) {
-                return "\(cid.multihash.b58String)"
-            } else {
-                return "\(key)"
-            }
-        }
-    }
-    
-    /// This method attempts to extract a namespace prefixed key of the form "/namespace/<multihash>"
-    /// - Parameter key: The key to extract the prefixed namespace from
-    /// - Returns: The namespace bytes if they exist (excluding the forward slashes), or nil if the key isn't prefixed with a namespace
-    /// - Note: "/" in utf8 == 47
-    static func extractNamespace(_ key:[UInt8]) -> [UInt8]? {
-        guard key.first == UInt8(47) else { return nil }
-        guard let idx = key.dropFirst().firstIndex(of: UInt8(47)) else { return nil }
-        return Array(key[1..<idx])
-    }
-}
 
 //extension DHT.Record:CustomStringConvertible {
 //    public var description: String {
@@ -486,17 +336,11 @@ extension KadDHT {
             self.eventLoop.submit {
                 guard self.providerStore.count > self.maxProviderStoreSize else { return }
                 let providerEntriesToPrune = max(1, self.providerStore.count - self.maxProviderStoreSize)
-                (0..<providerEntriesToPrune).forEach { _ in
-                    if let randElem = self.providerStore.randomElement()?.key {
-                        self.providerStore.removeValue(forKey: randElem)
-                    }
+                self.logger.notice("✂️✂️✂️ Pruning \(providerEntriesToPrune) Provider Entries ✂️✂️✂️")
+                let keys = self.providerStore.prefix(providerEntriesToPrune).map { $0.key }
+                keys.forEach {
+                    self.providerStore.removeValue(forKey: $0)
                 }
-                
-                //self.providerStore.sorted(by: { lhs, rhs in
-                //    lhs.value.count > rhs.value.count
-                //}).prefix(Int(Double(self.maxProviderStoreSize) * 0.1)).map { $0.key }.forEach {
-                //    self.providerStore.removeValue(forKey: $0)
-                //}
             }
         }
         
@@ -1262,18 +1106,18 @@ extension KadDHT {
         /// This version sends the key:value pair onto the next N closest peers, as long as they aren't us or the sender
         private func addKeyIfSpaceOrCloser2(key:[UInt8], value:DHT.Record, from:Multiaddr) -> EventLoopFuture<Response> {
             let kid = KadDHT.Key(key, keySpace: .xor)
-            var added:Bool = false
+            //var added:Bool = false
             if dht[kid] != nil {
                 /// Update the value...
                 dht[kid] = value
-                added = true
+                //added = true
                 self.logger.info("We already have `\(key):\(value)` in our DHT, updating it...")
                 return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value))
                 
             } else if dht.count < self.dhtSize {
                 /// We have space, so lets add it...
                 dht[kid] = value
-                added = true
+                //added = true
                 self.logger.info("We have excess space in DHT, storing `\(key):\(value)`")
                 return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value))
                 
@@ -1288,19 +1132,19 @@ extension KadDHT {
                     /// The new key is closer than our furthers key so lets drop the furthest and add the new key
                     let replacedValue = dht.removeValue(forKey: furthestKey)
                     dht[kid] = value
-                    added = true
+                    //added = true
                     self.logger.info("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: replacedValue))` with `\(key)`:`\(value)`")
                     return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value))
                     /// It might be a good idea to pass the replaced value onto another peer at this point...
                     
                 } else {
                     /// This new value is further away then all of our current keys, lets drop it...
-                    added = false
+                    //added = false
                     self.logger.info("New Key Value is further away from all current key value pairs, dropping store request.")
                     
                 }
                 
-                /// If we can't store it, lets ask the closest peers ew know about to store it...
+                /// If we can't store it, lets ask the closest peers we know about to store it...
                 return self._shareDHTKVWithNearestPeers(key: kid, value: value, nearestPeers: 3).map { stored in
                     if stored {
                         return .putValue(key: key, record: value)
@@ -1423,6 +1267,23 @@ extension PeerInfo:CustomStringConvertible {
         """
     }
 }
+
+extension KadDHT {
+    static public func createPubKeyRecord(peerID:PeerID) throws -> DHTRecord {
+        let df = ISO8601DateFormatter()
+        df.formatOptions.insert(.withFractionalSeconds)
+        
+        let key = "/pk/".bytes + peerID.id
+        let record = try DHT.Record.with { rec in
+            rec.key = Data(key)
+            rec.value = try Data(peerID.marshalPublicKey())
+            rec.timeReceived = df.string(from: Date())
+        }
+        
+        return record
+    }
+}
+
 
 
 extension DHT.Message.Peer:CustomStringConvertible {
