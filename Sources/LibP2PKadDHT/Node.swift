@@ -388,21 +388,21 @@ extension KadDHT {
         }
         
         private func onReady(_ req:Request) -> EventLoopFuture<LibP2P.Response<ByteBuffer>> {
-            self.logger.info("An inbound stream has been opened \(String(describing: req.remotePeer))")
+            req.logger.info("An inbound stream has been opened \(String(describing: req.remotePeer))")
             return req.eventLoop.makeSucceededFuture(.stayOpen)
         }
         
         private func onData(request:Request) -> EventLoopFuture<LibP2P.Response<ByteBuffer>> {
-            self.logger.info("We received data from \(String(describing: request.remotePeer))")
+            request.logger.info("We received data from \(String(describing: request.remotePeer))")
             
             /// Is this data from a legitimate peer?
             guard let from = request.remotePeer else {
-                self.logger.warning("Inbound Request from unauthenticated stream")
+                request.logger.warning("Inbound Request from unauthenticated stream")
                 return request.eventLoop.makeSucceededFuture(.reset(Errors.unknownPeer))
             }
             /// And is it Kad DHT data?
             guard let query = try? Query.decode(Array<UInt8>(request.payload.readableBytesView)) else {
-                self.logger.warning("Failed to decode inbound data...")
+                request.logger.warning("Failed to decode inbound data...")
                 //return stream.reset().transform(to: nil)
                 //let _ = stream.reset()
                 //return request.eventLoop.makeFailedFuture(Errors.unknownPeer)
@@ -424,19 +424,19 @@ extension KadDHT {
             
             /// Handle the query
             return request.eventLoop.flatSubmit { //.flatScheduleTask(in: self.connection.responseTime) {
-                return self._handleQuery(query, from: pInfo).always { result in
+                return self._handleQuery(query, from: pInfo, request: request).always { result in
                     switch result {
                     case .success(let res):
                         self.metrics.add(event: .queryResponse(pInfo, res))
                     case .failure(let error):
-                        self.logger.error("Error encountered while responding to query \(query) from peer \(from) -> \(error)")
+                        request.logger.error("Error encountered while responding to query \(query) from peer \(from) -> \(error)")
                     }
                 }
             }.flatMapThrowing { resp in
-                self.logger.info("---")
-                self.logger.info("Responding to query \(query) with:")
-                self.logger.info("\(resp)")
-                self.logger.info("---")
+                request.logger.info("---")
+                request.logger.info("Responding to query \(query) with:")
+                request.logger.info("\(resp)")
+                request.logger.info("---")
                 
                 /// Return the response
                 return try .respondThenClose(request.allocator.buffer(bytes: resp.encode()))
@@ -444,8 +444,8 @@ extension KadDHT {
         }
         
         /// Switches over the Query Type and Handles each appropriately
-        func _handleQuery(_ query:Query, from:PeerInfo) -> EventLoopFuture<Response> {
-            self.logger.notice("Query::Handling Query \(query) from peer \(from.peer)")
+        func _handleQuery(_ query:Query, from:PeerInfo, request:Request) -> EventLoopFuture<Response> {
+            request.logger.notice("Query::Handling Query \(query) from peer \(from.peer)")
             switch query {
             case .ping:
                 return self.eventLoop.makeSucceededFuture( Response.ping )
@@ -464,43 +464,43 @@ extension KadDHT {
                 }
                 
             case .putValue(let key, let value):
-                self.logger.notice("🚨🚨🚨 PutValue Request 🚨🚨🚨")
-                self.logger.notice("DHTRecordKey(HEX)::\(key.toHexString())")
-                self.logger.notice("DHTRecordValue(HEX)::\((try? value.serializedData().toHexString()) ?? "NIL")")
+                request.logger.notice("🚨🚨🚨 PutValue Request 🚨🚨🚨")
+                request.logger.notice("DHTRecordKey(HEX)::\(key.toHexString())")
+                request.logger.notice("DHTRecordValue(HEX)::\((try? value.serializedData().toHexString()) ?? "NIL")")
                 guard let namespace = DHT.extractNamespace(key) else {
-                    self.logger.warning("Failed to extract namespace for DHT PUT request")
-                    self.logger.warning("DHTRecordKey(HEX)::\(key.toHexString())")
-                    self.logger.warning("DHTRecordValue(HEX)::\((try? value.serializedData().toHexString()) ?? "NIL")")
+                    request.logger.warning("Failed to extract namespace for DHT PUT request")
+                    request.logger.warning("DHTRecordKey(HEX)::\(key.toHexString())")
+                    request.logger.warning("DHTRecordValue(HEX)::\((try? value.serializedData().toHexString()) ?? "NIL")")
                     return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil))
                 }
 
                 guard let validator = self.validators[namespace] else {
-                    self.logger.warning("Query::PutValue::No Validator Set For Namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
+                    request.logger.warning("Query::PutValue::No Validator Set For Namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
                     return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil))
                 }
                 
                 guard (try? validator.validate(key: key, value: value.serializedData().bytes)) != nil else {
-                    self.logger.warning("Query::PutValue::KeyVal failed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
+                    request.logger.warning("Query::PutValue::KeyVal failed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
                     return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil))
                 }
                 
-                self.logger.notice("Query::PutValue::KeyVal passed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
-                self.logger.notice("Query::PutValue::Attempting to store value for key: \(DHT.keyToHumanReadableString(key))")
-                return self.addKeyIfSpaceOrCloser(key: key, value: value, usingValidator: validator)
+                request.logger.notice("Query::PutValue::KeyVal passed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'")
+                request.logger.notice("Query::PutValue::Attempting to store value for key: \(DHT.keyToHumanReadableString(key))")
+                return self.addKeyIfSpaceOrCloser(key: key, value: value, usingValidator: validator, logger: request.logger)
                 //return self.addKeyIfSpaceOrCloser2(key: key, value: value, from: from)
                 
                 
             case .getValue(let key):
                 /// If we have the value, send it back!
                 let kid = KadDHT.Key(key, keySpace: .xor)
-                self.logger.notice("Query::GetValue::\(DHT.keyToHumanReadableString(key))")
+                request.logger.notice("Query::GetValue::\(DHT.keyToHumanReadableString(key))")
                 return self.dht.getValue(forKey: kid).flatMap { value in
                     if let value = value {
-                        self.logger.notice("Query::GetValue::Returning value for key: \(DHT.keyToHumanReadableString(key))")
+                        request.logger.notice("Query::GetValue::Returning value for key: \(DHT.keyToHumanReadableString(key))")
                         return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: value, closerPeers: []) )
                     } else {
                         return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                            self.logger.notice("Query::GetValue::Returning \(peers.count) closer peers for key: \(DHT.keyToHumanReadableString(key))")
+                            request.logger.notice("Query::GetValue::Returning \(peers.count) closer peers for key: \(DHT.keyToHumanReadableString(key))")
                             return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: nil, closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
                         }
                     }
@@ -513,12 +513,12 @@ extension KadDHT {
 
                 return self.providerStore.getValue(forKey: kid).flatMap { value in
                     if let value = value, !value.isEmpty {
-                        self.logger.notice("Query::GetProviders::Returning \(value.count) Provider Peers for CID: \(CID.multihash.b58String)")
+                        request.logger.notice("Query::GetProviders::Returning \(value.count) Provider Peers for CID: \(CID.multihash.b58String)")
                         return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: value, closerPeers: []) )
                     } else {
                         /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
                         return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                            self.logger.notice("Query::GetProviders::Returning \(peers.count) Closer Peers for CID: \(CID.multihash.b58String)")
+                            request.logger.notice("Query::GetProviders::Returning \(peers.count) Closer Peers for CID: \(CID.multihash.b58String)")
                             return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: [], closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
                         }
                     }
@@ -532,11 +532,11 @@ extension KadDHT {
                 
                 return self.providerStore.getValue(forKey: kid, default: []).flatMap { existingProviders in
                     if !existingProviders.contains(provider) {
-                        self.logger.notice("Query::AddProvider::\(from.peer) already a provider for cid: \(CID.multihash.b58String)")
+                        request.logger.notice("Query::AddProvider::\(from.peer) already a provider for cid: \(CID.multihash.b58String)")
                         return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: [provider]) )
                     } else {
                         return self.providerStore.updateValue(existingProviders + [provider], forKey: kid).map { _ in
-                            self.logger.notice("Query::AddProvider::Added \(from.peer) as a provider for cid: \(CID.multihash.b58String)")
+                            request.logger.notice("Query::AddProvider::Added \(from.peer) as a provider for cid: \(CID.multihash.b58String)")
                             return Response.addProvider(cid: cid, providerPeers: [provider])
                         }
                     }
@@ -1090,20 +1090,20 @@ extension KadDHT {
         }
         
         /// This method adds a key:value pair to our dht if we either have excess capacity or if the key is closer to us than the furthest current key in the dht
-        private func addKeyIfSpaceOrCloser(key:[UInt8], value:DHT.Record, usingValidator validator:Validator) -> EventLoopFuture<Response> {
+        private func addKeyIfSpaceOrCloser(key:[UInt8], value:DHT.Record, usingValidator validator:Validator, logger:Logger) -> EventLoopFuture<Response> {
             let kid = KadDHT.Key(key, keySpace: .xor)
             return self.dht.addKeyIfSpaceOrCloser(key: kid, value: value, usingValidator: validator, maxStoreSize: self.dhtSize, targetKey: KadDHT.Key(self.peerID, keySpace: .xor)).map { storedResult in
                 switch storedResult {
                 case .excessSpace:
-                    self.logger.notice("We have excess space in DHT, storing `\(key):\(value)`")
+                    logger.notice("We have excess space in DHT, storing `\(key):\(value)`")
                 case .updatedValue:
-                    self.logger.notice("We already have `\(key):\(value)` in our DHT, but this is a newer record, updating it...")
+                    logger.notice("We already have `\(key):\(value)` in our DHT, but this is a newer record, updating it...")
                 case .alreadyExists:
-                    self.logger.notice("We already have `\(key):\(value)` in our DHT")
+                    logger.notice("We already have `\(key):\(value)` in our DHT")
                 case .storedCloser(let furthestKey, let furthestValue):
-                    self.logger.notice("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: furthestValue))` with `\(key)`:`\(value)`")
+                    logger.notice("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: furthestValue))` with `\(key)`:`\(value)`")
                 case .notStoredFurther:
-                    self.logger.notice("New Key Value is further away from all current key value pairs, dropping store request.")
+                    logger.notice("New Key Value is further away from all current key value pairs, dropping store request.")
                 }
                 return .putValue(key: key, record: storedResult.wasAdded ? value : nil)
             }
