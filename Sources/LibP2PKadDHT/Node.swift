@@ -98,14 +98,16 @@ extension KadDHT {
         
         /// DHT Key:Value Store
         let dhtSize:Int
-        var dht:[KadDHT.Key:DHT.Record] = [:]
+        //var dht:[KadDHT.Key:DHT.Record] = [:]
+        let dht:EventLoopDictionary<KadDHT.Key, DHT.Record>
         
         /// DHT Peer Store
         let routingTable:RoutingTable
         let maxPeers:Int
         
         /// Naive DHT Provider Store
-        var providerStore:[KadDHT.Key:[DHT.Message.Peer]] = [:]
+        //var providerStore:[KadDHT.Key:[DHT.Message.Peer]] = [:]
+        let providerStore:EventLoopDictionary<KadDHT.Key, [DHT.Message.Peer]>
         let maxProviderStoreSize:Int
         
         /// The event loop that we're operating on...
@@ -156,7 +158,9 @@ extension KadDHT {
             //self.connection = options.connection
             self.maxConcurrentRequest = options.maxConcurrentConnections
             self.connectionTimeout = options.connectionTimeout
+            self.dht = EventLoopDictionary(on: eventLoop)
             self.dhtSize = options.maxKeyValueStoreSize
+            self.providerStore = EventLoopDictionary(on: eventLoop)
             self.maxProviderStoreSize = options.maxProviderStoreSize
             self.maxPeers = options.maxPeers
             self.routingTable = RoutingTable(eventloop: eventLoop, bucketSize: options.bucketSize, localPeerID: peerID, latency: options.connectionTimeout, peerstoreMetrics: [:], usefulnessGracePeriod: .minutes(5))
@@ -272,24 +276,47 @@ extension KadDHT {
                 self.logger.notice("Running Heartbeat")
                 self.isRunningHeartbeat = true
                 let tic = DispatchTime.now()
-                return self.peerstore.all().flatMap { peers in
-                    self.logger.notice("\(self.routingTable.description)")
-                    if let data = try? JSONEncoder().encode(MetadataBook.PrunableMetadata(prunable: .necessary)).bytes {
-                        self.logger.notice("Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.Prunable.rawValue] == data }).count)>")
-                    }
-                    self.logger.notice("ProviderStore<\(self.providerStore.count)>")
-                    self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
-                    self.logger.notice("PeerStore<\(peers.count)> [ \n\(peers.map { "\($0.id.b58String)" }.joined(separator: ",\n"))]")
-                    return self._pruneProviders().flatMap {
-                        self._shareDHTKVs().flatMap {
-                            // TODO: Share Provider Records
-                            self._searchForPeersLookupStyle()
+                return self.peerstore.all()
+                    .and(self.dht.all())
+                    .and(self.providerStore.count())
+                    .flatMap { (arg0, providerRecordCount) in
+                        let (peers, dhtValues) = arg0
+                        self.logger.notice("\(self.routingTable.description)")
+                        if let data = try? JSONEncoder().encode(MetadataBook.PrunableMetadata(prunable: .necessary)).bytes {
+                            self.logger.notice("Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.Prunable.rawValue] == data }).count)>")
                         }
+                        self.logger.notice("ProviderStore<\(providerRecordCount)>")
+                        self.logger.notice("DHT Keys<\(dhtValues.count)> [ \n\(dhtValues.map { "\($0.key)" }.joined(separator: ",\n"))]")
+                        self.logger.notice("PeerStore<\(peers.count)> [ \n\(peers.map { "\($0.id.b58String)" }.joined(separator: ",\n"))]")
+                        return self._pruneProviders().flatMap {
+                            self._shareDHTKVs().flatMap {
+                                // TODO: Share Provider Records
+                                self._searchForPeersLookupStyle()
+                            }
+                        }
+                    }.always { _ in
+                        self.logger.notice("Heartbeat Finished after \((DispatchTime.now().uptimeNanoseconds - tic.uptimeNanoseconds) / 1_000_000)ms")
+                        self.isRunningHeartbeat = false
                     }
-                }.always { _ in
-                    self.logger.notice("Heartbeat Finished after \((DispatchTime.now().uptimeNanoseconds - tic.uptimeNanoseconds) / 1_000_000)ms")
-                    self.isRunningHeartbeat = false
-                }
+//                return self.peerstore.all().flatMap { peers in
+//                    self.logger.notice("\(self.routingTable.description)")
+//                    if let data = try? JSONEncoder().encode(MetadataBook.PrunableMetadata(prunable: .necessary)).bytes {
+//                        self.logger.notice("Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.Prunable.rawValue] == data }).count)>")
+//                    }
+//                    let allDHT = self.dht.all().map { }
+//                    self.logger.notice("ProviderStore<\(self.providerStore.count)>")
+//                    self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
+//                    self.logger.notice("PeerStore<\(peers.count)> [ \n\(peers.map { "\($0.id.b58String)" }.joined(separator: ",\n"))]")
+//                    return self._pruneProviders().flatMap {
+//                        self._shareDHTKVs().flatMap {
+//                            // TODO: Share Provider Records
+//                            self._searchForPeersLookupStyle()
+//                        }
+//                    }
+//                }.always { _ in
+//                    self.logger.notice("Heartbeat Finished after \((DispatchTime.now().uptimeNanoseconds - tic.uptimeNanoseconds) / 1_000_000)ms")
+//                    self.isRunningHeartbeat = false
+//                }
             }
         }
         
@@ -333,14 +360,9 @@ extension KadDHT {
         /// Prunes the first 10% of provider keys with the fewest providers...
         /// - TODO: We should keep track of when we added entries so we can expire/prune them appropriately
         private func _pruneProviders() -> EventLoopFuture<Void> {
-            self.eventLoop.submit {
-                guard self.providerStore.count > self.maxProviderStoreSize else { return }
-                let providerEntriesToPrune = max(1, self.providerStore.count - self.maxProviderStoreSize)
-                self.logger.notice("✂️✂️✂️ Pruning \(providerEntriesToPrune) Provider Entries ✂️✂️✂️")
-                let keys = self.providerStore.prefix(providerEntriesToPrune).map { $0.key }
-                keys.forEach {
-                    self.providerStore.removeValue(forKey: $0)
-                }
+            self.eventLoop.flatSubmit {
+                self.logger.notice("✂️✂️✂️ Pruning Provider Entries ✂️✂️✂️")
+                return self.providerStore.prune(toAmount: self.maxProviderStoreSize)
             }
         }
         
@@ -472,14 +494,15 @@ extension KadDHT {
                 /// If we have the value, send it back!
                 let kid = KadDHT.Key(key, keySpace: .xor)
                 self.logger.notice("Query::GetValue::\(DHT.keyToHumanReadableString(key))")
-                if let val = self.dht[kid] {
-                    self.logger.notice("Query::GetValue::Returning value for key: \(DHT.keyToHumanReadableString(key))")
-                    return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: val, closerPeers: []) )
-                } else {
-                    /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
-                    return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                        self.logger.notice("Query::GetValue::Returning \(peers.count) closer peers for key: \(DHT.keyToHumanReadableString(key))")
-                        return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: nil, closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
+                return self.dht.getValue(forKey: kid).flatMap { value in
+                    if let value = value {
+                        self.logger.notice("Query::GetValue::Returning value for key: \(DHT.keyToHumanReadableString(key))")
+                        return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: value, closerPeers: []) )
+                    } else {
+                        return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
+                            self.logger.notice("Query::GetValue::Returning \(peers.count) closer peers for key: \(DHT.keyToHumanReadableString(key))")
+                            return self.eventLoop.makeSucceededFuture( Response.getValue(key: key, record: nil, closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
+                        }
                     }
                 }
                 
@@ -487,22 +510,17 @@ extension KadDHT {
                 /// Is this correct?? The same thing a getValue?
                 guard let CID = try? CID(cid) else { return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: []) ) }
                 let kid = KadDHT.Key(cid, keySpace: .xor)
-                if self.dht[kid] != nil {
-                    let pInfo = PeerInfo(peer: self.peerID, addresses: self.network?.listenAddresses ?? [])
-                    
-                    self.logger.notice("Query::GetProviders::Returning ourself as a Provider Peer for CID: \(CID.multihash.b58String)")
-                    if let dhtPeer = try? DHT.Message.Peer(pInfo) {
-                        return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: [dhtPeer], closerPeers: []) )
-                    }
-                    return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: [], closerPeers: []) )
-                } else if let knownProviders = self.providerStore[kid], !knownProviders.isEmpty {
-                    self.logger.notice("Query::GetProviders::Returning \(knownProviders.count) Provider Peers for CID: \(CID.multihash.b58String)")
-                    return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: knownProviders, closerPeers: []) )
-                } else {
-                    /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
-                    return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                        self.logger.notice("Query::GetProviders::Returning \(peers.count) Closer Peers for CID: \(CID.multihash.b58String)")
-                        return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: [], closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
+
+                return self.providerStore.getValue(forKey: kid).flatMap { value in
+                    if let value = value, !value.isEmpty {
+                        self.logger.notice("Query::GetProviders::Returning \(value.count) Provider Peers for CID: \(CID.multihash.b58String)")
+                        return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: value, closerPeers: []) )
+                    } else {
+                        /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
+                        return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
+                            self.logger.notice("Query::GetProviders::Returning \(peers.count) Closer Peers for CID: \(CID.multihash.b58String)")
+                            return self.eventLoop.makeSucceededFuture( Response.getProviders(cid: cid, providerPeers: [], closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }) )
+                        }
                     }
                 }
             
@@ -511,15 +529,18 @@ extension KadDHT {
                 guard let CID = try? CID(cid) else { return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: []) ) }
                 let kid = KadDHT.Key(cid, keySpace: .xor)
                 guard let provider = try? DHT.Message.Peer(from) else { return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: []) ) }
-                var knownProviders = self.providerStore[kid, default: []]
-                if !knownProviders.contains(provider) {
-                    knownProviders.append(provider)
-                    self.providerStore[kid] = knownProviders
-                    self.logger.notice("Query::AddProvider::Added \(from.peer) as a provider for cid: \(CID.multihash.b58String)")
-                } else {
-                    self.logger.notice("Query::AddProvider::\(from.peer) already a provider for cid: \(CID.multihash.b58String)")
+                
+                return self.providerStore.getValue(forKey: kid, default: []).flatMap { existingProviders in
+                    if !existingProviders.contains(provider) {
+                        self.logger.notice("Query::AddProvider::\(from.peer) already a provider for cid: \(CID.multihash.b58String)")
+                        return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: [provider]) )
+                    } else {
+                        return self.providerStore.updateValue(existingProviders + [provider], forKey: kid).map { _ in
+                            self.logger.notice("Query::AddProvider::Added \(from.peer) as a provider for cid: \(CID.multihash.b58String)")
+                            return Response.addProvider(cid: cid, providerPeers: [provider])
+                        }
+                    }
                 }
-                return self.eventLoop.makeSucceededFuture( Response.addProvider(cid: cid, providerPeers: [provider]) )
             }
         }
         
@@ -567,39 +588,47 @@ extension KadDHT {
         
         /// For each KV in our DHT, we send it to the closest two peers we know of (excluding us)
         private func _shareDHTKVs() -> EventLoopFuture<Void> {
-            guard self.dht.count <= 2 else { return self._shareDHTKVsSequentially() }
-            return self.dht.compactMap { key, value in
-                self.eventLoop.next().submit {
-                    self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3)
-                }.transform(to: ())
-            }.flatten(on: self.eventLoop)
+            self.dht.count().flatMap { count in
+                guard count <= 2 else { return self._shareDHTKVsSequentially() }
+                return self.dht.all().flatMap { elements in
+                    return elements.map { (key, value) in
+                        self.eventLoop.next().submit {
+                            self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3)
+                        }.transform(to: ())
+                    }.flatten(on: self.eventLoop)
+                }
+            }
         }
         
         private func _shareDHTKVsSequentially2() -> EventLoopFuture<Void> {
             let group = MultiThreadedEventLoopGroup(numberOfThreads: 2)
-            return self.dht.compactMap { key, value in
-                group.next().flatSubmit {
-                    self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3).transform(to: ())
+            return self.dht.all().flatMap { elements in
+                return elements.compactMap { (key, value) in
+                    group.next().flatSubmit {
+                        self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3).transform(to: ())
+                    }
+                }.flatten(on: self.eventLoop).always { _ in
+                    group.shutdownGracefully(queue: .global()) { _ in print("DHT KV ELG shutdown") }
                 }
-            }.flatten(on: self.eventLoop).always { _ in
-                group.shutdownGracefully(queue: .global()) { _ in print("DHT KV ELG shutdown") }
             }
         }
         
-        private var kvsToShare:[KadDHT.Key : DHT.Record] = [:]
+        private var kvsToShare:[(key:KadDHT.Key, value:DHT.Record)] = []
         private func _shareDHTKVsSequentially(concurrentSharers workers:Int = 4) -> EventLoopFuture<Void> {
             self.eventLoop.flatSubmit {
                 guard workers >= 1 else { self.logger.warning("Invalid Worker Count"); return self.eventLoop.makeSucceededVoidFuture() }
                 guard self.kvsToShare.isEmpty else { self.logger.warning("Already Sharing KVs, skipping..."); return self.eventLoop.makeSucceededVoidFuture() }
-                self.kvsToShare = self.dht
-                
-                /// Launch 4 concurrent recursive share routines...
-                self.logger.notice("Launching \(workers) workers in order to share \(self.kvsToShare.count) KV pairs!")
-                return (0..<workers).map { idx in
-                    self._recursiveShare().always { _ in
-                        self.logger.notice("DHTKVSharer[\(idx)]::Done Sharing DHT KVs")
-                    }
-                }.flatten(on: self.eventLoop).always { _ in
+                return self.dht.all().flatMap { elements in
+                    self.kvsToShare = elements
+                    
+                    /// Launch 4 concurrent recursive share routines...
+                    self.logger.notice("Launching \(workers) workers in order to share \(self.kvsToShare.count) KV pairs!")
+                    return (0..<workers).map { idx in
+                        self._recursiveShare().always { _ in
+                            self.logger.notice("DHTKVSharer[\(idx)]::Done Sharing DHT KVs")
+                        }
+                    }.flatten(on: self.eventLoop)
+                }.always { _ in
                     self.logger.notice("Done Sharing DHT KVs")
                 }
             }
@@ -607,7 +636,7 @@ extension KadDHT {
         
         private func _recursiveShare() -> EventLoopFuture<Void> {
             self.eventLoop.flatSubmit {
-                if let kv = self.kvsToShare.popFirst() {
+                if let kv = self.kvsToShare.popLast() {
                     return self._shareDHTKVWithNearestPeers(key: kv.key, value: kv.value, nearestPeers: 3).flatMap { _ in
                         self._recursiveShare()
                     }
@@ -727,15 +756,15 @@ extension KadDHT {
 //            return promise.futureResult
 //        }
         
-        public func store(_ key:[UInt8], value:DHTRecord) -> EventLoopFuture<Bool> {
-            let value = value.toProtobuf()
-            return self.addKeyIfSpaceOrCloser2(key: key, value: value, from: self.address).map { res in
-                guard case .putValue(let k, let rec) = res else {
-                    return false
-                }
-                return k == key && rec == value
-            }
-        }
+//        public func store(_ key:[UInt8], value:DHTRecord) -> EventLoopFuture<Bool> {
+//            let value = value.toProtobuf()
+//            return self.addKeyIfSpaceOrCloser2(key: key, value: value, from: self.address).map { res in
+//                guard case .putValue(let k, let rec) = res else {
+//                    return false
+//                }
+//                return k == key && rec == value
+//            }
+//        }
         
         public func storeNew(_ key:[UInt8], value:DHTRecord) -> EventLoopFuture<Bool> {
             /// Perform key lookup and request the returned closest k peers to store the value
@@ -743,8 +772,8 @@ extension KadDHT {
             let value = value.toProtobuf()
             return self._nearest(self.routingTable.bucketSize, peersToKey: targetID).flatMap { seeds -> EventLoopFuture<Bool> in
                 let lookup = KeyLookup(host: self, target: targetID, concurrentRequests: self.maxConcurrentRequest, seeds: seeds)
+                /// Jump back onto our main event loop to ensure that we're not piggy backing on the lookup's eventloop that's trying to shutdown...
                 return lookup.proceedForPeers().hop(to: self.eventLoop).flatMap { nearestPeers -> EventLoopFuture<Bool> in
-                    /// Jump back onto our main event loop to ensure that we're not piggy backing on the lookup's eventloop that's trying to shutdown...
                     let closestPeers = nearestPeers.compactMap { $0.peer == self.peerID ? nil : $0 }
                     /// We have the closest peers to this key that the network knows of...
                     /// Take this opportunity to process / store these new peers
@@ -800,19 +829,21 @@ extension KadDHT {
         public func get(_ key:[UInt8]) -> EventLoopFuture<DHTRecord?> {
             self.eventLoop.flatSubmit {
                 let kid = KadDHT.Key(key, keySpace: .xor)
-                if let val = self.dht[kid] {
-                    return self.eventLoop.makeSucceededFuture( val )
-                } else {
-                    return self._nearestPeerTo(kid).flatMap { peer in
-                        return self._lookup(key: key, from: peer, depth: 0)
-                    }.flatMap { res -> EventLoopFuture<DHTRecord?> in
-                        guard case .getValue(_, let record, let closerPeers) = res else {
-                            return self.eventLoop.makeSucceededFuture( nil )
+                return self.dht.getValue(forKey: kid).flatMap { value in
+                    if let val = value {
+                        return self.eventLoop.makeSucceededFuture( val )
+                    } else {
+                        return self._nearestPeerTo(kid).flatMap { peer in
+                            return self._lookup(key: key, from: peer, depth: 0)
+                        }.flatMap { res -> EventLoopFuture<DHTRecord?> in
+                            guard case .getValue(_, let record, let closerPeers) = res else {
+                                return self.eventLoop.makeSucceededFuture( nil )
+                            }
+                            if record == nil {
+                                self.logger.info("Failed to find value for key `\(key)`. Lookup terminated without key:val pair and closer peers of [\(closerPeers.map { $0.description }.joined(separator: ", "))]")
+                            }
+                            return self.eventLoop.makeSucceededFuture( record )
                         }
-                        if record == nil {
-                            self.logger.info("Failed to find value for key `\(key)`. Lookup terminated without key:val pair and closer peers of [\(closerPeers.map { $0.description }.joined(separator: ", "))]")
-                        }
-                        return self.eventLoop.makeSucceededFuture( record )
                     }
                 }
             }
@@ -822,19 +853,21 @@ extension KadDHT {
             self.eventLoop.flatSubmit {
                 let kid = KadDHT.Key(key, keySpace: .xor)
                 let trace = LookupTrace()
-                if let val = self.dht[kid] {
-                    return self.eventLoop.makeSucceededFuture( (val, trace) )
-                } else {
-                    return self._nearestPeerTo(kid).flatMap { peer in
-                        return self._lookupWithTrace(key: key, from: peer, trace: trace)
-                    }.flatMap { res -> EventLoopFuture<(DHTRecord?, LookupTrace)> in
-                        guard case .getValue(_, let record, let closerPeers) = res.0 else {
-                            return self.eventLoop.makeSucceededFuture( (nil, res.1) )
+                return self.dht.getValue(forKey: kid).flatMap { value in
+                    if let val = value {
+                        return self.eventLoop.makeSucceededFuture( (val, trace) )
+                    } else {
+                        return self._nearestPeerTo(kid).flatMap { peer in
+                            return self._lookupWithTrace(key: key, from: peer, trace: trace)
+                        }.flatMap { res -> EventLoopFuture<(DHTRecord?, LookupTrace)> in
+                            guard case .getValue(_, let record, let closerPeers) = res.0 else {
+                                return self.eventLoop.makeSucceededFuture( (nil, res.1) )
+                            }
+                            if record == nil {
+                                self.logger.info("Failed to find value for key `\(key)`. Lookup terminated without key:val pair and closer peers of [\(closerPeers.map { $0.description }.joined(separator: ", "))]")
+                            }
+                            return self.eventLoop.makeSucceededFuture( (record, res.1) )
                         }
-                        if record == nil {
-                            self.logger.info("Failed to find value for key `\(key)`. Lookup terminated without key:val pair and closer peers of [\(closerPeers.map { $0.description }.joined(separator: ", "))]")
-                        }
-                        return self.eventLoop.makeSucceededFuture( (record, res.1) )
                     }
                 }
             }
@@ -845,12 +878,14 @@ extension KadDHT {
         public func getUsingLookupList(_ key:[UInt8]) -> EventLoopFuture<DHTRecord?> {
             self.eventLoop.flatSubmit {
                 let kid = KadDHT.Key(key, keySpace: .xor)
-                if let val = self.dht[kid] {
-                    return self.eventLoop.makeSucceededFuture(val)
-                } else {
-                    return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { seeds -> EventLoopFuture<DHTRecord?> in
-                        let lookupList = KeyLookup(host: self, target: kid, concurrentRequests: self.maxConcurrentRequest, seeds: seeds)
-                        return lookupList.proceedForValue().map({ $0 }).hop(to: self.eventLoop)
+                return self.dht.getValue(forKey: kid).flatMap { value in
+                    if let val = value {
+                        return self.eventLoop.makeSucceededFuture(val)
+                    } else {
+                        return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { seeds -> EventLoopFuture<DHTRecord?> in
+                            let lookupList = KeyLookup(host: self, target: kid, concurrentRequests: self.maxConcurrentRequest, seeds: seeds)
+                            return lookupList.proceedForValue().map({ $0 }).hop(to: self.eventLoop)
+                        }
                     }
                 }
             }
@@ -1057,103 +1092,157 @@ extension KadDHT {
         /// This method adds a key:value pair to our dht if we either have excess capacity or if the key is closer to us than the furthest current key in the dht
         private func addKeyIfSpaceOrCloser(key:[UInt8], value:DHT.Record, usingValidator validator:Validator) -> EventLoopFuture<Response> {
             let kid = KadDHT.Key(key, keySpace: .xor)
-            var added:Bool = false
-            if let existingRecord = dht[kid] {
-                /// Store the best record...
-                let values = [existingRecord, value].compactMap { try? $0.serializedData().bytes }
-                let bestIndex = (try? validator.select(key: key, values: values)) ?? 0
-                let best = (try? DHT.Record(contiguousBytes: values[bestIndex])) ?? existingRecord
-                
-                if best == existingRecord {
-                    self.logger.notice("We already have `\(key):\(value)` in our DHT")
-                } else {
+            return self.dht.addKeyIfSpaceOrCloser(key: kid, value: value, usingValidator: validator, maxStoreSize: self.dhtSize, targetKey: KadDHT.Key(self.peerID, keySpace: .xor)).map { storedResult in
+                switch storedResult {
+                case .excessSpace:
+                    self.logger.notice("We have excess space in DHT, storing `\(key):\(value)`")
+                case .updatedValue:
                     self.logger.notice("We already have `\(key):\(value)` in our DHT, but this is a newer record, updating it...")
-                }
-                
-                /// Update the value...
-                dht[kid] = best
-                added = true
-                                
-            } else if dht.count < self.dhtSize {
-                /// We have space, so lets add it...
-                dht[kid] = value
-                added = true
-                self.logger.notice("We have excess space in DHT, storing `\(key):\(value)`")
-                
-            } else {
-                /// Fetch all current keys, sort by distance to us, if this key is closer than the furthest one, replace it
-                let pidAsKey = KadDHT.Key(self.peerID, keySpace: .xor)
-                let keys = dht.keys.sorted { lhs, rhs in
-                    pidAsKey.compareDistancesFromSelf(to: lhs, and: rhs) == 1
-                }
-                
-                if let furthestKey = keys.last, pidAsKey.compareDistancesFromSelf(to: kid, and: furthestKey) == 1 {
-                    /// The new key is closer than our furthest key so lets drop the furthest and add the new key
-                    let replacedValue = dht.removeValue(forKey: furthestKey)
-                    dht[kid] = value
-                    added = true
-                    self.logger.notice("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: replacedValue))` with `\(key)`:`\(value)`")
-                } else {
-                    /// This new value is further away then all of our current keys, lets drop it...
-                    added = false
+                case .alreadyExists:
+                    self.logger.notice("We already have `\(key):\(value)` in our DHT")
+                case .storedCloser(let furthestKey, let furthestValue):
+                    self.logger.notice("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: furthestValue))` with `\(key)`:`\(value)`")
+                case .notStoredFurther:
                     self.logger.notice("New Key Value is further away from all current key value pairs, dropping store request.")
                 }
+                return .putValue(key: key, record: storedResult.wasAdded ? value : nil)
             }
-            
-            return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: added ? value : nil))
         }
         
+//        private func addKeyIfSpaceOrCloserOLD(key:[UInt8], value:DHT.Record, usingValidator validator:Validator) -> EventLoopFuture<Response> {
+//            let kid = KadDHT.Key(key, keySpace: .xor)
+//            var added:Bool = false
+//            if let existingRecord = dht[kid] {
+//                /// Store the best record...
+//                let values = [existingRecord, value].compactMap { try? $0.serializedData().bytes }
+//                let bestIndex = (try? validator.select(key: key, values: values)) ?? 0
+//                let best = (try? DHT.Record(contiguousBytes: values[bestIndex])) ?? existingRecord
+//
+//                if best == existingRecord {
+//                    self.logger.notice("We already have `\(key):\(value)` in our DHT")
+//                } else {
+//                    self.logger.notice("We already have `\(key):\(value)` in our DHT, but this is a newer record, updating it...")
+//                }
+//
+//                /// Update the value...
+//                dht[kid] = best
+//                added = true
+//
+//            } else if dht.count < self.dhtSize {
+//                /// We have space, so lets add it...
+//                dht[kid] = value
+//                added = true
+//                self.logger.notice("We have excess space in DHT, storing `\(key):\(value)`")
+//
+//            } else {
+//                /// Fetch all current keys, sort by distance to us, if this key is closer than the furthest one, replace it
+//                let pidAsKey = KadDHT.Key(self.peerID, keySpace: .xor)
+//                let keys = dht.keys.sorted { lhs, rhs in
+//                    pidAsKey.compareDistancesFromSelf(to: lhs, and: rhs) == 1
+//                }
+//
+//                if let furthestKey = keys.last, pidAsKey.compareDistancesFromSelf(to: kid, and: furthestKey) == 1 {
+//                    /// The new key is closer than our furthest key so lets drop the furthest and add the new key
+//                    let replacedValue = dht.removeValue(forKey: furthestKey)
+//                    dht[kid] = value
+//                    added = true
+//                    self.logger.notice("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: replacedValue))` with `\(key)`:`\(value)`")
+//                } else {
+//                    /// This new value is further away then all of our current keys, lets drop it...
+//                    added = false
+//                    self.logger.notice("New Key Value is further away from all current key value pairs, dropping store request.")
+//                }
+//            }
+//
+//            return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: added ? value : nil))
+//        }
+        
+//        private func addKeyIfSpaceOrCloser2(key:[UInt8], value:DHT.Record, usingValidator validator:Validator, from:Multiaddr) -> EventLoopFuture<Response> {
+//            let kid = KadDHT.Key(key, keySpace: .xor)
+//            return self.dht.addKeyIfSpaceOrCloser(key: kid, value: value, usingValidator: validator, maxStoreSize: self.dhtSize, targetKey: KadDHT.Key(self.peerID, keySpace: .xor)).flatMap { storedResult in
+//                switch storedResult {
+//                case .excessSpace:
+//                    self.logger.notice("We have excess space in DHT, storing `\(key):\(value)`")
+//                case .updatedValue:
+//                    self.logger.notice("We already have `\(key):\(value)` in our DHT, but this is a newer record, updating it...")
+//                case .alreadyExists:
+//                    self.logger.notice("We already have `\(key):\(value)` in our DHT")
+//                case .storedCloser(let furthestKey, let furthestValue):
+//                    self.logger.notice("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: furthestValue))` with `\(key)`:`\(value)`")
+//                case .notStoredFurther:
+//                    self.logger.notice("New Key Value is further away from all current key value pairs, dropping store request.")
+//                }
+//
+//                if storedResult.wasAdded {
+//                    return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: storedResult.wasAdded ? value : nil))
+//                } else {
+//                    /// If we can't store it, lets ask the closest peers we know about to store it...
+//                    self.logger.notice("Passing the key along to the nearest three peers we know of to see if they'll store it on our behalf...")
+//                    return self._shareDHTKVWithNearestPeers(key: kid, value: value, nearestPeers: 3).map { stored in
+//                        if stored {
+//                            self.logger.notice("Another node close to the key was able to store the value")
+//                            return .putValue(key: key, record: value)
+//                        } else {
+//                            self.logger.notice("No one was able to store the value")
+//                            return .putValue(key: key, record: nil)
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//
+        
         /// This version sends the key:value pair onto the next N closest peers, as long as they aren't us or the sender
-        private func addKeyIfSpaceOrCloser2(key:[UInt8], value:DHT.Record, from:Multiaddr) -> EventLoopFuture<Response> {
-            let kid = KadDHT.Key(key, keySpace: .xor)
-            //var added:Bool = false
-            if dht[kid] != nil {
-                /// Update the value...
-                dht[kid] = value
-                //added = true
-                self.logger.info("We already have `\(key):\(value)` in our DHT, updating it...")
-                return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value))
-                
-            } else if dht.count < self.dhtSize {
-                /// We have space, so lets add it...
-                dht[kid] = value
-                //added = true
-                self.logger.info("We have excess space in DHT, storing `\(key):\(value)`")
-                return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value))
-                
-            } else {
-                /// Fetch all current keys, sort by distance to us, if this key is closer than the furthest one, replace it
-                let pidAsKey = KadDHT.Key(self.peerID, keySpace: .xor)
-                let keys = dht.keys.sorted { lhs, rhs in
-                    pidAsKey.compareDistancesFromSelf(to: lhs, and: rhs) == 1
-                }
-                
-                if let furthestKey = keys.last, pidAsKey.compareDistancesFromSelf(to: kid, and: furthestKey) == 1 {
-                    /// The new key is closer than our furthers key so lets drop the furthest and add the new key
-                    let replacedValue = dht.removeValue(forKey: furthestKey)
-                    dht[kid] = value
-                    //added = true
-                    self.logger.info("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: replacedValue))` with `\(key)`:`\(value)`")
-                    return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value))
-                    /// It might be a good idea to pass the replaced value onto another peer at this point...
-                    
-                } else {
-                    /// This new value is further away then all of our current keys, lets drop it...
-                    //added = false
-                    self.logger.info("New Key Value is further away from all current key value pairs, dropping store request.")
-                    
-                }
-                
-                /// If we can't store it, lets ask the closest peers we know about to store it...
-                return self._shareDHTKVWithNearestPeers(key: kid, value: value, nearestPeers: 3).map { stored in
-                    if stored {
-                        return .putValue(key: key, record: value)
-                    } else {
-                        return .putValue(key: key, record: nil)
-                    }
-                }
-            }
-        }
+//        private func addKeyIfSpaceOrCloser2(key:[UInt8], value:DHT.Record, from:Multiaddr) -> EventLoopFuture<Response> {
+//            let kid = KadDHT.Key(key, keySpace: .xor)
+//            //var added:Bool = false
+//            if dht[kid] != nil {
+//                /// Update the value...
+//                dht[kid] = value
+//                //added = true
+//                self.logger.info("We already have `\(key):\(value)` in our DHT, updating it...")
+//                return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value))
+//
+//            } else if dht.count < self.dhtSize {
+//                /// We have space, so lets add it...
+//                dht[kid] = value
+//                //added = true
+//                self.logger.info("We have excess space in DHT, storing `\(key):\(value)`")
+//                return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value))
+//
+//            } else {
+//                /// Fetch all current keys, sort by distance to us, if this key is closer than the furthest one, replace it
+//                let pidAsKey = KadDHT.Key(self.peerID, keySpace: .xor)
+//                let keys = dht.keys.sorted { lhs, rhs in
+//                    pidAsKey.compareDistancesFromSelf(to: lhs, and: rhs) == 1
+//                }
+//
+//                if let furthestKey = keys.last, pidAsKey.compareDistancesFromSelf(to: kid, and: furthestKey) == 1 {
+//                    /// The new key is closer than our furthers key so lets drop the furthest and add the new key
+//                    let replacedValue = dht.removeValue(forKey: furthestKey)
+//                    dht[kid] = value
+//                    //added = true
+//                    self.logger.info("Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: replacedValue))` with `\(key)`:`\(value)`")
+//                    return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: value))
+//                    /// It might be a good idea to pass the replaced value onto another peer at this point...
+//
+//                } else {
+//                    /// This new value is further away then all of our current keys, lets drop it...
+//                    //added = false
+//                    self.logger.info("New Key Value is further away from all current key value pairs, dropping store request.")
+//
+//                }
+//
+//                /// If we can't store it, lets ask the closest peers we know about to store it...
+//                return self._shareDHTKVWithNearestPeers(key: kid, value: value, nearestPeers: 3).map { stored in
+//                    if stored {
+//                        return .putValue(key: key, record: value)
+//                    } else {
+//                        return .putValue(key: key, record: nil)
+//                    }
+//                }
+//            }
+//        }
         
         
         private func multiaddressToPeerID(_ ma:Multiaddr) -> PeerID? {
