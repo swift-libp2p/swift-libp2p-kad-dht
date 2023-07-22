@@ -5,6 +5,8 @@
 //  Created by Brandon Toms on 9/9/22.
 //
 
+import CID
+import Multihash
 import LibP2PCore
 import CryptoSwift
 
@@ -138,5 +140,40 @@ extension Array where Element == KadDHT.Key {
 extension KadDHT.Key {
     internal func commonPrefixLength(with peer:KadDHT.Key) -> Int {
         return self.bytes.commonPrefixLength(with: peer.bytes)
+    }
+}
+
+extension DHT {
+    /// This method attempts to take a key in the form of bytes and convert it into a human readable "/<namespace>/<multihash>" string for debugging
+    /// - Parameter key: The key in bytes that you'd like to log
+    /// - Returns: The most human readable string we can make
+    static func keyToHumanReadableString(_ key:[UInt8]) -> String {
+        if let namespaceBytes = DHT.extractNamespace(key), let namespace = String(data: Data(namespaceBytes), encoding: .utf8) {
+            if let mh = try? Multihash(Array(key.dropFirst(namespace.count + 2))) {
+                return "/\(namespace)/\(mh.b58String)"
+            } else if let cid = try? CID(Array(key.dropFirst(namespace.count + 2))) {
+                return "/\(namespace)/\(cid.multihash.b58String)"
+            } else {
+                return "/\(namespace)/\(key.dropFirst(namespaceBytes.count + 2))"
+            }
+        } else {
+            if let mh = try? Multihash(key) {
+                return "\(mh.b58String)"
+            } else if let cid = try? CID(key) {
+                return "\(cid.multihash.b58String)"
+            } else {
+                return "\(key)"
+            }
+        }
+    }
+    
+    /// This method attempts to extract a namespace prefixed key of the form "/namespace/<multihash>"
+    /// - Parameter key: The key to extract the prefixed namespace from
+    /// - Returns: The namespace bytes if they exist (excluding the forward slashes), or nil if the key isn't prefixed with a namespace
+    /// - Note: "/" in utf8 == 47
+    static func extractNamespace(_ key:[UInt8]) -> [UInt8]? {
+        guard key.first == UInt8(47) else { return nil }
+        guard let idx = key.dropFirst().firstIndex(of: UInt8(47)) else { return nil }
+        return Array(key[1..<idx])
     }
 }

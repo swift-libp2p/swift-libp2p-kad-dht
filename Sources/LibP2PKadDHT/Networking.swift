@@ -66,13 +66,15 @@ extension KadDHT {
         let bucketSize:Int
         let maxPeers:Int
         let maxKeyValueStoreSize:Int
+        let maxProviderStoreSize:Int
         
-        init(connectionTimeout:TimeAmount = .seconds(4), maxConcurrentConnections:Int = 4, bucketSize:Int = 20, maxPeers:Int = 100, maxKeyValueStoreEntries:Int = 100) {
+        init(connectionTimeout:TimeAmount = .seconds(4), maxConcurrentConnections:Int = 4, bucketSize:Int = 20, maxPeers:Int = 100, maxKeyValueStoreEntries:Int = 100, maxProviderStoreSize:Int = 10_000) {
             self.connectionTimeout = connectionTimeout
             self.maxConcurrentConnections = maxConcurrentConnections
             self.bucketSize = bucketSize
             self.maxPeers = maxPeers
             self.maxKeyValueStoreSize = maxKeyValueStoreEntries
+            self.maxProviderStoreSize = maxProviderStoreSize
         }
         
         static var `default`:NodeOptions {

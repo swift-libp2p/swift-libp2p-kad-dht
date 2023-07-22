@@ -10,23 +10,29 @@ import Foundation
 struct RFC3339Date:Equatable, Comparable {
     private static var strFormat:String = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSS'Z'"
     private static var locale:Locale = Locale(identifier: "en_US_POSIX")
+    private static var formatter:DateFormatter = {
+        print("RFC3339Date Initializing Date Formatter")
+        let f = DateFormatter()
+        f.locale = RFC3339Date.locale
+        f.dateFormat = RFC3339Date.strFormat
+        return f
+    }()
     
     /// The original RFC3339 String that was parsed if available
     private var originalString:String?
     public private(set) var date:Date
     public var string:String {
-        originalString ?? formatter.string(from: date)
+        originalString ?? toString()
+    }
+    public var nanoseconds:Int? {
+        Calendar.current.dateComponents([.nanosecond], from: self.date).nanosecond
     }
     
     /// The Stored Date Formatter
-    private let formatter:DateFormatter
+    //private let formatter:DateFormatter
     
     public init(string: String) throws {
-        self.formatter = DateFormatter()
-        self.formatter.locale = RFC3339Date.locale
-        self.formatter.dateFormat = RFC3339Date.strFormat
-        
-        guard let date = self.formatter.date(from: string) else {
+        guard let date = RFC3339Date.formatter.date(from: string) else {
             throw NSError(domain: "Invalid RFC3339 Date String", code: 0)
         }
         
@@ -35,24 +41,29 @@ struct RFC3339Date:Equatable, Comparable {
         
         self.originalString = string
         self.date = date
+        if let nano = Int(nanoString), let date = Calendar.current.date(bySetting: .nanosecond, value: nano, of: self.date) {
+            self.date = date
+        }
+        
     }
     
     public init() {
-        self.formatter = DateFormatter()
-        self.formatter.locale = RFC3339Date.locale
-        self.formatter.dateFormat = RFC3339Date.strFormat
-        
         self.originalString = nil
         self.date = Date()
     }
     
     public init(date: Date) {
-        self.formatter = DateFormatter()
-        self.formatter.locale = RFC3339Date.locale
-        self.formatter.dateFormat = RFC3339Date.strFormat
-        
         self.originalString = nil
         self.date = Date()
+    }
+    
+    private func toString() -> String {
+        var string = RFC3339Date.formatter.string(from: date)
+        if let nano = nanoseconds {
+            string = String(string.dropLast(10))
+            string += "\(nano)Z"
+        }
+        return string
     }
     
     static func == (lhs:RFC3339Date, rhs:RFC3339Date) -> Bool {
