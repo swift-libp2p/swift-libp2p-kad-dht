@@ -242,7 +242,7 @@ class KeyLookup {
                 self.logger.warning("Done Processing Peers");
                 return self.eventLoop.makeSucceededVoidFuture()
             }
-            self.logger.warning("Querying \(next.peer.b58String) for id: \(String(data: Data(self.target.original), encoding: .utf8) ?? "???")")
+            self.logger.warning("Querying \(next.peer.b58String) for id: \(DHT.keyToHumanReadableString(self.target.original))")
             self.queriesInProgress += 1
             return on.flatSubmit {
                 guard let p = try? PeerID(fromBytesID: self.target.original) else {
@@ -295,7 +295,7 @@ class KeyLookup {
                 self.logger.warning("Done Processing Peers");
                 return self.eventLoop.makeSucceededVoidFuture()
             }
-            self.logger.warning("Querying \(next.peer.b58String) for id: \(String(data: Data(self.target.original), encoding: .utf8) ?? "???")")
+            self.logger.warning("Querying \(next.peer.b58String) for id: \(DHT.keyToHumanReadableString(self.target.original))")
             self.queriesInProgress += 1
             return on.flatSubmit {
                 return self.host._sendQuery(.getValue(key: self.target.original), to: next, on: on).flatMapAlways{ result in
@@ -354,7 +354,7 @@ class KeyLookup {
                 self.logger.warning("Done Processing Peers");
                 return self.eventLoop.makeSucceededVoidFuture()
             }
-            self.logger.warning("Querying \(next.peer.b58String) for cid: \(String(data: Data(self.target.original), encoding: .utf8) ?? "???")")
+            self.logger.warning("Querying \(next.peer.b58String) for cid: \(DHT.keyToHumanReadableString(self.target.original))")
             self.queriesInProgress += 1
             return on.flatSubmit {
                 return self.host._sendQuery(.getProviders(cid: self.target.original), to: next, on: on).flatMapAlways{ result in
