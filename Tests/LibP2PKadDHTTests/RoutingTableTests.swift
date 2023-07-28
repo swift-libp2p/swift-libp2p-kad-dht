@@ -94,6 +94,7 @@ class RoutingTableTests: XCTestCase {
         let routingTable = try RoutingTable(eventloop: elg.next(), bucketSize: 1, localPeerID: PeerID(.Ed25519), latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
 
         print(routingTable)
+        try elg.syncShutdownGracefully()
     }
 
     func testBasicBucketFunctions() throws {
@@ -168,6 +169,40 @@ class RoutingTableTests: XCTestCase {
             XCTAssertGreaterThan(cpl, 0)
         }
     }
+    
+    func testRandomDHTKeyCPL() throws {
+        let local = RandomDHTKey()
+        
+        let similar0 = RandomDHTKey(withCPL: 0, wrt: local)
+        XCTAssertEqual(local.commonPrefixLength(with: similar0), 0)
+        
+        let similar1 = RandomDHTKey(withCPL: 1, wrt: local)
+        XCTAssertEqual(local.commonPrefixLength(with: similar1), 1)
+        
+        let similar2 = RandomDHTKey(withCPL: 2, wrt: local)
+        XCTAssertEqual(local.commonPrefixLength(with: similar2), 2)
+        
+        let similar3 = RandomDHTKey(withCPL: 3, wrt: local)
+        XCTAssertEqual(local.commonPrefixLength(with: similar3), 3)
+        
+        let similar4 = RandomDHTKey(withCPL: 4, wrt: local)
+        XCTAssertEqual(local.commonPrefixLength(with: similar4), 4)
+        
+        let similar5 = RandomDHTKey(withCPL: 5, wrt: local)
+        XCTAssertEqual(local.commonPrefixLength(with: similar5), 5)
+        
+        let similar6 = RandomDHTKey(withCPL: 6, wrt: local)
+        XCTAssertEqual(local.commonPrefixLength(with: similar6), 6)
+        
+        let similar7 = RandomDHTKey(withCPL: 7, wrt: local)
+        XCTAssertEqual(local.commonPrefixLength(with: similar7), 7)
+        
+        let similar8 = RandomDHTKey(withCPL: 8, wrt: local)
+        XCTAssertEqual(local.commonPrefixLength(with: similar8), 8)
+        
+        let similar9 = RandomDHTKey(withCPL: 9, wrt: local)
+        XCTAssertEqual(local.commonPrefixLength(with: similar9), 9)
+    }
 
     /// - TODO: We're confusing DHTPeer and PeerIDs at the moment... We should update the Routing Table to handle DHTPeers instead of PeerID
     func testBucketGetPeersByCPL() throws {
@@ -184,7 +219,7 @@ class RoutingTableTests: XCTestCase {
 
         /// Generate and add a peer with a commonPrefixLength of 1 w.r.t our local peer id
         let peerCPL1 = RandomDHTPeer(withCPL: 1, wrt: local.dhtID)
-        XCTAssertTrue(try routingTable.addPeer(peerCPL1, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peerCPL1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         print("Added peer: \(peerCPL1.dhtID.bytes)")
         print(routingTable)
         XCTAssertEqual(0, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
@@ -192,8 +227,8 @@ class RoutingTableTests: XCTestCase {
         XCTAssertEqual(0, try routingTable.numberOfPeers(withCommonPrefixLength: 2).wait())
 
         /// Generate and add a peer with a commonPrefixLength of 0 w.r.t our local peer id
-        let peerCPL0 = RandomDHTPeer()
-        XCTAssertTrue(try routingTable.addPeer(peerCPL0, isQueryPeer: true).wait())
+        let peerCPL0 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID)
+        XCTAssertTrue(try routingTable.addPeer(peerCPL0, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         print("Added peer: \(peerCPL0.dhtID.bytes)")
         print(routingTable)
         XCTAssertEqual(1, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
@@ -203,7 +238,7 @@ class RoutingTableTests: XCTestCase {
         /// Generate and add a peer with a commonPrefixLength of 1 w.r.t our local peer id
         /// Adding a third peer will force a bucket split when our bucketSize param is set to 2
         let peerCPL1_2 = RandomDHTPeer(withCPL: 1, wrt: local.dhtID)
-        XCTAssertTrue(try routingTable.addPeer(peerCPL1_2, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peerCPL1_2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         print("Added peer: \(peerCPL1_2.dhtID.bytes)")
         print(routingTable)
         XCTAssertEqual(1, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
@@ -211,8 +246,8 @@ class RoutingTableTests: XCTestCase {
         XCTAssertEqual(0, try routingTable.numberOfPeers(withCommonPrefixLength: 2).wait())
 
         /// Generate and add a peer with a commonPrefixLength of 0 w.r.t our local peer id
-        let peerCPL0_2 = RandomDHTPeer()
-        XCTAssertTrue(try routingTable.addPeer(peerCPL0_2, isQueryPeer: true).wait())
+        let peerCPL0_2 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID)
+        XCTAssertTrue(try routingTable.addPeer(peerCPL0_2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         print("Added peer: \(peerCPL0_2.dhtID.bytes)")
         print(routingTable)
         XCTAssertEqual(2, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
@@ -223,18 +258,18 @@ class RoutingTableTests: XCTestCase {
         /// Attempting to add a third peer with a CPL of 1 will force a bucket split but will fail to add the peer due to the bucket for CPL 1's being full
         /// And the fact that all of the peers added so far have their replaceable param set to false
         let peerCPL1_3 = RandomDHTPeer(withCPL: 1, wrt: local.dhtID)
-        XCTAssertFalse(try routingTable.addPeer(peerCPL1_3, isQueryPeer: true).wait())
+        XCTAssertFalse(try routingTable.addPeer(peerCPL1_3, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         print(routingTable)
 
         /// Attempting Again Fails
         let peerCPL1_4 = RandomDHTPeer(withCPL: 1, wrt: local.dhtID)
-        XCTAssertFalse(try routingTable.addPeer(peerCPL1_4, isQueryPeer: true).wait())
+        XCTAssertFalse(try routingTable.addPeer(peerCPL1_4, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         print(routingTable)
 
         /// Generate and add a peer with a commonPrefixLength of 2 w.r.t our local peer id
         /// Adding this peer should succeed due to having excess capacity in bucket[2]
         let peerCPL2_1 = RandomDHTPeer(withCPL: 2, wrt: local.dhtID)
-        XCTAssertTrue(try routingTable.addPeer(peerCPL2_1, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peerCPL2_1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         print("Added peer: \(peerCPL2_1.dhtID.bytes)")
         print(routingTable)
         XCTAssertEqual(2, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
@@ -260,7 +295,7 @@ class RoutingTableTests: XCTestCase {
         routingTable.logLevel = .debug
 
         /// Generate Peers with CPLs of 0, 1, 2 and 3
-        let peer0 = RandomDHTPeer()
+        let peer0 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID)
         let peer1 = RandomDHTPeer(withCPL: 1, wrt: local.dhtID)
         let peer2 = RandomDHTPeer(withCPL: 2, wrt: local.dhtID)
         let peer3 = RandomDHTPeer(withCPL: 3, wrt: local.dhtID)
@@ -269,7 +304,7 @@ class RoutingTableTests: XCTestCase {
         XCTAssertNoThrow( try routingTable.removePeer(peer0).wait() )
 
         /// Add and then remove peer0, this should create a bucket[0]
-        XCTAssertTrue(try routingTable.addPeer(peer0, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer0, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         /// Removing the peer from the bucket shouldn't cause the bucket to disappear due to it being the only bucket we have
         XCTAssertTrue(try routingTable.removePeer(peer0).wait())
         XCTAssertEqual(try routingTable.bucketCount.wait(), 1)
@@ -277,8 +312,8 @@ class RoutingTableTests: XCTestCase {
         print(routingTable)
 
         /// Add peer with CPL 0 and 1 and verify that our RoutingTable has 2 buckets
-        XCTAssertTrue(try routingTable.addPeer(peer0, isQueryPeer: true).wait())
-        XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer0, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         XCTAssertEqual(try routingTable.bucketCount.wait(), 2)
         XCTAssertEqual(try routingTable.getPeerInfos().wait().count, 2)
         print(routingTable)
@@ -292,7 +327,7 @@ class RoutingTableTests: XCTestCase {
         print(routingTable)
 
         /// Add peer with CPL 1 again and verify that our RoutingTable has 2 buckets
-        XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         XCTAssertEqual(try routingTable.bucketCount.wait(), 2)
         XCTAssertEqual(try routingTable.getPeerInfos().wait().count, 2)
         print(routingTable)
@@ -305,10 +340,10 @@ class RoutingTableTests: XCTestCase {
         print(routingTable)
 
         /// Add all four peers and expect 4 buckets (peer1 shouldn't be added twice)
-        XCTAssertTrue(try routingTable.addPeer(peer0, isQueryPeer: true).wait())
-        XCTAssertFalse(try routingTable.addPeer(peer1, isQueryPeer: true).wait())
-        XCTAssertTrue(try routingTable.addPeer(peer2, isQueryPeer: true).wait())
-        XCTAssertTrue(try routingTable.addPeer(peer3, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer0, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertFalse(try routingTable.addPeer(peer1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer3, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         XCTAssertEqual(try routingTable.bucketCount.wait(), 4)
         XCTAssertEqual(try routingTable.getPeerInfos().wait().count, 4)
         print(routingTable)
@@ -366,10 +401,10 @@ class RoutingTableTests: XCTestCase {
         print(routingTable)
 
         /// Add back all four peers
-        XCTAssertFalse(try routingTable.addPeer(peer0, isQueryPeer: true).wait())
-        XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true).wait())
-        XCTAssertTrue(try routingTable.addPeer(peer2, isQueryPeer: true).wait())
-        XCTAssertTrue(try routingTable.addPeer(peer3, isQueryPeer: true).wait())
+        XCTAssertFalse(try routingTable.addPeer(peer0, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer3, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         XCTAssertEqual(try routingTable.bucketCount.wait(), 4)
         XCTAssertEqual(try routingTable.getPeerInfos().wait().count, 4)
         print(routingTable)
@@ -401,8 +436,8 @@ class RoutingTableTests: XCTestCase {
         let peer1 = RandomDHTPeer()
 
         /// Add the peers to the routing table
-        XCTAssertTrue(try routingTable.addPeer(peer0, isQueryPeer: true).wait())
-        XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer0, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
 
         /// Ensure the peers were added
         XCTAssertTrue(try routingTable.getPeerInfos().wait().contains(where: { $0.id == peer0.id }))
@@ -643,13 +678,13 @@ class RoutingTableTests: XCTestCase {
         }
 
         let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 2, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
-        routingTable.logLevel = .warning
+        routingTable.logLevel = .trace
 
         /// Generate and Add two peers to saturate the first bucket
         let peer1 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID, isReplaceable: false)
         let peer2 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID, isReplaceable: true)
-        XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true).wait())
-        XCTAssertTrue(try routingTable.addPeer(peer2, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         XCTAssertEqual(try routingTable.bucketCount.wait(), 1)
         XCTAssertEqual(try routingTable.getPeerInfos().wait().count, 2)
         XCTAssertEqual(try routingTable.find(id: peer1).wait()?.id, peer1.id)
@@ -658,7 +693,7 @@ class RoutingTableTests: XCTestCase {
 
         /// Generate a third peer and attempt to add to table, this should work because peer2 is replaceable
         let peer3 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID, isReplaceable: false)
-        XCTAssertTrue(try routingTable.addPeer(peer3, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer3, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         XCTAssertEqual(try routingTable.getPeerInfos().wait().count, 2)
         XCTAssertEqual(try routingTable.find(id: peer1).wait()?.id, peer1.id)
         XCTAssertEqual(try routingTable.find(id: peer3).wait()?.id, peer3.id)
@@ -668,7 +703,7 @@ class RoutingTableTests: XCTestCase {
 
         /// Generate a fourth peer with CPL = 0 and attempt to add to table, this should fail due to max number of CPL = 0 peers, and no replaceable peer
         let peer4 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID, isReplaceable: false)
-        XCTAssertFalse(try routingTable.addPeer(peer4, isQueryPeer: true).wait())
+        XCTAssertFalse(try routingTable.addPeer(peer4, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         XCTAssertEqual(try routingTable.getPeerInfos().wait().count, 2)
         XCTAssertEqual(try routingTable.find(id: peer1).wait()?.id, peer1.id)
         XCTAssertEqual(try routingTable.find(id: peer3).wait()?.id, peer3.id)
@@ -678,7 +713,7 @@ class RoutingTableTests: XCTestCase {
 
         /// Generate a fifth peer with CPL = 1 and attempt to add to table, this should succeed because we have excess capcity for peers with CPL = 1 (2 slots available at the moment)
         let peer5 = RandomDHTPeer(withCPL: 1, wrt: local.dhtID, isReplaceable: false)
-        XCTAssertTrue(try routingTable.addPeer(peer5, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer5, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         XCTAssertEqual(try routingTable.getPeerInfos().wait().count, 3)
         XCTAssertEqual(try routingTable.find(id: peer1).wait()?.id, peer1.id)
         XCTAssertEqual(try routingTable.find(id: peer3).wait()?.id, peer3.id)
@@ -688,7 +723,7 @@ class RoutingTableTests: XCTestCase {
 
         /// Generate a sixth peer with CPL = 3 and isQueryPeer = false and attempt to add to table, this should work
         let peer6 = RandomDHTPeer(withCPL: 3, wrt: local.dhtID, isReplaceable: false)
-        XCTAssertTrue(try routingTable.addPeer(peer6, isQueryPeer: false).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer6, isQueryPeer: false, replacementStrategy: .anyReplaceable).wait())
         XCTAssertEqual(try routingTable.getPeerInfos().wait().count, 4)
         XCTAssertEqual(try routingTable.find(id: peer1).wait()?.id, peer1.id)
         XCTAssertEqual(try routingTable.find(id: peer3).wait()?.id, peer3.id)
@@ -801,7 +836,7 @@ class RoutingTableTests: XCTestCase {
         }
 
         let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 1, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
-        routingTable.logLevel = .debug
+        routingTable.logLevel = .info
 
         var peersSet:[PeerID] = []
         /// install our callback handlers
@@ -818,6 +853,9 @@ class RoutingTableTests: XCTestCase {
         let peer1 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID, isReplaceable: false)
         let peer2 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID, isReplaceable: false)
 
+        XCTAssertEqual(local.dhtID.commonPrefixLength(with: peer1.dhtID), 0)
+        XCTAssertEqual(local.dhtID.commonPrefixLength(with: peer2.dhtID), 0)
+        
         /// Add the first peer, should work fine due to excess capacity
         XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true).wait())
         XCTAssertNotNil(try routingTable.find(id: peer1).wait())
@@ -832,7 +870,7 @@ class RoutingTableTests: XCTestCase {
         try routingTable.markAllPeersReplaceable().wait()
 
         /// Try and add the second peer again, this should now succeed due to peer1 being marked as replaceable
-        XCTAssertTrue(try routingTable.addPeer(peer2, isQueryPeer: true).wait())
+        XCTAssertTrue(try routingTable.addPeer(peer2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         XCTAssertNotNil(try routingTable.find(id: peer2).wait())
         XCTAssertTrue(peersSet.contains(where: { $0.id == peer2.id } ))
 
