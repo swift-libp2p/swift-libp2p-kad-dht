@@ -12,7 +12,7 @@ extension Array where Element == KadDHT.Node {
         let targetKey = KadDHT.Key(preHashedBytes: Array<UInt8>(repeating: 0, count: 32))
         return self.sorted { lhs, rhs in
             let comp = targetKey.compareDistancesFromSelf(to: KadDHT.Key(lhs.peerID, keySpace: keyspace), and: KadDHT.Key(rhs.peerID, keySpace: keyspace))
-            return comp > 0
+            return comp == .firstKey
         }
     }
     
@@ -20,7 +20,7 @@ extension Array where Element == KadDHT.Node {
         let targetKey = KadDHT.Key(closestTo.peerID, keySpace: keyspace)
         return self.sorted { lhs, rhs in
             let comp = targetKey.compareDistancesFromSelf(to: KadDHT.Key(lhs.peerID, keySpace: keyspace), and: KadDHT.Key(rhs.peerID, keySpace: keyspace))
-            return comp > 0
+            return comp == .firstKey
         }
     }
 }
