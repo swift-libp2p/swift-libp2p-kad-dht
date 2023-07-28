@@ -47,6 +47,10 @@ class DHTKeyTests: XCTestCase {
         ]
         let zeroLengths = [24, 56, 9]
 
+        for byteArray in byteArrays {
+            print(byteArray.commonPrefixLength(with: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
+        }
+        
         for bytes in byteArrays.enumerated() {
             print("\(bytes.element.zeroPrefixLength()) == \(zeroLengths[bytes.offset])")
             XCTAssertEqual(bytes.element.zeroPrefixLength(), zeroLengths[bytes.offset])
@@ -166,6 +170,22 @@ class DHTKeyTests: XCTestCase {
 
         XCTAssertEqual(id0.bytes.asString(base: .base16), id0.bytes.toHexString())
     }
+    
+    func testKadDHTZeroKeyBits() throws {
+        /// Defaults to 32 bytes
+        let id0 = KadDHT.Key.ZeroKey
+        let stringRep = "0000000000000000000000000000000000000000000000000000000000000000"
+        let arrayRep:[UInt8] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        XCTAssertEqual(arrayRep.count, 32)
+        XCTAssertEqual(id0.bytes, arrayRep)
+        XCTAssertEqual(stringRep.count, 64)
+        XCTAssertEqual(id0.toString(), stringRep)
+
+        XCTAssertEqual(arrayRep.commonPrefixLengthBits(with: id0.bytes), 256)
+        
+        XCTAssertEqual(id0.bytes.asString(base: .base16), id0.bytes.toHexString())
+    }
 
     /// Our KadDHT Implementation defaults to Sha256, in this test we use Sha1...
     func testkadDHTKeyFromString() throws {
@@ -212,9 +232,9 @@ class DHTKeyTests: XCTestCase {
         let id1 = KadDHT.Key(prefix: [0b011110011])
         let id2 = KadDHT.Key(prefix: [0b001010101])
 
-        XCTAssertEqual(id0.compareDistancesFromSelf(to: id1, and: id2), -1)
-        XCTAssertEqual(id0.compareDistancesFromSelf(to: id2, and: id1),  1)
-        XCTAssertEqual(id0.compareDistancesFromSelf(to: id1, and: id1),  0)
+        XCTAssertEqual(id0.compareDistancesFromSelf(to: id1, and: id2), .secondKey)
+        XCTAssertEqual(id0.compareDistancesFromSelf(to: id2, and: id1), .firstKey)
+        XCTAssertEqual(id0.compareDistancesFromSelf(to: id1, and: id1), .sameDistance)
     }
 
     func testkadDHTKeyEquality() throws {
@@ -244,7 +264,7 @@ class DHTKeyTests: XCTestCase {
         //var peers:[PeerID] = (0..<256).map { _ in try! PeerID(.Ed25519) }
         //print(peers.map { $0.hexString })
 
-        var peers:[String] = (0..<8).map { SHA1().calculate(for: Array<UInt8>(arrayLiteral: $0)).asString(base: .base16) }
+        let peers:[String] = (0..<8).map { SHA1().calculate(for: Array<UInt8>(arrayLiteral: $0)).asString(base: .base16) }
         print(peers)
 
         //peers.forEach {
@@ -325,14 +345,15 @@ class DHTKeyTests: XCTestCase {
 
 
 
-        var bucket = KBucket(repeating: 0, count: 9)
+        var bucket = KBucket(repeating: 0, count: 20)
         peers.forEach { key in
-            let dist = distanceBetween(key: ourID, and: key)
-            if let idx = dist.prefix(8).firstIndex(where: { $0 != 0 } ) {
-                bucket[8-idx] += 1
-            } else {
-                bucket[8] += 1
-            }
+            let dist = distanceBetween(key: ourID, and: key).zeroPrefixLength()
+            bucket[19-dist] += 1
+            //if let idx = dist.prefix(8).firstIndex(where: { $0 != 0 } ) {
+            //    bucket[8-idx] += 1
+            //} else {
+            //    bucket[8] += 1
+            //}
         }
 
         let bucketString = bucket.map { "\($0)" }.joined(separator: " | ")
