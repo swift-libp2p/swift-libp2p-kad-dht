@@ -32,9 +32,11 @@ class ConcurrentWorkersTests: XCTestCase {
         let workers:Int = 4
 
         var stuffToDo:[(taskDuration:UInt32, processed:Bool)] = (0..<10).map { i -> (taskDuration:UInt32, processed:Bool) in
-            return (UInt32.random(in: 1...5), false)
+            return (UInt32.random(in: 10_000...1_000_000), false)
         }
 
+        print(stuffToDo)
+        
         let mainLoop = group.next()
 
         func nextTask() -> EventLoopFuture<UInt32?> {
@@ -72,13 +74,13 @@ class ConcurrentWorkersTests: XCTestCase {
             workExpectation.fulfill()
         }
 
-        waitForExpectations(timeout: 120, handler: nil)
+        waitForExpectations(timeout: 11, handler: nil)
         print("Shutting down event loop")
         try! group.syncShutdownGracefully()
     }
 
     private func doSomeWork(duration:UInt32) {
-        sleep(duration)
+        usleep(duration)
     }
 
     
