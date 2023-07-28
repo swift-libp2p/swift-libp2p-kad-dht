@@ -1,6 +1,6 @@
 //
 //  toBytes.swift
-//  
+//
 //
 //  Created by Brandon Toms on 4/29/22.
 //
@@ -37,11 +37,11 @@ extension UInt64: UIntToBytesConvertable {
 }
 
 extension ContiguousBytes {
-    var toBytes:[UInt8] {
+    var toBytes: [UInt8] {
         self.withUnsafeBytes { Array($0) }
     }
-    
-    var asData:Data {
+
+    var asData: Data {
         Data(self.toBytes)
     }
 }
