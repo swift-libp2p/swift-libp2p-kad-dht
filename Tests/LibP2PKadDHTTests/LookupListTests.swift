@@ -52,7 +52,7 @@ class LookupListTests: XCTestCase {
         /// And they should be the closest peers to ourselves
         let contacts = list.all()
         for i in 0..<contacts.count - 1 {
-            XCTAssertEqual(ourID.compareDistancesFromSelf(to: contacts[i].peer, and: contacts[i + 1].peer), 1)
+            XCTAssertEqual(ourID.compareDistancesFromSelf(to: contacts[i].peer, and: contacts[i + 1].peer), .firstKey)
         }
       
         print(list.dumpMetrics())
