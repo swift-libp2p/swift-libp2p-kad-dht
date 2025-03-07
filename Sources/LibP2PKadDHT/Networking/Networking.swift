@@ -78,7 +78,15 @@ extension KadDHT {
         let maxProviderStoreSize: Int
         let supportLocalNetwork: Bool
 
-        init(connectionTimeout: TimeAmount = .seconds(4), maxConcurrentConnections: Int = 4, bucketSize: Int = 20, maxPeers: Int = 100, maxKeyValueStoreEntries: Int = 100, maxProviderStoreSize: Int = 10_000, supportLocalNetwork: Bool = false) {
+        init(
+            connectionTimeout: TimeAmount = .seconds(4),
+            maxConcurrentConnections: Int = 4,
+            bucketSize: Int = 20,
+            maxPeers: Int = 100,
+            maxKeyValueStoreEntries: Int = 100,
+            maxProviderStoreSize: Int = 10_000,
+            supportLocalNetwork: Bool = false
+        ) {
             self.connectionTimeout = connectionTimeout
             self.maxConcurrentConnections = maxConcurrentConnections
             self.bucketSize = bucketSize
@@ -89,7 +97,7 @@ extension KadDHT {
         }
 
         static var `default`: NodeOptions {
-            return .init()
+            .init()
         }
     }
 }
@@ -103,5 +111,13 @@ protocol Network {
     var peers: PeerStore { get }
     func registerProtocol(_ proto: SemVerProtocol) throws
     func dialableAddress(_ mas: [Multiaddr], externalAddressesOnly: Bool, on: EventLoop) -> EventLoopFuture<[Multiaddr]>
-    func newRequest(to ma: Multiaddr, forProtocol proto: String, withRequest request: Data, style: Application.SingleRequest.Style, withHandlers handlers: HandlerConfig, andMiddleware middleware: MiddlewareConfig, withTimeout timeout: TimeAmount) -> EventLoopFuture<Data>
+    func newRequest(
+        to ma: Multiaddr,
+        forProtocol proto: String,
+        withRequest request: Data,
+        style: Application.SingleRequest.Style,
+        withHandlers handlers: HandlerConfig,
+        andMiddleware middleware: MiddlewareConfig,
+        withTimeout timeout: TimeAmount
+    ) -> EventLoopFuture<Data>
 }

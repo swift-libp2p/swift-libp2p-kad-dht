@@ -19,6 +19,7 @@ import LibP2PMPLEX
 import LibP2PNoise
 import Multihash
 import XCTest
+
 @testable import LibP2PKadDHT
 
 class LibP2PKadDHTTests: XCTestCase {
@@ -58,9 +59,12 @@ class LibP2PKadDHTTests: XCTestCase {
         print(try arr.all().wait())
 
         (0..<10).forEach { _ in
-            group.next().scheduleTask(in: .milliseconds(Int64.random(in: 0...100)), {
-                arr.remove(at: 0)
-            })
+            group.next().scheduleTask(
+                in: .milliseconds(Int64.random(in: 0...100)),
+                {
+                    arr.remove(at: 0)
+                }
+            )
         }
 
         sleep(1)
@@ -97,9 +101,12 @@ class LibP2PKadDHTTests: XCTestCase {
         print(try d.all().wait())
 
         (0..<10).forEach { idx in
-            group.next().scheduleTask(in: .milliseconds(Int64.random(in: 0...100)), {
-                d.removeValue(forKey: "Item[\(idx)]")
-            })
+            group.next().scheduleTask(
+                in: .milliseconds(Int64.random(in: 0...100)),
+                {
+                    d.removeValue(forKey: "Item[\(idx)]")
+                }
+            )
         }
 
         sleep(1)
@@ -110,7 +117,10 @@ class LibP2PKadDHTTests: XCTestCase {
     }
 
     func testPubKeyRecordValidator() throws {
-        let dhtRecordData = Data(hex: "0a262f706b2f1220b04a57d40eca138809f139a76b12044333c3740391c9bf1ce9d8e21a79210bfd12ab04080012a60430820222300d06092a864886f70d01010105000382020f003082020a0282020100a1f5c0e7c0d5e556afc0e84566f8c565773adb548ddc219ca9688613a0096c2dfd069804c84968545b9c9df19dd131cc8408b7781df7ddfaf208a42a821523ce03955164a62dcab6bd10dd26f8507517567ca128f00a056d8636b9549ddb59ca727628775c90bd91d6251adbdfd36bf68a09c3bfe69e1b1587e8f31a4b55afc8095e7b6f6683165f9c0ef0ad1b22d8b73749ee02aa46566cd5f7a9ff6eb1099fe36b363abd4e1293108a6d473a349e77aca15e49b20ffe61b4222eb3a634e8481d71a7fdceea88a2044fa5cedde1dee314e27880bc713ca578814684e85e0d21cff40e23c341f13ee1a06452f284664999862973e51d692b578cd9b7de89d786ad6baebcf8dfc343db8eda434a15929591917c52bf16741359149d0e7092bc919928f1d5b25cb48b0f90a7a05b0eb29adca993f893c6fb137a53a5c470a8a309b574bb4fd80879bde7dcc237eaf2ce9a17b9193032df99c8bf551987561ee264a09730f9029610571625e0d0e1e2a7f90469a6a480ed08cf9b4c3af0567bfe9abf470079d8cc7d7f22efc83598f86c9e0678caf79e2299a99c47c8d057e7f3b8af40185c8dd499a1c167c358d7ab83af6581944ce0b8b6bd2cfe4bf80c8c9e7f61fe94816df79e12ae5e82c588f894b86fd599da5912f8754de2a23f2d1529845a5570a72d8d8537325b95dd3c69d9ca30b8186c20170d10955b7da216822c7302030100012a1e323032322d30392d31325431343a34363a35322e3839323937333034325a")
+        let dhtRecordData = Data(
+            hex:
+                "0a262f706b2f1220b04a57d40eca138809f139a76b12044333c3740391c9bf1ce9d8e21a79210bfd12ab04080012a60430820222300d06092a864886f70d01010105000382020f003082020a0282020100a1f5c0e7c0d5e556afc0e84566f8c565773adb548ddc219ca9688613a0096c2dfd069804c84968545b9c9df19dd131cc8408b7781df7ddfaf208a42a821523ce03955164a62dcab6bd10dd26f8507517567ca128f00a056d8636b9549ddb59ca727628775c90bd91d6251adbdfd36bf68a09c3bfe69e1b1587e8f31a4b55afc8095e7b6f6683165f9c0ef0ad1b22d8b73749ee02aa46566cd5f7a9ff6eb1099fe36b363abd4e1293108a6d473a349e77aca15e49b20ffe61b4222eb3a634e8481d71a7fdceea88a2044fa5cedde1dee314e27880bc713ca578814684e85e0d21cff40e23c341f13ee1a06452f284664999862973e51d692b578cd9b7de89d786ad6baebcf8dfc343db8eda434a15929591917c52bf16741359149d0e7092bc919928f1d5b25cb48b0f90a7a05b0eb29adca993f893c6fb137a53a5c470a8a309b574bb4fd80879bde7dcc237eaf2ce9a17b9193032df99c8bf551987561ee264a09730f9029610571625e0d0e1e2a7f90469a6a480ed08cf9b4c3af0567bfe9abf470079d8cc7d7f22efc83598f86c9e0678caf79e2299a99c47c8d057e7f3b8af40185c8dd499a1c167c358d7ab83af6581944ce0b8b6bd2cfe4bf80c8c9e7f61fe94816df79e12ae5e82c588f894b86fd599da5912f8754de2a23f2d1529845a5570a72d8d8537325b95dd3c69d9ca30b8186c20170d10955b7da216822c7302030100012a1e323032322d30392d31325431343a34363a35322e3839323937333034325a"
+        )
 
         // Ensure we can instantiate a DHT.Record Protobuf
         let dhtRecord = try DHT.Record(contiguousBytes: dhtRecordData)
@@ -120,7 +130,10 @@ class LibP2PKadDHTTests: XCTestCase {
     }
 
     func testPeerRecord() throws {
-        let recordData = Data(hex: "080012a60430820222300d06092a864886f70d01010105000382020f003082020a0282020100a1f5c0e7c0d5e556afc0e84566f8c565773adb548ddc219ca9688613a0096c2dfd069804c84968545b9c9df19dd131cc8408b7781df7ddfaf208a42a821523ce03955164a62dcab6bd10dd26f8507517567ca128f00a056d8636b9549ddb59ca727628775c90bd91d6251adbdfd36bf68a09c3bfe69e1b1587e8f31a4b55afc8095e7b6f6683165f9c0ef0ad1b22d8b73749ee02aa46566cd5f7a9ff6eb1099fe36b363abd4e1293108a6d473a349e77aca15e49b20ffe61b4222eb3a634e8481d71a7fdceea88a2044fa5cedde1dee314e27880bc713ca578814684e85e0d21cff40e23c341f13ee1a06452f284664999862973e51d692b578cd9b7de89d786ad6baebcf8dfc343db8eda434a15929591917c52bf16741359149d0e7092bc919928f1d5b25cb48b0f90a7a05b0eb29adca993f893c6fb137a53a5c470a8a309b574bb4fd80879bde7dcc237eaf2ce9a17b9193032df99c8bf551987561ee264a09730f9029610571625e0d0e1e2a7f90469a6a480ed08cf9b4c3af0567bfe9abf470079d8cc7d7f22efc83598f86c9e0678caf79e2299a99c47c8d057e7f3b8af40185c8dd499a1c167c358d7ab83af6581944ce0b8b6bd2cfe4bf80c8c9e7f61fe94816df79e12ae5e82c588f894b86fd599da5912f8754de2a23f2d1529845a5570a72d8d8537325b95dd3c69d9ca30b8186c20170d10955b7da216822c730203010001")
+        let recordData = Data(
+            hex:
+                "080012a60430820222300d06092a864886f70d01010105000382020f003082020a0282020100a1f5c0e7c0d5e556afc0e84566f8c565773adb548ddc219ca9688613a0096c2dfd069804c84968545b9c9df19dd131cc8408b7781df7ddfaf208a42a821523ce03955164a62dcab6bd10dd26f8507517567ca128f00a056d8636b9549ddb59ca727628775c90bd91d6251adbdfd36bf68a09c3bfe69e1b1587e8f31a4b55afc8095e7b6f6683165f9c0ef0ad1b22d8b73749ee02aa46566cd5f7a9ff6eb1099fe36b363abd4e1293108a6d473a349e77aca15e49b20ffe61b4222eb3a634e8481d71a7fdceea88a2044fa5cedde1dee314e27880bc713ca578814684e85e0d21cff40e23c341f13ee1a06452f284664999862973e51d692b578cd9b7de89d786ad6baebcf8dfc343db8eda434a15929591917c52bf16741359149d0e7092bc919928f1d5b25cb48b0f90a7a05b0eb29adca993f893c6fb137a53a5c470a8a309b574bb4fd80879bde7dcc237eaf2ce9a17b9193032df99c8bf551987561ee264a09730f9029610571625e0d0e1e2a7f90469a6a480ed08cf9b4c3af0567bfe9abf470079d8cc7d7f22efc83598f86c9e0678caf79e2299a99c47c8d057e7f3b8af40185c8dd499a1c167c358d7ab83af6581944ce0b8b6bd2cfe4bf80c8c9e7f61fe94816df79e12ae5e82c588f894b86fd599da5912f8754de2a23f2d1529845a5570a72d8d8537325b95dd3c69d9ca30b8186c20170d10955b7da216822c730203010001"
+        )
 
         let pub = try PeerID(marshaledPublicKey: recordData)
         print(pub)
@@ -132,7 +145,7 @@ class LibP2PKadDHTTests: XCTestCase {
         let peerID = "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
         //let peerID = "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN"
 
-        let key = try "/pk/".bytes + PeerID(cid: peerID).id // or CID(...).multihash.value
+        let key = try "/pk/".bytes + PeerID(cid: peerID).id  // or CID(...).multihash.value
         print(key)
         print("/pk/\(peerID)".bytes)
 
@@ -140,7 +153,13 @@ class LibP2PKadDHTTests: XCTestCase {
 
         print(String(data: Data(self.extractNamespace(key)!), encoding: .utf8) ?? "NIL")
 
-        XCTAssertEqual(key, [47, 112, 107, 47, 18, 32, 176, 74, 87, 212, 14, 202, 19, 136, 9, 241, 57, 167, 107, 18, 4, 67, 51, 195, 116, 3, 145, 201, 191, 28, 233, 216, 226, 26, 121, 33, 11, 253])
+        XCTAssertEqual(
+            key,
+            [
+                47, 112, 107, 47, 18, 32, 176, 74, 87, 212, 14, 202, 19, 136, 9, 241, 57, 167, 107, 18, 4, 67, 51, 195,
+                116, 3, 145, 201, 191, 28, 233, 216, 226, 26, 121, 33, 11, 253,
+            ]
+        )
     }
 
     func testTimeRecievedStringToDate1() throws {
@@ -183,15 +202,46 @@ class LibP2PKadDHTTests: XCTestCase {
     }
 
     func testInternalNetwork_PeerRouting() throws {
-        let dhtParams = KadDHT.NodeOptions(connectionTimeout: .milliseconds(150), maxConcurrentConnections: 3, bucketSize: 5, maxPeers: 15, maxKeyValueStoreEntries: 10, supportLocalNetwork: true)
+        let dhtParams = KadDHT.NodeOptions(
+            connectionTimeout: .milliseconds(150),
+            maxConcurrentConnections: 3,
+            bucketSize: 5,
+            maxPeers: 15,
+            maxKeyValueStoreEntries: 10,
+            supportLocalNetwork: true
+        )
 
         let group: MultiThreadedEventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         defer { try! group.syncShutdownGracefully() }
 
-        let node1 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [], autoHeartbeat: false, usingGroup: .shared(group))
-        let node2 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [node1.peerInfo], autoHeartbeat: false, usingGroup: .shared(group))
-        let node3 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [node2.peerInfo], autoHeartbeat: false, usingGroup: .shared(group))
-        let node4 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [node3.peerInfo], autoHeartbeat: false, usingGroup: .shared(group))
+        let node1 = try makeHost(
+            mode: .server,
+            options: dhtParams,
+            bootstrapPeers: [],
+            autoHeartbeat: false,
+            usingGroup: .shared(group)
+        )
+        let node2 = try makeHost(
+            mode: .server,
+            options: dhtParams,
+            bootstrapPeers: [node1.peerInfo],
+            autoHeartbeat: false,
+            usingGroup: .shared(group)
+        )
+        let node3 = try makeHost(
+            mode: .server,
+            options: dhtParams,
+            bootstrapPeers: [node2.peerInfo],
+            autoHeartbeat: false,
+            usingGroup: .shared(group)
+        )
+        let node4 = try makeHost(
+            mode: .server,
+            options: dhtParams,
+            bootstrapPeers: [node3.peerInfo],
+            autoHeartbeat: false,
+            usingGroup: .shared(group)
+        )
 
         try node1.start()
         try node2.start()
@@ -199,7 +249,7 @@ class LibP2PKadDHTTests: XCTestCase {
         try node4.start()
 
         // Ensure Node4 can find Node1 via Node2 & Node3
-        let peer = try? node4.dht.kadDHT.findPeer(peer: node1.peerID).wait() //peerRouting.findPeer(peer: node1.peerID)
+        let peer = try? node4.dht.kadDHT.findPeer(peer: node1.peerID).wait()  //peerRouting.findPeer(peer: node1.peerID)
         XCTAssertNotNil(peer)
         XCTAssertEqual(peer?.peer, node1.peerID)
         XCTAssertEqual(peer?.addresses, node1.listenAddresses)
@@ -212,50 +262,79 @@ class LibP2PKadDHTTests: XCTestCase {
         print("All Done!")
     }
 
-//    func testInternalNetwork_ContentRouting() throws {
-//        let dhtParams = KadDHT.NodeOptions(connectionTimeout: .seconds(5), maxConcurrentConnections: 3, bucketSize: 5, maxPeers: 15, maxKeyValueStoreEntries: 10)
-//
-//        let node1 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [], autoHeartbeat: false)
-//        let node2 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [PeerInfo(peer: node1.peerID, addresses: node1.listenAddresses)], autoHeartbeat: false)
-//        let node3 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [PeerInfo(peer: node2.peerID, addresses: node2.listenAddresses)], autoHeartbeat: false)
-//
-//        try node1.start()
-//        try node2.start()
-//        try node3.start()
-//
-//        sleep(1)
-//
-//        let provide = try node1.contentRouting.provide(CID()).wait()
-//
-//        // Ensure Node3 can find Node1
-//        let found = try node3.contentRouting.findProviders(cid: CID())
-//
-//        sleep(2)
-//
-//        beaconNode.shutdown()
-//        nodes.forEach { $0.shutdown() }
-//
-//        print("All Done!")
-//    }
+    //    func testInternalNetwork_ContentRouting() throws {
+    //        let dhtParams = KadDHT.NodeOptions(connectionTimeout: .seconds(5), maxConcurrentConnections: 3, bucketSize: 5, maxPeers: 15, maxKeyValueStoreEntries: 10)
+    //
+    //        let node1 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [], autoHeartbeat: false)
+    //        let node2 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [PeerInfo(peer: node1.peerID, addresses: node1.listenAddresses)], autoHeartbeat: false)
+    //        let node3 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [PeerInfo(peer: node2.peerID, addresses: node2.listenAddresses)], autoHeartbeat: false)
+    //
+    //        try node1.start()
+    //        try node2.start()
+    //        try node3.start()
+    //
+    //        sleep(1)
+    //
+    //        let provide = try node1.contentRouting.provide(CID()).wait()
+    //
+    //        // Ensure Node3 can find Node1
+    //        let found = try node3.contentRouting.findProviders(cid: CID())
+    //
+    //        sleep(2)
+    //
+    //        beaconNode.shutdown()
+    //        nodes.forEach { $0.shutdown() }
+    //
+    //        print("All Done!")
+    //    }
 
     func testInternalNetwork() throws {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         defer { try! group.syncShutdownGracefully() }
 
         let numberOfNodes = 4
-        let dhtParams = KadDHT.NodeOptions(connectionTimeout: .milliseconds(150), maxConcurrentConnections: 3, bucketSize: 3, maxPeers: 8, maxKeyValueStoreEntries: 10, supportLocalNetwork: true)
-        var nodes: [Application] = try [makeHost(mode: .server, options: dhtParams, bootstrapPeers: [], autoHeartbeat: false, usingGroup: .shared(group))]
+        let dhtParams = KadDHT.NodeOptions(
+            connectionTimeout: .milliseconds(150),
+            maxConcurrentConnections: 3,
+            bucketSize: 3,
+            maxPeers: 8,
+            maxKeyValueStoreEntries: 10,
+            supportLocalNetwork: true
+        )
+        var nodes: [Application] = try [
+            makeHost(
+                mode: .server,
+                options: dhtParams,
+                bootstrapPeers: [],
+                autoHeartbeat: false,
+                usingGroup: .shared(group)
+            )
+        ]
         for i in 1..<numberOfNodes {
-            try nodes.append(self.makeHost(mode: .server, options: dhtParams, bootstrapPeers: [nodes[i - 1].peerInfo], autoHeartbeat: false, usingGroup: .shared(group)))
+            try nodes.append(
+                self.makeHost(
+                    mode: .server,
+                    options: dhtParams,
+                    bootstrapPeers: [nodes[i - 1].peerInfo],
+                    autoHeartbeat: false,
+                    usingGroup: .shared(group)
+                )
+            )
         }
 
         // Register the `fruit` namespace with each node
         try nodes.forEach {
-            try $0.dht.kadDHT.handle(namespace: "fruit", validator: KadDHT.BaseValidator(validationFunction: { key, value in
-                guard !key.isEmpty else { throw NSError(domain: "Invalid Fruit Message", code: 0) }
-            }, selectFunction: { key, values in
-                0
-            })).wait()
+            try $0.dht.kadDHT.handle(
+                namespace: "fruit",
+                validator: KadDHT.BaseValidator(
+                    validationFunction: { key, value in
+                        guard !key.isEmpty else { throw NSError(domain: "Invalid Fruit Message", code: 0) }
+                    },
+                    selectFunction: { key, values in
+                        0
+                    }
+                )
+            ).wait()
         }
 
         // Boot each node
@@ -296,7 +375,11 @@ class LibP2PKadDHTTests: XCTestCase {
             XCTAssertEqual(getAttempt2?.key, Data(item1Key))
             XCTAssertEqual(getAttempt2?.value, Data("🍎".utf8))
         }
-        XCTAssertEqual(successes, numberOfNodes, "\(numberOfNodes - successes)/\(numberOfNodes) Nodes were unable to retrieve the value")
+        XCTAssertEqual(
+            successes,
+            numberOfNodes,
+            "\(numberOfNodes - successes)/\(numberOfNodes) Nodes were unable to retrieve the value"
+        )
 
         //for i in (0..<numberOfNodes) {
         //let peerCount = try nodes[i].peers.count().wait()
@@ -315,10 +398,33 @@ class LibP2PKadDHTTests: XCTestCase {
         defer { try! group.syncShutdownGracefully() }
 
         let numberOfNodes = 20
-        let dhtParams = KadDHT.NodeOptions(connectionTimeout: .milliseconds(150), maxConcurrentConnections: 3, bucketSize: 8, maxPeers: 20, maxKeyValueStoreEntries: 10, supportLocalNetwork: true)
-        var nodes: [Application] = try [makeHost(mode: .server, options: dhtParams, bootstrapPeers: [], autoHeartbeat: false, usingGroup: .shared(group))]
+        let dhtParams = KadDHT.NodeOptions(
+            connectionTimeout: .milliseconds(150),
+            maxConcurrentConnections: 3,
+            bucketSize: 8,
+            maxPeers: 20,
+            maxKeyValueStoreEntries: 10,
+            supportLocalNetwork: true
+        )
+        var nodes: [Application] = try [
+            makeHost(
+                mode: .server,
+                options: dhtParams,
+                bootstrapPeers: [],
+                autoHeartbeat: false,
+                usingGroup: .shared(group)
+            )
+        ]
         for i in 1..<numberOfNodes {
-            try nodes.append(self.makeHost(mode: .server, options: dhtParams, bootstrapPeers: [nodes[i - 1].peerInfo], autoHeartbeat: false, usingGroup: .shared(group)))
+            try nodes.append(
+                self.makeHost(
+                    mode: .server,
+                    options: dhtParams,
+                    bootstrapPeers: [nodes[i - 1].peerInfo],
+                    autoHeartbeat: false,
+                    usingGroup: .shared(group)
+                )
+            )
         }
 
         // Boot each node
@@ -350,17 +456,44 @@ class LibP2PKadDHTTests: XCTestCase {
         defer { try! group.syncShutdownGracefully() }
 
         let numberOfNodes = 4
-        let dhtParams = KadDHT.NodeOptions(connectionTimeout: .milliseconds(150), maxConcurrentConnections: 3, bucketSize: 3, maxPeers: 8, maxKeyValueStoreEntries: 10, supportLocalNetwork: true)
-        let beaconNode = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [], autoHeartbeat: false, usingGroup: .shared(group))
-        let nodes = try (0..<numberOfNodes).map { _ in try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [beaconNode.peerInfo], autoHeartbeat: false, usingGroup: .shared(group)) }
+        let dhtParams = KadDHT.NodeOptions(
+            connectionTimeout: .milliseconds(150),
+            maxConcurrentConnections: 3,
+            bucketSize: 3,
+            maxPeers: 8,
+            maxKeyValueStoreEntries: 10,
+            supportLocalNetwork: true
+        )
+        let beaconNode = try makeHost(
+            mode: .server,
+            options: dhtParams,
+            bootstrapPeers: [],
+            autoHeartbeat: false,
+            usingGroup: .shared(group)
+        )
+        let nodes = try (0..<numberOfNodes).map { _ in
+            try makeHost(
+                mode: .server,
+                options: dhtParams,
+                bootstrapPeers: [beaconNode.peerInfo],
+                autoHeartbeat: false,
+                usingGroup: .shared(group)
+            )
+        }
 
         /// Register the `fruit` namespace with each node
         try ([beaconNode] + nodes).forEach {
-            try $0.dht.kadDHT.handle(namespace: "fruit", validator: KadDHT.BaseValidator(validationFunction: { key, value in
-                guard !key.isEmpty else { throw NSError(domain: "Invalid Fruit Message", code: 0) }
-            }, selectFunction: { key, values in
-                0
-            })).wait()
+            try $0.dht.kadDHT.handle(
+                namespace: "fruit",
+                validator: KadDHT.BaseValidator(
+                    validationFunction: { key, value in
+                        guard !key.isEmpty else { throw NSError(domain: "Invalid Fruit Message", code: 0) }
+                    },
+                    selectFunction: { key, values in
+                        0
+                    }
+                )
+            ).wait()
         }
 
         try beaconNode.start()
@@ -405,7 +538,11 @@ class LibP2PKadDHTTests: XCTestCase {
             XCTAssertEqual(getAttempt2?.key, Data(item1Key))
             XCTAssertEqual(getAttempt2?.value, Data("🍎".utf8))
         }
-        XCTAssertEqual(successes, numberOfNodes, "\(numberOfNodes - successes)/\(numberOfNodes) Nodes were unable to retrieve the value")
+        XCTAssertEqual(
+            successes,
+            numberOfNodes,
+            "\(numberOfNodes - successes)/\(numberOfNodes) Nodes were unable to retrieve the value"
+        )
 
         //let beaconNodePeerCount = try beaconNode.peers.count().wait()
         //print("BeaconNode::PeerCount == \(beaconNodePeerCount)")
@@ -423,7 +560,13 @@ class LibP2PKadDHTTests: XCTestCase {
     }
 
     var nextPort: Int = 10000
-    private func makeHost(mode: KadDHT.Mode = .client, options: KadDHT.NodeOptions = .default, bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes, autoHeartbeat: Bool = false, usingGroup: Application.EventLoopGroupProvider = .createNew) throws -> Application {
+    private func makeHost(
+        mode: KadDHT.Mode = .client,
+        options: KadDHT.NodeOptions = .default,
+        bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
+        autoHeartbeat: Bool = false,
+        usingGroup: Application.EventLoopGroupProvider = .createNew
+    ) throws -> Application {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519), eventLoopGroupProvider: usingGroup)
         lib.logger.logLevel = .notice
         lib.security.use(.noise)
@@ -440,16 +583,16 @@ extension ComprehensivePeer: CustomStringConvertible {
     public var description: String {
         let header = "--- 👥 \(self.id) 👥 ---"
         return """
-        \(header)
-        ☎️ Addresses:
-        \t- \(self.addresses.map { $0.description }.joined(separator: "\n\t- "))
-        📒 Protocols:
-        \t- \(self.protocols.map { $0.stringValue }.joined(separator: "\n\t- "))
-        ℹ️ MetaData:
-        \t- \(self.metadata.map { "\($0.key) - \(String(data: Data($0.value), encoding: .utf8) ?? $0.value.description)" }.joined(separator: "\n\t- "))
-        📜 Records:
-        \t\(self.records.map { "\($0.description.replacingOccurrences(of: "\n", with: "\n\t"))" }.joined(separator: "\n\t"))
-        \(String(repeating: "-", count: header.count + 2))
-        """
+            \(header)
+            ☎️ Addresses:
+            \t- \(self.addresses.map { $0.description }.joined(separator: "\n\t- "))
+            📒 Protocols:
+            \t- \(self.protocols.map { $0.stringValue }.joined(separator: "\n\t- "))
+            ℹ️ MetaData:
+            \t- \(self.metadata.map { "\($0.key) - \(String(data: Data($0.value), encoding: .utf8) ?? $0.value.description)" }.joined(separator: "\n\t- "))
+            📜 Records:
+            \t\(self.records.map { "\($0.description.replacingOccurrences(of: "\n", with: "\n\t"))" }.joined(separator: "\n\t"))
+            \(String(repeating: "-", count: header.count + 2))
+            """
     }
 }

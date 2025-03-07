@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Foundation
 import CoreFoundation
+import Foundation
 
 protocol UIntToBytesConvertable {
     var toBytes: [UInt8] { get }
@@ -34,11 +34,15 @@ extension UIntToBytesConvertable {
 extension UInt64: UIntToBytesConvertable {
     var toBytes: [UInt8] {
         if CFByteOrderGetCurrent() == Int(CFByteOrderLittleEndian.rawValue) {
-            return toByteArr(endian: self.littleEndian,
-                             count: MemoryLayout<UInt64>.size)
+            return toByteArr(
+                endian: self.littleEndian,
+                count: MemoryLayout<UInt64>.size
+            )
         } else {
-            return toByteArr(endian: self.bigEndian,
-                             count: MemoryLayout<UInt64>.size)
+            return toByteArr(
+                endian: self.bigEndian,
+                count: MemoryLayout<UInt64>.size
+            )
         }
     }
 }

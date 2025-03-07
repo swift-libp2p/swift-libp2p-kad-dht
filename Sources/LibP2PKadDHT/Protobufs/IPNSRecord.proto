@@ -15,24 +15,24 @@
 syntax = "proto3";
 
 message IpnsEntry {
-	enum ValidityType {
-		// setting an EOL says "this record is valid until..."
-		EOL = 0;
-	}
-	bytes value = 1;
-	bytes signatureV1 = 2;
+    enum ValidityType {
+        // setting an EOL says "this record is valid until..."
+        EOL = 0;
+    }
+    bytes value = 1;
+    bytes signatureV1 = 2;
 
-	optional ValidityType validityType = 3;
-	optional bytes validity = 4;
+    optional ValidityType validityType = 3;
+    optional bytes validity = 4;
 
-	optional uint64 sequence = 5;
+    optional uint64 sequence = 5;
 
-	optional uint64 ttl = 6;
+    optional uint64 ttl = 6;
 
     // https://pkg.go.dev/github.com/ipfs/go-ipns/pb
-	optional bytes pubKey = 7;
-    
+    optional bytes pubKey = 7;
+
     optional bytes signatureV2 = 8;
-    
+
     optional bytes data = 9;
 }

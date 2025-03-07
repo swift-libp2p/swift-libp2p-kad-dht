@@ -36,7 +36,10 @@ extension ID {
     }
 
     private func distanceBetween(key key1: [UInt8], and key2: [UInt8]) -> [UInt8] {
-        guard key1.count == key2.count else { print("Error: Keys must be the same length"); return [] }
+        guard key1.count == key2.count else {
+            print("Error: Keys must be the same length")
+            return []
+        }
         return key1.enumerated().map { idx, byte in key2[idx] ^ byte }
     }
 }

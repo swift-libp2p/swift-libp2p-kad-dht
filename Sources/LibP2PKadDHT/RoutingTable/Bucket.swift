@@ -14,7 +14,7 @@
 
 import LibP2P
 
-typealias Bucket = Array<DHTPeerInfo>
+typealias Bucket = [DHTPeerInfo]
 
 extension Bucket {
 

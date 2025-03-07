@@ -12,10 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-import XCTest
-import LibP2P
 import CryptoSwift
+import LibP2P
 import LibP2PCrypto
+import XCTest
+
 @testable import LibP2PKadDHT
 
 class RoutingTableTests: XCTestCase {
@@ -31,32 +32,41 @@ class RoutingTableTests: XCTestCase {
     func testBucketMinimum() {
         var bucket = Bucket()
 
-        let pid3 = RandomDHTPeer() // We initialize pid3 first so it has the oldest LastUsefulAt value
-        let pid1 = RandomDHTPeer() // Then pid1
-        let pid2 = RandomDHTPeer() // Then pid2
+        let pid3 = RandomDHTPeer()  // We initialize pid3 first so it has the oldest LastUsefulAt value
+        let pid1 = RandomDHTPeer()  // Then pid1
+        let pid2 = RandomDHTPeer()  // Then pid2
 
         /// pid1 should be first
         bucket.pushFront(pid1)
         /// Sorting LastUsefulAt from oldest to newest, pid1 should be the oldest at index 0
-        XCTAssertEqual(pid1, bucket.min(by: { lhs, rhs in
-            lhs.lastUsefulAt! < rhs.lastUsefulAt!
-        }))
+        XCTAssertEqual(
+            pid1,
+            bucket.min(by: { lhs, rhs in
+                lhs.lastUsefulAt! < rhs.lastUsefulAt!
+            })
+        )
 
         /// pid1 should still be first
         bucket.pushFront(pid2)
         /// Sorting LastUsefulAt from oldest to newest, pid1 should still be the oldest at index 0
-        XCTAssertEqual(pid1, bucket.min(by: { lhs, rhs in
-            lhs.lastUsefulAt! < rhs.lastUsefulAt!
-        }))
+        XCTAssertEqual(
+            pid1,
+            bucket.min(by: { lhs, rhs in
+                lhs.lastUsefulAt! < rhs.lastUsefulAt!
+            })
+        )
 
         /// pid3 should be first now...
         bucket.pushFront(pid3)
         /// Sorting LastUsefulAt from oldest to newest, pid3 should now be the oldest at index 0
-        XCTAssertEqual(pid3, bucket.min(by: { lhs, rhs in
-            lhs.lastUsefulAt! < rhs.lastUsefulAt!
-        }))
+        XCTAssertEqual(
+            pid3,
+            bucket.min(by: { lhs, rhs in
+                lhs.lastUsefulAt! < rhs.lastUsefulAt!
+            })
+        )
     }
-    
+
     func testBucketUpdateAllWith() {
         var bucket = Bucket()
 
@@ -98,7 +108,14 @@ class RoutingTableTests: XCTestCase {
 
     func testRoutingTablePrintDescription() throws {
         let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        let routingTable = try RoutingTable(eventloop: elg.next(), bucketSize: 1, localPeerID: PeerID(.Ed25519), latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = try RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 1,
+            localPeerID: PeerID(.Ed25519),
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
 
         print(routingTable)
         try elg.syncShutdownGracefully()
@@ -114,7 +131,7 @@ class RoutingTableTests: XCTestCase {
         let time1 = Date().timeIntervalSince1970
         let time2 = Date().timeIntervalSince1970 + 10
 
-        let peers:[PeerID] = (0..<peerCount).map { _ in try! PeerID(.Ed25519) }
+        let peers: [PeerID] = (0..<peerCount).map { _ in try! PeerID(.Ed25519) }
         peers.forEach {
             bucket.pushFront(
                 DHTPeerInfo(
@@ -176,37 +193,37 @@ class RoutingTableTests: XCTestCase {
             XCTAssertGreaterThan(cpl, 0)
         }
     }
-    
+
     func testRandomDHTKeyCPL() throws {
         let local = RandomDHTKey()
-        
+
         let similar0 = RandomDHTKey(withCPL: 0, wrt: local)
         XCTAssertEqual(local.commonPrefixLength(with: similar0), 0)
-        
+
         let similar1 = RandomDHTKey(withCPL: 1, wrt: local)
         XCTAssertEqual(local.commonPrefixLength(with: similar1), 1)
-        
+
         let similar2 = RandomDHTKey(withCPL: 2, wrt: local)
         XCTAssertEqual(local.commonPrefixLength(with: similar2), 2)
-        
+
         let similar3 = RandomDHTKey(withCPL: 3, wrt: local)
         XCTAssertEqual(local.commonPrefixLength(with: similar3), 3)
-        
+
         let similar4 = RandomDHTKey(withCPL: 4, wrt: local)
         XCTAssertEqual(local.commonPrefixLength(with: similar4), 4)
-        
+
         let similar5 = RandomDHTKey(withCPL: 5, wrt: local)
         XCTAssertEqual(local.commonPrefixLength(with: similar5), 5)
-        
+
         let similar6 = RandomDHTKey(withCPL: 6, wrt: local)
         XCTAssertEqual(local.commonPrefixLength(with: similar6), 6)
-        
+
         let similar7 = RandomDHTKey(withCPL: 7, wrt: local)
         XCTAssertEqual(local.commonPrefixLength(with: similar7), 7)
-        
+
         let similar8 = RandomDHTKey(withCPL: 8, wrt: local)
         XCTAssertEqual(local.commonPrefixLength(with: similar8), 8)
-        
+
         let similar9 = RandomDHTKey(withCPL: 9, wrt: local)
         XCTAssertEqual(local.commonPrefixLength(with: similar9), 9)
     }
@@ -219,14 +236,23 @@ class RoutingTableTests: XCTestCase {
         print(local.dhtID.bytes)
 
         let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 2, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 2,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
 
         XCTAssertEqual(0, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
         XCTAssertEqual(0, try routingTable.numberOfPeers(withCommonPrefixLength: 1).wait())
 
         /// Generate and add a peer with a commonPrefixLength of 1 w.r.t our local peer id
         let peerCPL1 = RandomDHTPeer(withCPL: 1, wrt: local.dhtID)
-        XCTAssertTrue(try routingTable.addPeer(peerCPL1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(
+            try routingTable.addPeer(peerCPL1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait()
+        )
         print("Added peer: \(peerCPL1.dhtID.bytes)")
         print(routingTable)
         XCTAssertEqual(0, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
@@ -235,7 +261,9 @@ class RoutingTableTests: XCTestCase {
 
         /// Generate and add a peer with a commonPrefixLength of 0 w.r.t our local peer id
         let peerCPL0 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID)
-        XCTAssertTrue(try routingTable.addPeer(peerCPL0, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(
+            try routingTable.addPeer(peerCPL0, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait()
+        )
         print("Added peer: \(peerCPL0.dhtID.bytes)")
         print(routingTable)
         XCTAssertEqual(1, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
@@ -245,7 +273,9 @@ class RoutingTableTests: XCTestCase {
         /// Generate and add a peer with a commonPrefixLength of 1 w.r.t our local peer id
         /// Adding a third peer will force a bucket split when our bucketSize param is set to 2
         let peerCPL1_2 = RandomDHTPeer(withCPL: 1, wrt: local.dhtID)
-        XCTAssertTrue(try routingTable.addPeer(peerCPL1_2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(
+            try routingTable.addPeer(peerCPL1_2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait()
+        )
         print("Added peer: \(peerCPL1_2.dhtID.bytes)")
         print(routingTable)
         XCTAssertEqual(1, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
@@ -254,7 +284,9 @@ class RoutingTableTests: XCTestCase {
 
         /// Generate and add a peer with a commonPrefixLength of 0 w.r.t our local peer id
         let peerCPL0_2 = RandomDHTPeer(withCPL: 0, wrt: local.dhtID)
-        XCTAssertTrue(try routingTable.addPeer(peerCPL0_2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(
+            try routingTable.addPeer(peerCPL0_2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait()
+        )
         print("Added peer: \(peerCPL0_2.dhtID.bytes)")
         print(routingTable)
         XCTAssertEqual(2, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
@@ -265,18 +297,24 @@ class RoutingTableTests: XCTestCase {
         /// Attempting to add a third peer with a CPL of 1 will force a bucket split but will fail to add the peer due to the bucket for CPL 1's being full
         /// And the fact that all of the peers added so far have their replaceable param set to false
         let peerCPL1_3 = RandomDHTPeer(withCPL: 1, wrt: local.dhtID)
-        XCTAssertFalse(try routingTable.addPeer(peerCPL1_3, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertFalse(
+            try routingTable.addPeer(peerCPL1_3, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait()
+        )
         print(routingTable)
 
         /// Attempting Again Fails
         let peerCPL1_4 = RandomDHTPeer(withCPL: 1, wrt: local.dhtID)
-        XCTAssertFalse(try routingTable.addPeer(peerCPL1_4, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertFalse(
+            try routingTable.addPeer(peerCPL1_4, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait()
+        )
         print(routingTable)
 
         /// Generate and add a peer with a commonPrefixLength of 2 w.r.t our local peer id
         /// Adding this peer should succeed due to having excess capacity in bucket[2]
         let peerCPL2_1 = RandomDHTPeer(withCPL: 2, wrt: local.dhtID)
-        XCTAssertTrue(try routingTable.addPeer(peerCPL2_1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
+        XCTAssertTrue(
+            try routingTable.addPeer(peerCPL2_1, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait()
+        )
         print("Added peer: \(peerCPL2_1.dhtID.bytes)")
         print(routingTable)
         XCTAssertEqual(2, try routingTable.numberOfPeers(withCommonPrefixLength: 0).wait())
@@ -298,7 +336,14 @@ class RoutingTableTests: XCTestCase {
         let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         defer { try! elg.syncShutdownGracefully() }
 
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 1, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 1,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
         routingTable.logLevel = .debug
 
         /// Generate Peers with CPLs of 0, 1, 2 and 3
@@ -308,7 +353,7 @@ class RoutingTableTests: XCTestCase {
         let peer3 = RandomDHTPeer(withCPL: 3, wrt: local.dhtID)
 
         /// Removing a peer on an empty bucket shouldn't throw an error
-        XCTAssertNoThrow( try routingTable.removePeer(peer0).wait() )
+        XCTAssertNoThrow(try routingTable.removePeer(peer0).wait())
 
         /// Add and then remove peer0, this should create a bucket[0]
         XCTAssertTrue(try routingTable.addPeer(peer0, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
@@ -436,7 +481,14 @@ class RoutingTableTests: XCTestCase {
             try! elg.syncShutdownGracefully()
         }
 
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 2, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 2,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
 
         /// Generate random Peers
         let peer0 = RandomDHTPeer()
@@ -476,10 +528,17 @@ class RoutingTableTests: XCTestCase {
             try! elg.syncShutdownGracefully()
         }
 
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 10, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 10,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
         routingTable.logLevel = .warning
 
-        var peersSet:[PeerID] = []
+        var peersSet: [PeerID] = []
         /// install our callback handlers
         routingTable.peerAddedHandler = { peer in
             print("Peer Added: \(peer)")
@@ -492,7 +551,7 @@ class RoutingTableTests: XCTestCase {
 
         /// Generate random Peers
         let peerCount = 100
-        let peers:[DHTPeerInfo] = (0..<peerCount).map { _ in RandomDHTPeer() }
+        let peers: [DHTPeerInfo] = (0..<peerCount).map { _ in RandomDHTPeer() }
 
         /// Make sure our callbacks work...
         XCTAssertTrue(try routingTable.addPeer(peers[0], isQueryPeer: true).wait())
@@ -536,12 +595,19 @@ class RoutingTableTests: XCTestCase {
             try! elg.syncShutdownGracefully()
         }
 
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 20, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 20,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
         routingTable.logLevel = .warning
 
         /// Generate random Peers
         let peerCount = 500
-        let peers:[DHTPeerInfo] = (0..<peerCount).map { _ in RandomDHTPeer() }
+        let peers: [DHTPeerInfo] = (0..<peerCount).map { _ in RandomDHTPeer() }
 
         /// Add random peers from the list
         for _ in (0..<50000) {
@@ -569,12 +635,19 @@ class RoutingTableTests: XCTestCase {
             try! elg.syncShutdownGracefully()
         }
 
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 10, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 10,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
         routingTable.logLevel = .warning
 
         /// Generate random Peers
         let peerCount = 5
-        let peers:[DHTPeerInfo] = (0..<peerCount).map { _ in RandomDHTPeer() }
+        let peers: [DHTPeerInfo] = (0..<peerCount).map { _ in RandomDHTPeer() }
 
         /// Add random peers from the list
         for peer in peers {
@@ -602,7 +675,14 @@ class RoutingTableTests: XCTestCase {
             try! elg.syncShutdownGracefully()
         }
 
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 10, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 10,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
         routingTable.logLevel = .warning
 
         /// Generate a random peer and add them to the table
@@ -644,7 +724,14 @@ class RoutingTableTests: XCTestCase {
             try! elg.syncShutdownGracefully()
         }
 
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 10, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 10,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
         routingTable.logLevel = .warning
 
         /// Generate a random peer and add them to the table
@@ -684,7 +771,14 @@ class RoutingTableTests: XCTestCase {
             try! elg.syncShutdownGracefully()
         }
 
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 2, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 2,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
         routingTable.logLevel = .trace
 
         /// Generate and Add two peers to saturate the first bucket
@@ -715,7 +809,7 @@ class RoutingTableTests: XCTestCase {
         XCTAssertEqual(try routingTable.find(id: peer1).wait()?.id, peer1.id)
         XCTAssertEqual(try routingTable.find(id: peer3).wait()?.id, peer3.id)
         XCTAssertNil(try routingTable.find(id: peer4).wait())
-        XCTAssertEqual(try routingTable.bucketCount.wait(), 2) // The attempt to add another CPL = 0 Peer results in a nextBucket operation being invoked, so we should have 2 buckets, the last one being empty..
+        XCTAssertEqual(try routingTable.bucketCount.wait(), 2)  // The attempt to add another CPL = 0 Peer results in a nextBucket operation being invoked, so we should have 2 buckets, the last one being empty..
         print(routingTable)
 
         /// Generate a fifth peer with CPL = 1 and attempt to add to table, this should succeed because we have excess capcity for peers with CPL = 1 (2 slots available at the moment)
@@ -753,12 +847,21 @@ class RoutingTableTests: XCTestCase {
             try! elg.syncShutdownGracefully()
         }
 
-        let bucketSize:Int = 20
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: bucketSize, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let bucketSize: Int = 20
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: bucketSize,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
         routingTable.logLevel = .warning
 
         let peerCount = 50
-        let peers = (0..<peerCount).map { _ in RandomDHTPeer(withCPL: Int.random(in: 0...8), wrt: local.dhtID, isReplaceable: true) }
+        let peers = (0..<peerCount).map { _ in
+            RandomDHTPeer(withCPL: Int.random(in: 0...8), wrt: local.dhtID, isReplaceable: true)
+        }
 
         for peer in peers {
             XCTAssertNoThrow(try routingTable.addPeer(peer, isQueryPeer: true).wait())
@@ -805,12 +908,21 @@ class RoutingTableTests: XCTestCase {
             try! elg.syncShutdownGracefully()
         }
 
-        let bucketSize:Int = 20
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: bucketSize, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let bucketSize: Int = 20
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: bucketSize,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
         routingTable.logLevel = .warning
 
         let peerCount = 50
-        let peers = (0..<peerCount).map { _ in RandomDHTPeer(withCPL: Int.random(in: 0...4), wrt: local.dhtID, isReplaceable: true) }
+        let peers = (0..<peerCount).map { _ in
+            RandomDHTPeer(withCPL: Int.random(in: 0...4), wrt: local.dhtID, isReplaceable: true)
+        }
 
         for peer in peers {
             XCTAssertNoThrow(try routingTable.addPeer(peer, isQueryPeer: true).wait())
@@ -819,7 +931,7 @@ class RoutingTableTests: XCTestCase {
         print(routingTable)
 
         /// The number of closest peers we're going to request
-        let expectedNearbyPeers:Int = 25
+        let expectedNearbyPeers: Int = 25
 
         XCTAssertGreaterThanOrEqual(try routingTable.getPeerInfos().wait().count, expectedNearbyPeers)
 
@@ -828,7 +940,6 @@ class RoutingTableTests: XCTestCase {
         let nearbyPeers = try routingTable.nearest(expectedNearbyPeers, peersTo: peers.first!).wait()
         XCTAssertEqual(nearbyPeers.count, expectedNearbyPeers)
     }
-
 
     func testPeerRemovedNotificationOnEviction() throws {
         let local = RandomDHTPeer()
@@ -842,10 +953,17 @@ class RoutingTableTests: XCTestCase {
             try! elg.syncShutdownGracefully()
         }
 
-        let routingTable = RoutingTable(eventloop: elg.next(), bucketSize: 1, localPeerID: local.id, latency: .hours(1), peerstoreMetrics: [:], usefulnessGracePeriod: .hours(1))
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 1,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
         routingTable.logLevel = .info
 
-        var peersSet:[PeerID] = []
+        var peersSet: [PeerID] = []
         /// install our callback handlers
         routingTable.peerAddedHandler = { peer in
             print("Peer Added: \(peer)")
@@ -862,16 +980,16 @@ class RoutingTableTests: XCTestCase {
 
         XCTAssertEqual(local.dhtID.commonPrefixLength(with: peer1.dhtID), 0)
         XCTAssertEqual(local.dhtID.commonPrefixLength(with: peer2.dhtID), 0)
-        
+
         /// Add the first peer, should work fine due to excess capacity
         XCTAssertTrue(try routingTable.addPeer(peer1, isQueryPeer: true).wait())
         XCTAssertNotNil(try routingTable.find(id: peer1).wait())
-        XCTAssertTrue(peersSet.contains(where: { $0.id == peer1.id } ))
+        XCTAssertTrue(peersSet.contains(where: { $0.id == peer1.id }))
 
         /// Try and add the second peer, this should fail due to max capacity
         XCTAssertFalse(try routingTable.addPeer(peer2, isQueryPeer: true).wait())
         XCTAssertNil(try routingTable.find(id: peer2).wait())
-        XCTAssertFalse(peersSet.contains(where: { $0.id == peer2.id } ))
+        XCTAssertFalse(peersSet.contains(where: { $0.id == peer2.id }))
 
         /// Mark all peers (peer1) as replaceable
         try routingTable.markAllPeersReplaceable().wait()
@@ -879,11 +997,11 @@ class RoutingTableTests: XCTestCase {
         /// Try and add the second peer again, this should now succeed due to peer1 being marked as replaceable
         XCTAssertTrue(try routingTable.addPeer(peer2, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait())
         XCTAssertNotNil(try routingTable.find(id: peer2).wait())
-        XCTAssertTrue(peersSet.contains(where: { $0.id == peer2.id } ))
+        XCTAssertTrue(peersSet.contains(where: { $0.id == peer2.id }))
 
         /// Make sure peer1 is no longer in the routing table and has also been removed from our peersSet array
         XCTAssertNil(try routingTable.find(id: peer1).wait())
-        XCTAssertFalse(peersSet.contains(where: { $0.id == peer1.id } ))
+        XCTAssertFalse(peersSet.contains(where: { $0.id == peer1.id }))
     }
-    
+
 }

@@ -15,12 +15,12 @@
 import LibP2P
 
 /// KadDHT Route Endpoint - /ipfs/kad/1.0.0
-func registerDHTRoute(_ app:Application) throws {
+func registerDHTRoute(_ app: Application) throws {
     app.group("ipfs", "kad") { kad in
 
         kad.on("1.0.0", handlers: []) { req -> EventLoopFuture<Response<ByteBuffer>> in
 
-            return req.application.dht.kadDHT.processRequest(req)
+            req.application.dht.kadDHT.processRequest(req)
 
         }
     }
@@ -65,4 +65,3 @@ func registerDHTRoute(_ app:Application) throws {
 //        }
 //
 //}
-

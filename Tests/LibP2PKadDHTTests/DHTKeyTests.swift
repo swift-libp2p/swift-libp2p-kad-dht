@@ -12,10 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-import XCTest
-import LibP2P
 import CryptoSwift
+import LibP2P
 import LibP2PCrypto
+import XCTest
+
 @testable import LibP2PKadDHT
 
 class DHTKeyTests: XCTestCase {
@@ -29,12 +30,11 @@ class DHTKeyTests: XCTestCase {
     }
 
     func testStuff() {
-        let node:UInt8 = 0b00001110
+        let node: UInt8 = 0b00001110
 
-        let nodeA:UInt8 = 0b00001111
-        let nodeB:UInt8 = 0b00011110
-        let nodeC:UInt8 = 0b01010101
-
+        let nodeA: UInt8 = 0b00001111
+        let nodeB: UInt8 = 0b00011110
+        let nodeC: UInt8 = 0b01010101
 
         var nodes = Array([nodeA, nodeB, nodeC].reversed())
         //nodes.shuffle()
@@ -47,7 +47,7 @@ class DHTKeyTests: XCTestCase {
     }
 
     func testZeroPrefixLength() {
-        let byteArrays:[[UInt8]] = [
+        let byteArrays: [[UInt8]] = [
             [0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00],
             [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
             [0x00, 0x58, 0xFF, 0x80, 0x00, 0x00, 0xF0],
@@ -57,7 +57,7 @@ class DHTKeyTests: XCTestCase {
         for byteArray in byteArrays {
             print(byteArray.commonPrefixLength(with: [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))
         }
-        
+
         for bytes in byteArrays.enumerated() {
             print("\(bytes.element.zeroPrefixLength()) == \(zeroLengths[bytes.offset])")
             XCTAssertEqual(bytes.element.zeroPrefixLength(), zeroLengths[bytes.offset])
@@ -65,16 +65,16 @@ class DHTKeyTests: XCTestCase {
     }
 
     func testXORKeySpace() {
-        let ids:[[UInt8]] = [
+        let ids: [[UInt8]] = [
             [0xFF, 0xFF, 0xFF, 0xFF],
             [0x00, 0x00, 0x00, 0x00],
             [0xFF, 0xFF, 0xFF, 0xF0],
         ]
 
-        let ks:[(KadDHT.Key, KadDHT.Key)] = [
+        let ks: [(KadDHT.Key, KadDHT.Key)] = [
             (KadDHT.Key(ids[0]), KadDHT.Key(ids[0])),
             (KadDHT.Key(ids[1]), KadDHT.Key(ids[1])),
-            (KadDHT.Key(ids[2]), KadDHT.Key(ids[2]))
+            (KadDHT.Key(ids[2]), KadDHT.Key(ids[2])),
         ]
 
         for (i, s) in ks.enumerated() {
@@ -92,24 +92,44 @@ class DHTKeyTests: XCTestCase {
             if i == 0 { continue }
 
             /// Ensure distance calc is symmetrical
-            print("Symmetrical Distance Calc: \(bytesToInt(s.0.distanceTo(key: ks[i-1].0))) | \(bytesToInt(ks[i-1].0.distanceTo(key: s.0)))")
-            XCTAssertEqual(s.0.distanceTo(key: ks[i-1].0), ks[i-1].0.distanceTo(key: s.0))
+            print(
+                "Symmetrical Distance Calc: \(bytesToInt(s.0.distanceTo(key: ks[i-1].0))) | \(bytesToInt(ks[i-1].0.distanceTo(key: s.0)))"
+            )
+            XCTAssertEqual(s.0.distanceTo(key: ks[i - 1].0), ks[i - 1].0.distanceTo(key: s.0))
 
             /// Ensure neighboring keys aren't equal to one another
-            XCTAssertNotEqual(s.0, ks[i-1].0)
+            XCTAssertNotEqual(s.0, ks[i - 1].0)
 
         }
 
     }
 
     func testDistanceAndCenterSorting() {
-        let byteArrays:[[UInt8]] = [
-            [173, 149, 19, 27, 192, 183, 153, 192, 177, 175, 71, 127, 177, 79, 207, 38, 166, 169, 247, 96, 121, 228, 139, 240, 144, 172, 183, 232, 54, 123, 253, 14],
-            [223, 63, 97, 152, 4, 169, 47, 219, 64, 87, 25, 45, 196, 61, 215, 72, 234, 119, 138, 220, 82, 188, 73, 140, 232, 5, 36, 192, 20, 184, 17, 25],
-            [73, 176, 221, 176, 149, 143, 22, 42, 129, 124, 213, 114, 232, 95, 189, 154, 18, 3, 122, 132, 32, 199, 53, 185, 58, 157, 117, 78, 52, 146, 157, 127],
-            [73, 176, 221, 176, 149, 143, 22, 42, 129, 124, 213, 114, 232, 95, 189, 154, 18, 3, 122, 132, 32, 199, 53, 185, 58, 157, 117, 78, 52, 146, 157, 127],
-            [73, 176, 221, 176, 149, 143, 22, 42, 129, 124, 213, 114, 232, 95, 189, 154, 18, 3, 122, 132, 32, 199, 53, 185, 58, 157, 117, 78, 52, 146, 157, 126],
-            [73, 0, 221, 176, 149, 143, 22, 42, 129, 124, 213, 114, 232, 95, 189, 154, 18, 3, 122, 132, 32, 199, 53, 185, 58, 157, 117, 78, 52, 146, 157, 127],
+        let byteArrays: [[UInt8]] = [
+            [
+                173, 149, 19, 27, 192, 183, 153, 192, 177, 175, 71, 127, 177, 79, 207, 38, 166, 169, 247, 96, 121, 228,
+                139, 240, 144, 172, 183, 232, 54, 123, 253, 14,
+            ],
+            [
+                223, 63, 97, 152, 4, 169, 47, 219, 64, 87, 25, 45, 196, 61, 215, 72, 234, 119, 138, 220, 82, 188, 73,
+                140, 232, 5, 36, 192, 20, 184, 17, 25,
+            ],
+            [
+                73, 176, 221, 176, 149, 143, 22, 42, 129, 124, 213, 114, 232, 95, 189, 154, 18, 3, 122, 132, 32, 199,
+                53, 185, 58, 157, 117, 78, 52, 146, 157, 127,
+            ],
+            [
+                73, 176, 221, 176, 149, 143, 22, 42, 129, 124, 213, 114, 232, 95, 189, 154, 18, 3, 122, 132, 32, 199,
+                53, 185, 58, 157, 117, 78, 52, 146, 157, 127,
+            ],
+            [
+                73, 176, 221, 176, 149, 143, 22, 42, 129, 124, 213, 114, 232, 95, 189, 154, 18, 3, 122, 132, 32, 199,
+                53, 185, 58, 157, 117, 78, 52, 146, 157, 126,
+            ],
+            [
+                73, 0, 221, 176, 149, 143, 22, 42, 129, 124, 213, 114, 232, 95, 189, 154, 18, 3, 122, 132, 32, 199, 53,
+                185, 58, 157, 117, 78, 52, 146, 157, 127,
+            ],
         ]
 
         let keys = byteArrays.map { KadDHT.Key(preHashedBytes: $0, keySpace: .xor) }
@@ -125,7 +145,15 @@ class DHTKeyTests: XCTestCase {
         print(keys[2].distanceTo(key: keys[5]))
 
         /// Sort the keys by distance with respect to keys[2]
-        let sorted = keys.sorted(byDistanceToKey: KadDHT.Key(preHashedBytes: [73, 176, 221, 176, 149, 143, 22, 42, 129, 124, 213, 114, 232, 95, 189, 154, 18, 3, 122, 132, 32, 199, 53, 185, 58, 157, 117, 78, 52, 146, 157, 127], keySpace: .xor))
+        let sorted = keys.sorted(
+            byDistanceToKey: KadDHT.Key(
+                preHashedBytes: [
+                    73, 176, 221, 176, 149, 143, 22, 42, 129, 124, 213, 114, 232, 95, 189, 154, 18, 3, 122, 132, 32,
+                    199, 53, 185, 58, 157, 117, 78, 52, 146, 157, 127,
+                ],
+                keySpace: .xor
+            )
+        )
         let expectedOrder = [2, 3, 4, 5, 1, 0]
         sorted.forEach { print($0) }
 
@@ -133,7 +161,7 @@ class DHTKeyTests: XCTestCase {
             XCTAssertEqual(keys[idx.element], sorted[idx.offset])
         }
     }
-    
+
     func testSumByteArray() throws {
         let arr1 = try KadDHT.Key(PeerID(.Ed25519))
         let arr2 = try KadDHT.Key(PeerID(.Ed25519))
@@ -141,34 +169,37 @@ class DHTKeyTests: XCTestCase {
         print(arr1.bytes)
         print("+")
         print(arr2.bytes)
-        print("------------------------------------------------------------------------------------------------------------------------------")
-        var summation:[UInt8] = []
-        var carry:Bool = false
+        print(
+            "------------------------------------------------------------------------------------------------------------------------------"
+        )
+        var summation: [UInt8] = []
+        var carry: Bool = false
         arr1.bytes.enumerated().reversed().forEach { i, byte in
-            let temp:UInt16 = UInt16(byte) + UInt16(arr2.bytes[i]) + (carry ? 1 : 0)
+            let temp: UInt16 = UInt16(byte) + UInt16(arr2.bytes[i]) + (carry ? 1 : 0)
             summation.insert(UInt8(temp % 256), at: 0)
-            if temp > 255 { carry = true }
-            else { carry = false }
+            if temp > 255 { carry = true } else { carry = false }
         }
         if carry { summation.insert(1, at: 0) }
         print(summation)
     }
 
     func testByteAddition() {
-        let five:UInt8 = 255
-        let four:UInt8 = 1
+        let five: UInt8 = 255
+        let four: UInt8 = 1
 
-        let sum:UInt16 = UInt16(five) + UInt16(four)
+        let sum: UInt16 = UInt16(five) + UInt16(four)
         print(sum)
         print(UInt8(sum % 256))
     }
-    
+
     /* The following KadDHT tests were lifted from https://github.com/jeanlauliac/kademlia-dht/blob/master/test/id.test.js */
     func testKadDHTZeroKey() throws {
         /// Defaults to 32 bytes
         let id0 = KadDHT.Key.ZeroKey
         let stringRep = "0000000000000000000000000000000000000000000000000000000000000000"
-        let arrayRep:[UInt8] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        let arrayRep: [UInt8] = [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ]
 
         XCTAssertEqual(arrayRep.count, 32)
         XCTAssertEqual(id0.bytes, arrayRep)
@@ -177,12 +208,14 @@ class DHTKeyTests: XCTestCase {
 
         XCTAssertEqual(id0.bytes.asString(base: .base16), id0.bytes.toHexString())
     }
-    
+
     func testKadDHTZeroKeyBits() throws {
         /// Defaults to 32 bytes
         let id0 = KadDHT.Key.ZeroKey
         let stringRep = "0000000000000000000000000000000000000000000000000000000000000000"
-        let arrayRep:[UInt8] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        let arrayRep: [UInt8] = [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ]
 
         XCTAssertEqual(arrayRep.count, 32)
         XCTAssertEqual(id0.bytes, arrayRep)
@@ -190,7 +223,7 @@ class DHTKeyTests: XCTestCase {
         XCTAssertEqual(id0.toString(), stringRep)
 
         XCTAssertEqual(arrayRep.commonPrefixLengthBits(with: id0.bytes), 256)
-        
+
         XCTAssertEqual(id0.bytes.asString(base: .base16), id0.bytes.toHexString())
     }
 
@@ -263,7 +296,7 @@ class DHTKeyTests: XCTestCase {
 
         XCTAssertFalse(id1 == id2)
     }
-    
+
     func testPeerIDDistance() throws {
         let peerID = try PeerID()
         print(peerID.hexString)
@@ -271,7 +304,7 @@ class DHTKeyTests: XCTestCase {
         //var peers:[PeerID] = (0..<256).map { _ in try! PeerID(.Ed25519) }
         //print(peers.map { $0.hexString })
 
-        let peers:[String] = (0..<8).map { SHA1().calculate(for: Array<UInt8>(arrayLiteral: $0)).asString(base: .base16) }
+        let peers: [String] = (0..<8).map { SHA1().calculate(for: [UInt8](arrayLiteral: $0)).asString(base: .base16) }
         print(peers)
 
         //peers.forEach {
@@ -316,7 +349,9 @@ class DHTKeyTests: XCTestCase {
         let ourID = SHA1().calculate(for: [0])
         print(ourID.asString(base: .base58btc))
 
-        var peers:[Bytes] = (1...2000).map { _ in SHA1().calculate(for: Array<UInt8>(withUnsafeBytes(of: Int64.random(in: 1...Int64.max), { $0 })) ) }
+        var peers: [Bytes] = (1...2000).map { _ in
+            SHA1().calculate(for: [UInt8](withUnsafeBytes(of: Int64.random(in: 1...Int64.max), { $0 })))
+        }
         ///peers.shuffle()
         //print("Unsorted Peer List")
         //peers.forEach { print($0.asString(base: .base16)) }
@@ -328,10 +363,10 @@ class DHTKeyTests: XCTestCase {
 
         /// The list should now be sorted, closest to furthest
         print("Sorted Peer List (Closest to Furthest)")
-//        peers.forEach { key in
-//            let dist = bytesToInt(distanceBetween(key: ourID, and: key))
-//            print("\(key.asString(base: .base16)) (\(dist))")
-//        }
+        //        peers.forEach { key in
+        //            let dist = bytesToInt(distanceBetween(key: ourID, and: key))
+        //            print("\(key.asString(base: .base16)) (\(dist))")
+        //        }
         peers.prefix(3).forEach { key in
             let dist = bytesToInt(distanceBetween(key: ourID, and: key))
             print("\(key.asString(base: .base58btc)) (\(dist)) (cpl: \(ourID.commonPrefixLength(with: key)))")
@@ -350,12 +385,10 @@ class DHTKeyTests: XCTestCase {
         print(dist2)
         XCTAssertEqual(dist2, 0)
 
-
-
         var bucket = KBucket(repeating: 0, count: 20)
         peers.forEach { key in
             let dist = distanceBetween(key: ourID, and: key).zeroPrefixLength()
-            bucket[19-dist] += 1
+            bucket[19 - dist] += 1
             //if let idx = dist.prefix(8).firstIndex(where: { $0 != 0 } ) {
             //    bucket[8-idx] += 1
             //} else {
@@ -368,5 +401,5 @@ class DHTKeyTests: XCTestCase {
         print("| \(bucketString) |")
         print("'\(String(repeating: "-", count: bucketString.count + 2))'")
     }
-    
+
 }

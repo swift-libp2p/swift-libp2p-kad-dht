@@ -12,10 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-import XCTest
-import LibP2P
 import CryptoSwift
+import LibP2P
 import LibP2PCrypto
+import XCTest
+
 @testable import LibP2PKadDHT
 
 class LookupListTests: XCTestCase {
@@ -61,7 +62,7 @@ class LookupListTests: XCTestCase {
         for i in 0..<contacts.count - 1 {
             XCTAssertEqual(ourID.compareDistancesFromSelf(to: contacts[i].peer, and: contacts[i + 1].peer), .firstKey)
         }
-      
+
         print(list.dumpMetrics())
     }
 
@@ -83,7 +84,7 @@ class LookupListTests: XCTestCase {
         XCTAssertEqual(next!.peer, sorted[0])
 
         /// If we try and insert that same peer again, we return true to indicate that the peer is in the list, but we shouldn't be handed that peer twice when calling .next()
-        list.insert( next! )
+        list.insert(next!)
 
         /// Calling next repeatedly should return results in sorted order until each has been processed
         XCTAssertEqual(list.next()!.peer, sorted[1])
@@ -105,7 +106,7 @@ class LookupListTests: XCTestCase {
         XCTAssertEqual(list.next()!.peer, sorted[17])
         XCTAssertEqual(list.next()!.peer, sorted[18])
         XCTAssertEqual(list.next()!.peer, sorted[19])
-        XCTAssertNil( list.next() )
+        XCTAssertNil(list.next())
     }
-    
+
 }
