@@ -41,7 +41,7 @@ class ConcurrentWorkersTests: XCTestCase {
 
         var stuffToDo: [(taskDuration: UInt32, processed: Bool)] = (0..<10).map {
             i -> (taskDuration: UInt32, processed: Bool) in
-            return (UInt32.random(in: 10_000...1_000_000), false)
+            (UInt32.random(in: 10_000...1_000_000), false)
         }
 
         print(stuffToDo)
