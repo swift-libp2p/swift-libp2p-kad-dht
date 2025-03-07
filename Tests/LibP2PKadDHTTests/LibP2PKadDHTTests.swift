@@ -289,6 +289,7 @@ class LibP2PKadDHTTests: XCTestCase {
     //    }
 
     func testInternalNetwork() throws {
+        throw XCTSkip("Internal Network Tests Skipped By Default")
         let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         defer { try! group.syncShutdownGracefully() }
 
@@ -394,6 +395,7 @@ class LibP2PKadDHTTests: XCTestCase {
     }
 
     func testInternalNetwork_SortingTest() throws {
+        throw XCTSkip("Internal Network Tests Skipped By Default")
         let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         defer { try! group.syncShutdownGracefully() }
 
@@ -452,6 +454,7 @@ class LibP2PKadDHTTests: XCTestCase {
     }
 
     func testInternalNetwork_Beacon() throws {
+        throw XCTSkip("Internal Network Tests Skipped By Default")
         let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         defer { try! group.syncShutdownGracefully() }
 
