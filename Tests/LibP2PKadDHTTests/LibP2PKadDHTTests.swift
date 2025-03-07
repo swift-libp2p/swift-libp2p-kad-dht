@@ -37,7 +37,7 @@ class LibP2PKadDHTTests: XCTestCase {
         defer { try! group.syncShutdownGracefully() }
         let arr = EventLoopArray(String.self, on: group.next())
 
-        (0..<10).forEach { val in
+        for val in (0..<10) {
             let _ = group.next().submit {
                 arr.append("Item[\(val)]")
                 arr.append("Thing[\(val)]")
@@ -58,7 +58,7 @@ class LibP2PKadDHTTests: XCTestCase {
 
         print(try arr.all().wait())
 
-        (0..<10).forEach { _ in
+        for _ in (0..<10) {
             group.next().scheduleTask(
                 in: .milliseconds(Int64.random(in: 0...100)),
                 {
@@ -79,7 +79,7 @@ class LibP2PKadDHTTests: XCTestCase {
         defer { try! group.syncShutdownGracefully() }
         let d = EventLoopDictionary<String, String>(on: group.next())
 
-        (0..<10).enumerated().forEach { idx, val in
+        for (idx, val) in (0..<10).enumerated() {
             let _ = group.next().submit {
                 d.append(key: "Item[\(val)]", value: "Thing[\(idx)]")
                 d.append(key: "Item2[\(val)]", value: "Thing2[\(idx)]")
@@ -100,7 +100,7 @@ class LibP2PKadDHTTests: XCTestCase {
 
         print(try d.all().wait())
 
-        (0..<10).forEach { idx in
+        for idx in (0..<10) {
             group.next().scheduleTask(
                 in: .milliseconds(Int64.random(in: 0...100)),
                 {
@@ -323,8 +323,8 @@ class LibP2PKadDHTTests: XCTestCase {
         }
 
         // Register the `fruit` namespace with each node
-        try nodes.forEach {
-            try $0.dht.kadDHT.handle(
+        for node in nodes {
+            try node.dht.kadDHT.handle(
                 namespace: "fruit",
                 validator: KadDHT.BaseValidator(
                     validationFunction: { key, value in
@@ -338,13 +338,13 @@ class LibP2PKadDHTTests: XCTestCase {
         }
 
         // Boot each node
-        try nodes.forEach { try $0.start() }
+        for node in nodes { try node.start() }
 
         // Add the last nodes info to the first node
         try nodes[0].peers.add(peerInfo: nodes.last!.peerInfo).wait()
 
-        try nodes.forEach {
-            try $0.dht.kadDHT.heartbeat().wait()
+        for node in nodes {
+            try node.dht.kadDHT.heartbeat().wait()
         }
 
         //printNetwork(nodes.map { $0.dht.kadDHT })
@@ -358,8 +358,8 @@ class LibP2PKadDHTTests: XCTestCase {
         let storeAttempt1 = try nodes[0].dht.kadDHT.storeNew(item1Key, value: item1Record).wait()
         XCTAssertTrue(storeAttempt1)
 
-        try nodes.forEach {
-            try $0.dht.kadDHT.heartbeat().wait()
+        for node in nodes {
+            try node.dht.kadDHT.heartbeat().wait()
         }
 
         let storeAttempt2 = try nodes[0].dht.kadDHT.storeNew(item1Key, value: item1Record).wait()
@@ -388,7 +388,7 @@ class LibP2PKadDHTTests: XCTestCase {
 
         //printNetwork(nodes.map { $0.dht.kadDHT })
 
-        nodes.forEach { $0.shutdown() }
+        for node in nodes { node.shutdown() }
 
         print("All Done!")
     }
@@ -428,14 +428,14 @@ class LibP2PKadDHTTests: XCTestCase {
         }
 
         // Boot each node
-        try nodes.forEach { try $0.start() }
+        for node in nodes { try node.start() }
 
         // Add the last nodes info to the first node
         try nodes[0].peers.add(peerInfo: nodes.last!.peerInfo).wait()
 
         for _ in 0..<5 {
-            try nodes.forEach {
-                try $0.dht.kadDHT.heartbeat().wait()
+            for node in nodes {
+                try node.dht.kadDHT.heartbeat().wait()
             }
 
             printNetwork(nodes.map { $0.dht.kadDHT })
@@ -446,7 +446,7 @@ class LibP2PKadDHTTests: XCTestCase {
             print("Node[\(i)]::PeerCount == \(peerCount)")
         }
 
-        nodes.forEach { $0.shutdown() }
+        for node in nodes { node.shutdown() }
 
         print("All Done!")
     }
@@ -482,8 +482,8 @@ class LibP2PKadDHTTests: XCTestCase {
         }
 
         /// Register the `fruit` namespace with each node
-        try ([beaconNode] + nodes).forEach {
-            try $0.dht.kadDHT.handle(
+        for node in ([beaconNode] + nodes) {
+            try node.dht.kadDHT.handle(
                 namespace: "fruit",
                 validator: KadDHT.BaseValidator(
                     validationFunction: { key, value in
@@ -497,10 +497,10 @@ class LibP2PKadDHTTests: XCTestCase {
         }
 
         try beaconNode.start()
-        try nodes.forEach { try $0.start() }
+        for node in nodes { try node.start() }
 
-        try nodes.forEach {
-            try $0.dht.kadDHT.heartbeat().wait()
+        for node in nodes {
+            try node.dht.kadDHT.heartbeat().wait()
         }
 
         try beaconNode.dht.kadDHT.heartbeat().wait()
@@ -514,8 +514,8 @@ class LibP2PKadDHTTests: XCTestCase {
         let storeAttempt1 = try nodes[0].dht.kadDHT.storeNew(item1Key, value: item1Record).wait()
         XCTAssertTrue(storeAttempt1)
 
-        try nodes.forEach {
-            try $0.dht.kadDHT.heartbeat().wait()
+        for node in nodes {
+            try node.dht.kadDHT.heartbeat().wait()
         }
 
         try beaconNode.dht.kadDHT.heartbeat().wait()
@@ -552,7 +552,7 @@ class LibP2PKadDHTTests: XCTestCase {
         //}
 
         beaconNode.shutdown()
-        nodes.forEach { $0.shutdown() }
+        for node in nodes { node.shutdown() }
 
         //sleep(1)
 

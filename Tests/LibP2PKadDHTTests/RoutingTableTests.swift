@@ -132,14 +132,14 @@ class RoutingTableTests: XCTestCase {
         let time2 = Date().timeIntervalSince1970 + 10
 
         let peers: [PeerID] = (0..<peerCount).map { _ in try! PeerID(.Ed25519) }
-        peers.forEach {
+        for peer in peers {
             bucket.pushFront(
                 DHTPeerInfo(
-                    id: $0,
+                    id: peer,
                     lastUsefulAt: time1,
                     lastSuccessfulOutboundQueryAt: time2,
                     addedAt: time1,
-                    dhtID: KadDHT.Key($0),
+                    dhtID: KadDHT.Key(peer),
                     replaceable: false
                 )
             )
@@ -411,7 +411,7 @@ class RoutingTableTests: XCTestCase {
         XCTAssertEqual(try routingTable.nearest(1, peersTo: peer3).wait().first?.id, peer3.id)
 
         let nearbyPeers = try routingTable.nearest(4, peersTo: peer1).wait()
-        nearbyPeers.forEach { print($0.id) }
+        for dhtPeer in nearbyPeers { print(dhtPeer.id) }
         XCTAssertEqual(nearbyPeers.count, 4)
         XCTAssertTrue(nearbyPeers.contains(where: { $0.id == peer0.id }))
         XCTAssertTrue(nearbyPeers.contains(where: { $0.id == peer1.id }))
@@ -572,7 +572,7 @@ class RoutingTableTests: XCTestCase {
         /// Check to make sure that each peer that was added to the routingTable was added to our peersSet array
         let out = try routingTable.getPeerInfos().wait()
         XCTAssertEqual(out.count, peersSet.count)
-        try out.forEach { peer in
+        for peer in out {
             XCTAssertTrue(peersSet.contains(peer.id))
             XCTAssertTrue(try routingTable.removePeer(peer).wait())
             /// removing the peer should trigger our peerRemovalHandler which will remove the peer from our peersSet array

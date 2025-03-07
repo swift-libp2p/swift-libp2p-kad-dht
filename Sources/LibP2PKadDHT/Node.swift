@@ -231,7 +231,8 @@ public enum KadDHT {
 
             guard let addy = network!.listenAddresses.first else { throw Errors.noNetwork }
             self.address =
-                addy.getPeerIDString() != nil ? addy : try! addy.encapsulate(proto: .p2p, address: self.peerID.b58String)
+                addy.getPeerIDString() != nil
+                ? addy : try! addy.encapsulate(proto: .p2p, address: self.peerID.b58String)
             self.state = .starting
 
             /// Alert our app of the bootstrapped peers...
@@ -240,8 +241,8 @@ public enum KadDHT {
             //            }
             if let opd = self.onPeerDiscovered {
                 let _ = self.peerstore.all().map { peers in
-                    peers.forEach {
-                        opd(PeerInfo(peer: $0.id, addresses: $0.addresses))
+                    for peer in peers {
+                        opd(PeerInfo(peer: peer.id, addresses: peer.addresses))
                     }
                 }
             }
@@ -1262,7 +1263,7 @@ public enum KadDHT {
         }
 
         private func multiaddressToPeerID(_ ma: Multiaddr) -> PeerID? {
-            return try? ma.getPeerID()
+            try? ma.getPeerID()
         }
 
         /// Returns the closest peer to the given multiaddress, excluding ourselves

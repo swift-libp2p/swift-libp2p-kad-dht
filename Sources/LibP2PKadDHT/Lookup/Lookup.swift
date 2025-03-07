@@ -85,8 +85,8 @@ class Lookup {
             self.logger.info("Completed!")
             if self.logger.logLevel <= .debug {
                 self.logger.debug("Distances to \(self.target.b58String)")
-                self.list.all().forEach {
-                    let dist = KadDHT.Key($0.peer).distanceTo(key: KadDHT.Key(self.target))
+                for peerInfo in self.list.all() {
+                    let dist = KadDHT.Key(peerInfo.peer).distanceTo(key: KadDHT.Key(self.target))
                     let clp = dist.commonPrefixLengthBits(with: KadDHT.Key.ZeroKey.bytes)
                     self.logger.debug("[\(clp)] \(dist.asString(base: .base16))")
                 }

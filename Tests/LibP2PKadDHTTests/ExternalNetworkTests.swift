@@ -72,7 +72,7 @@ final class ExternalNetworkTests: XCTestCase {
         lib.peers.dumpAll()
         print("")
 
-        try (0..<1).forEach { _ in
+        for _ in (0..<1) {
             /// Trigger a heartbeat (which will perform a peer lookup for our peerID)
             try lib.dht.kadDHT.heartbeat().wait()
 
@@ -100,7 +100,7 @@ final class ExternalNetworkTests: XCTestCase {
         lib.connections.dumpConnectionHistory()
 
         print("*** Metrics ***")
-        lib.dht.kadDHT.metrics.history.forEach { print($0.event) }
+        for hist in lib.dht.kadDHT.metrics.history { print(hist.event) }
 
         print("*** Routing Table ***")
         print(lib.dht.kadDHT.routingTable)
@@ -366,7 +366,7 @@ final class ExternalNetworkTests: XCTestCase {
         lib.peers.dumpAll()
         print("")
 
-        try (0..<3).forEach { _ in
+        for _ in (0..<3) {
             /// Trigger a heartbeat (which will perform a peer lookup for our peerID)
             try lib.dht.kadDHT.heartbeat().wait()
 
@@ -390,7 +390,7 @@ final class ExternalNetworkTests: XCTestCase {
         print(try lib.connections.getConnections(on: nil).wait())
 
         print("*** Metrics ***")
-        lib.dht.kadDHT.metrics.history.forEach { print($0.event) }
+        for hist in lib.dht.kadDHT.metrics.history { print(hist.event) }
 
         print("*** Routing Table ***")
         print(lib.dht.kadDHT.routingTable)

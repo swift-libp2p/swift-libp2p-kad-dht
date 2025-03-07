@@ -74,8 +74,8 @@ class LookupListTests: XCTestCase {
         let sorted = randomPeers.map { $0.peer }.sortedAbsolutely()
 
         /// Insert the peers in random order
-        randomPeers.forEach {
-            XCTAssertTrue(list.insert($0))
+        for peer in randomPeers {
+            XCTAssertTrue(list.insert(peer))
         }
 
         /// Ask for the first peer using .next()

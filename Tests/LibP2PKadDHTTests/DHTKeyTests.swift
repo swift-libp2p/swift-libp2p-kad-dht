@@ -155,7 +155,7 @@ class DHTKeyTests: XCTestCase {
             )
         )
         let expectedOrder = [2, 3, 4, 5, 1, 0]
-        sorted.forEach { print($0) }
+        for item in sorted { print(item) }
 
         for idx in expectedOrder.enumerated() {
             XCTAssertEqual(keys[idx.element], sorted[idx.offset])
@@ -174,7 +174,7 @@ class DHTKeyTests: XCTestCase {
         )
         var summation: [UInt8] = []
         var carry: Bool = false
-        arr1.bytes.enumerated().reversed().forEach { i, byte in
+        for (i, byte) in arr1.bytes.enumerated().reversed() {
             let temp: UInt16 = UInt16(byte) + UInt16(arr2.bytes[i]) + (carry ? 1 : 0)
             summation.insert(UInt8(temp % 256), at: 0)
             if temp > 255 { carry = true } else { carry = false }
@@ -252,8 +252,8 @@ class DHTKeyTests: XCTestCase {
         let id1 = KadDHT.Key(preHashedBytes: digest)
 
         /// Ensure distance to self yeilds zero
-        id1.distanceTo(key: id1).forEach {
-            XCTAssertEqual($0, 0)
+        for byte in id1.distanceTo(key: id1) {
+            XCTAssertEqual(byte, 0)
         }
 
         var hasher2 = SHA1()
@@ -367,12 +367,12 @@ class DHTKeyTests: XCTestCase {
         //            let dist = bytesToInt(distanceBetween(key: ourID, and: key))
         //            print("\(key.asString(base: .base16)) (\(dist))")
         //        }
-        peers.prefix(3).forEach { key in
+        for key in peers.prefix(3) {
             let dist = bytesToInt(distanceBetween(key: ourID, and: key))
             print("\(key.asString(base: .base58btc)) (\(dist)) (cpl: \(ourID.commonPrefixLength(with: key)))")
         }
         print(".\n.\n.\n")
-        peers.suffix(3).forEach { key in
+        for key in peers.suffix(3) {
             let dist = bytesToInt(distanceBetween(key: ourID, and: key))
             print("\(key.asString(base: .base58btc)) (\(dist)) (cpl: \(ourID.commonPrefixLength(with: key)))")
         }
@@ -386,7 +386,7 @@ class DHTKeyTests: XCTestCase {
         XCTAssertEqual(dist2, 0)
 
         var bucket = KBucket(repeating: 0, count: 20)
-        peers.forEach { key in
+        for key in peers {
             let dist = distanceBetween(key: ourID, and: key).zeroPrefixLength()
             bucket[19 - dist] += 1
             //if let idx = dist.prefix(8).firstIndex(where: { $0 != 0 } ) {

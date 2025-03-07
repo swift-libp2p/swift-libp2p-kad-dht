@@ -122,8 +122,8 @@ class NetworkTests: XCTestCase {
             )
         }
 
-        try testAddresses.forEach {
-            XCTAssertNoThrow(try $0.addresses.first?.getPeerID())
+        for peerInfo in testAddresses {
+            XCTAssertNoThrow(try peerInfo.addresses.first?.getPeerID())
         }
 
         /// Test Query.findNode and Response.nodeSearch

@@ -170,7 +170,7 @@ func sumByteArrays(_ bytes1: [UInt8], bytes2: [UInt8]) -> [UInt8] {
     }
     var summation: [UInt8] = []
     var carry: Bool = false
-    b1.enumerated().reversed().forEach { i, byte in
+    for (i, byte) in b1.enumerated().reversed() {
         let temp: UInt16 = UInt16(byte) + UInt16(b2[i]) + (carry ? 1 : 0)
         summation.insert(UInt8(temp % 256), at: 0)
         if temp > 255 { carry = true } else { carry = false }
