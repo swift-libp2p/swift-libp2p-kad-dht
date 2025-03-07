@@ -1,9 +1,16 @@
+//===----------------------------------------------------------------------===//
 //
-//  ID.swift
+// This source file is part of the swift-libp2p open source project
 //
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
-//  Created by Brandon Toms on 4/29/22.
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
 //
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
 import LibP2P
 
@@ -29,7 +36,10 @@ extension ID {
     }
 
     private func distanceBetween(key key1: [UInt8], and key2: [UInt8]) -> [UInt8] {
-        guard key1.count == key2.count else { print("Error: Keys must be the same length"); return [] }
+        guard key1.count == key2.count else {
+            print("Error: Keys must be the same length")
+            return []
+        }
         return key1.enumerated().map { idx, byte in key2[idx] ^ byte }
     }
 }

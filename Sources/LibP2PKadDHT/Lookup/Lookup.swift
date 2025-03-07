@@ -1,9 +1,16 @@
+//===----------------------------------------------------------------------===//
 //
-//  Lookup.swift
+// This source file is part of the swift-libp2p open source project
 //
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
-//  Created by Brandon Toms on 4/29/22.
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
 //
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
 import LibP2P
 
@@ -28,17 +35,23 @@ class Lookup {
         case canceled
     }
 
-    init(host: KadDHT.Node, target: PeerID, concurrentRequests: Int = 1, seeds: [PeerInfo] = [], groupProvider: Application.EventLoopGroupProvider = .createNew) {
+    init(
+        host: KadDHT.Node,
+        target: PeerID,
+        concurrentRequests: Int = 1,
+        seeds: [PeerInfo] = [],
+        groupProvider: Application.EventLoopGroupProvider = .createNew
+    ) {
         self.host = host
         self.target = target
         self.maxConcurrentRequests = concurrentRequests
         switch groupProvider {
-            case .shared(let group):
-                self.group = group
-                self.sharedELG = true
-            case .createNew:
-                self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-                self.sharedELG = false
+        case .shared(let group):
+            self.group = group
+            self.sharedELG = true
+        case .createNew:
+            self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
+            self.sharedELG = false
         }
         self.eventLoop = self.group.next()
         self.list = LookupList(id: target, capacity: host.routingTable.bucketSize, seeds: seeds)
@@ -72,9 +85,9 @@ class Lookup {
             self.logger.info("Completed!")
             if self.logger.logLevel <= .debug {
                 self.logger.debug("Distances to \(self.target.b58String)")
-                self.list.all().forEach {
-                    let dist = KadDHT.Key($0.peer).distanceTo(key: KadDHT.Key(self.target))
-                    let clp = dist.commonPrefixLengthBits(with: KadDHT.Key.ZeroKey.bytes)
+                for peerInfo in self.list.all() {
+                    let dist = KadDHT.Key(peerInfo.peer).distanceTo(key: KadDHT.Key(self.target))
+                    let clp = dist.commonPrefixLengthBits(with: KadDHT.Key.Zero.bytes)
                     self.logger.debug("[\(clp)] \(dist.asString(base: .base16))")
                 }
                 self.logger.debug("-------------")
@@ -111,14 +124,20 @@ class Lookup {
     /// against that list before adding peers to the list.
     ///
     /// TODO: We should add a trace to this so we can debug these lookups (a history of each query, and the returned value, the state of the list at various points etc...)
-    private func _recursivelyQueryForTarget(on: EventLoop, decrementingRequests: Bool = false) -> EventLoopFuture<Void> {
+    private func _recursivelyQueryForTarget(on: EventLoop, decrementingRequests: Bool = false) -> EventLoopFuture<Void>
+    {
         self.eventLoop.flatSubmit {
             if decrementingRequests { self.requestsInProgress -= 1 }
-            guard !self.canceled else { self.logger.warning("Lookup Cancelled, Worker Terminating"); return self.eventLoop.makeSucceededVoidFuture() }
+            guard !self.canceled else {
+                self.logger.warning("Lookup Cancelled, Worker Terminating")
+                return self.eventLoop.makeSucceededVoidFuture()
+            }
             guard let next = self.list.next() else {
                 if self.requestsInProgress > 0 {
                     /// We have an outstanding query that might return more work, lets check back in a few ms...
-                    return self.eventLoop.flatScheduleTask(in: .milliseconds(50)) { self._recursivelyQueryForTarget(on: on) }.futureResult
+                    return self.eventLoop.flatScheduleTask(in: .milliseconds(50)) {
+                        self._recursivelyQueryForTarget(on: on)
+                    }.futureResult
                 }
                 self.logger.warning("Worker Terminating - No More Work")
                 return self.eventLoop.makeSucceededVoidFuture()
@@ -126,30 +145,34 @@ class Lookup {
             self.logger.info("Querying \(next.peer.b58String) for id: \(self.target.b58String.prefix(6))")
             self.requestsInProgress += 1
             return on.flatSubmit {
-                return self.host._sendQuery(.findNode(id: self.target), to: next, on: on).flatMapAlways { result in
+                self.host._sendQuery(.findNode(id: self.target), to: next, on: on).flatMapAlways { result in
                     switch result {
-                        case .failure(let error):
+                    case .failure(let error):
+                        return self.eventLoop.flatSubmit {
+                            self.logger.warning(
+                                "Query to peer \(next.peer) failed due to \(error), removing them from our list"
+                            )
+                            self.list.remove(next.peer)
+                            return self._recursivelyQueryForTarget(on: on, decrementingRequests: true)
+                        }
+                    case .success(let response):
+                        if case .findNode(let peers) = response {
                             return self.eventLoop.flatSubmit {
-                                self.logger.warning("Query to peer \(next.peer) failed due to \(error), removing them from our list")
+                                //if id != self.target.id { self.logger.warning("Resposne target `\(id.asString(base: .base16))` doesn't match Query target \(self.target.id.asString(base: .base16))") }
+                                self.list.insertMany(peers.compactMap { try? $0.toPeerInfo() })
+                                self.logger.info(
+                                    "Query to peer \(next.peer) succeeded, got \(peers.count) additional peers"
+                                )
+                                //self.logger.info("\(peers.compactMap { try? $0.toPeerInfo() })")
+                                return self._recursivelyQueryForTarget(on: on, decrementingRequests: true)
+                            }
+                        } else {
+                            return self.eventLoop.flatSubmit {
+                                self.logger.warning("Query to peer \(next.peer) failed, removing them from our list")
                                 self.list.remove(next.peer)
                                 return self._recursivelyQueryForTarget(on: on, decrementingRequests: true)
                             }
-                        case .success(let response):
-                            if case .findNode(let peers) = response {
-                                return self.eventLoop.flatSubmit {
-                                    //if id != self.target.id { self.logger.warning("Resposne target `\(id.asString(base: .base16))` doesn't match Query target \(self.target.id.asString(base: .base16))") }
-                                    self.list.insertMany(peers.compactMap { try? $0.toPeerInfo() })
-                                    self.logger.info("Query to peer \(next.peer) succeeded, got \(peers.count) additional peers")
-                                    //self.logger.info("\(peers.compactMap { try? $0.toPeerInfo() })")
-                                    return self._recursivelyQueryForTarget(on: on, decrementingRequests: true)
-                                }
-                            } else {
-                                return self.eventLoop.flatSubmit {
-                                    self.logger.warning("Query to peer \(next.peer) failed, removing them from our list")
-                                    self.list.remove(next.peer)
-                                    return self._recursivelyQueryForTarget(on: on, decrementingRequests: true)
-                                }
-                            }
+                        }
                     }
                 }
             }
@@ -176,25 +199,33 @@ class KeyLookup {
     private var canceled: Bool = false
     private let sharedELG: Bool
 
-    init(host: KadDHT.Node, target: KadDHT.Key, concurrentRequests: Int = 1, seeds: [PeerInfo] = [], groupProvider: Application.EventLoopGroupProvider = .createNew) {
+    init(
+        host: KadDHT.Node,
+        target: KadDHT.Key,
+        concurrentRequests: Int = 1,
+        seeds: [PeerInfo] = [],
+        groupProvider: Application.EventLoopGroupProvider = .createNew
+    ) {
         self.host = host
         self.target = target
         self.maxConcurrentRequests = concurrentRequests
         self.list = LookupList(id: target, capacity: host.routingTable.bucketSize, seeds: seeds)
         switch groupProvider {
-            case .shared(let group):
-                self.group = group
-                self.sharedELG = true
-            case .createNew:
-                self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-                self.sharedELG = false
+        case .shared(let group):
+            self.group = group
+            self.sharedELG = true
+        case .createNew:
+            self.group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
+            self.sharedELG = false
         }
         self.eventLoop = self.group.next()
         self.began = false
         self.logger = Logger(label: "KeyLookup[\(UUID().uuidString.prefix(5))]")
         self.logger.logLevel = self.host.logger.logLevel
 
-        self.logger.warning("KeyLookup Instantiated with \(seeds.count) Seeds, searching for key: \(String(data: Data(target.original), encoding: .utf8) ?? "NIL")")
+        self.logger.warning(
+            "KeyLookup Instantiated with \(seeds.count) Seeds, searching for key: \(String(data: Data(target.original), encoding: .utf8) ?? "NIL")"
+        )
     }
 
     deinit { print("KeyLookup::deinit") }
@@ -267,47 +298,60 @@ class KeyLookup {
     private func _recursivelyQueryForTarget(on: EventLoop, decrementingQueries: Bool = false) -> EventLoopFuture<Void> {
         self.eventLoop.flatSubmit {
             if decrementingQueries { self.queriesInProgress -= 1 }
-            guard !self.canceled else { self.logger.warning("Lookup Canceled"); return self.eventLoop.makeSucceededVoidFuture() }
+            guard !self.canceled else {
+                self.logger.warning("Lookup Canceled")
+                return self.eventLoop.makeSucceededVoidFuture()
+            }
             guard let next = self.list.next() else {
                 if self.queriesInProgress > 0 {
                     /// We have an outstanding query that might return more work, lets check back in a few ms...
-                    return self.eventLoop.flatScheduleTask(in: .milliseconds(50)) { self._recursivelyQueryForTarget(on: on) }.futureResult
+                    return self.eventLoop.flatScheduleTask(in: .milliseconds(50)) {
+                        self._recursivelyQueryForTarget(on: on)
+                    }.futureResult
                 }
                 self.logger.warning("Done Processing Peers")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
-            self.logger.warning("Querying \(next.peer.b58String) for id: \(KadDHT.keyToHumanReadableString(self.target.original))")
+            self.logger.warning(
+                "Querying \(next.peer.b58String) for id: \(KadDHT.keyToHumanReadableString(self.target.original))"
+            )
             self.queriesInProgress += 1
             return on.flatSubmit {
                 guard let p = try? PeerID(fromBytesID: self.target.original) else {
-                    self.logger.warning("Query to peer \(next.peer) failed due to having an invalid PeerID, removing them from our list")
+                    self.logger.warning(
+                        "Query to peer \(next.peer) failed due to having an invalid PeerID, removing them from our list"
+                    )
                     self.list.remove(next.peer)
                     return self._recursivelyQueryForTarget(on: on, decrementingQueries: true)
                 }
                 return self.host._sendQuery(.findNode(id: p), to: next, on: on).flatMapAlways { result in
                     switch result {
-                        case .failure(let error):
+                    case .failure(let error):
+                        return self.eventLoop.flatSubmit {
+                            self.logger.warning(
+                                "Query to peer \(next.peer) failed due to \(error), removing them from our list"
+                            )
+                            self.list.remove(next.peer)
+                            return self._recursivelyQueryForTarget(on: on, decrementingQueries: true)
+                        }
+                    case .success(let response):
+                        if case let .findNode(closerPeers) = response {
                             return self.eventLoop.flatSubmit {
-                                self.logger.warning("Query to peer \(next.peer) failed due to \(error), removing them from our list")
+                                //if id != self.target.original { self.logger.warning("Resposne target `\(id.asString(base: .base16))` doesn't match Query target \(self.target.original.asString(base: .base16))") }
+                                self.list.insertMany(closerPeers.compactMap { try? $0.toPeerInfo() })
+                                self.logger.warning(
+                                    "Query to peer \(next.peer) succeeded, got \(closerPeers.count) additional peers"
+                                )
+                                //self.logger.info("\(closerPeers)")
+                                return self._recursivelyQueryForTarget(on: on, decrementingQueries: true)
+                            }
+                        } else {
+                            return self.eventLoop.flatSubmit {
+                                self.logger.warning("Query to peer \(next.peer) failed, removing them from our list")
                                 self.list.remove(next.peer)
                                 return self._recursivelyQueryForTarget(on: on, decrementingQueries: true)
                             }
-                        case .success(let response):
-                            if case let .findNode(closerPeers) = response {
-                                return self.eventLoop.flatSubmit {
-                                    //if id != self.target.original { self.logger.warning("Resposne target `\(id.asString(base: .base16))` doesn't match Query target \(self.target.original.asString(base: .base16))") }
-                                    self.list.insertMany(closerPeers.compactMap { try? $0.toPeerInfo() })
-                                    self.logger.warning("Query to peer \(next.peer) succeeded, got \(closerPeers.count) additional peers")
-                                    //self.logger.info("\(closerPeers)")
-                                    return self._recursivelyQueryForTarget(on: on, decrementingQueries: true)
-                                }
-                            } else {
-                                return self.eventLoop.flatSubmit {
-                                    self.logger.warning("Query to peer \(next.peer) failed, removing them from our list")
-                                    self.list.remove(next.peer)
-                                    return self._recursivelyQueryForTarget(on: on, decrementingQueries: true)
-                                }
-                            }
+                        }
                     }
                 }
             }
@@ -320,55 +364,66 @@ class KeyLookup {
     private func _recursivelyQueryForValue(on: EventLoop, decrementingQueries: Bool = false) -> EventLoopFuture<Void> {
         self.eventLoop.flatSubmit {
             if decrementingQueries { self.queriesInProgress -= 1 }
-            guard !self.canceled else { self.logger.warning("Lookup Canceled"); return self.eventLoop.makeSucceededVoidFuture() }
+            guard !self.canceled else {
+                self.logger.warning("Lookup Canceled")
+                return self.eventLoop.makeSucceededVoidFuture()
+            }
             guard let next = self.list.next() else {
                 if self.queriesInProgress > 0 {
                     /// We have an outstanding query that might return more work, lets check back in a few ms...
-                    return self.eventLoop.flatScheduleTask(in: .milliseconds(50)) { self._recursivelyQueryForValue(on: on) }.futureResult
+                    return self.eventLoop.flatScheduleTask(in: .milliseconds(50)) {
+                        self._recursivelyQueryForValue(on: on)
+                    }.futureResult
                 }
                 self.logger.warning("Done Processing Peers")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
-            self.logger.warning("Querying \(next.peer.b58String) for id: \(KadDHT.keyToHumanReadableString(self.target.original))")
+            self.logger.warning(
+                "Querying \(next.peer.b58String) for id: \(KadDHT.keyToHumanReadableString(self.target.original))"
+            )
             self.queriesInProgress += 1
             return on.flatSubmit {
-                return self.host._sendQuery(.getValue(key: self.target.original), to: next, on: on).flatMapAlways { result in
+                self.host._sendQuery(.getValue(key: self.target.original), to: next, on: on).flatMapAlways { result in
                     switch result {
-                        case .failure(let error):
+                    case .failure(let error):
+                        return self.eventLoop.flatSubmit {
+                            self.logger.warning(
+                                "Query to peer \(next.peer) failed due to \(error), removing them from our list"
+                            )
+                            self.list.remove(next.peer)
+                            return self._recursivelyQueryForValue(on: on, decrementingQueries: true)
+                        }
+                    case .success(let response):
+                        if case let .getValue(key, record, closerPeers) = response {
+                            /// If we found a record, store it...
+                            if let record = record {
+                                if record.key.bytes == self.target.original, key == self.target.original {
+                                    self.value.append(record)
+                                    self.logger.warning("Query to peer \(next.peer) succeeded, got value \(record)")
+                                    /// Terminate Lookup now that we have a value...
+                                    self.list.cancel()
+                                    self.canceled = true
+                                    return self.eventLoop.makeSucceededVoidFuture()
+                                } else {
+                                    self.logger.warning("Got record but it didn't match the key target key")
+                                    self.logger.warning("\(record)")
+                                }
+                            }
+
                             return self.eventLoop.flatSubmit {
-                                self.logger.warning("Query to peer \(next.peer) failed due to \(error), removing them from our list")
+                                self.list.insertMany(closerPeers.compactMap { try? $0.toPeerInfo() })
+                                self.logger.warning(
+                                    "Query to peer \(next.peer) succeeded, got \(closerPeers.count) additional peers"
+                                )
+                                return self._recursivelyQueryForValue(on: on, decrementingQueries: true)
+                            }
+                        } else {
+                            return self.eventLoop.flatSubmit {
+                                self.logger.warning("Query to peer \(next.peer) failed, removing them from our list")
                                 self.list.remove(next.peer)
                                 return self._recursivelyQueryForValue(on: on, decrementingQueries: true)
                             }
-                        case .success(let response):
-                            if case let .getValue(key, record, closerPeers) = response {
-                                /// If we found a record, store it...
-                                if let record = record {
-                                    if record.key.bytes == self.target.original, key == self.target.original {
-                                        self.value.append(record)
-                                        self.logger.warning("Query to peer \(next.peer) succeeded, got value \(record)")
-                                        /// Terminate Lookup now that we have a value...
-                                        self.list.cancel()
-                                        self.canceled = true
-                                        return self.eventLoop.makeSucceededVoidFuture()
-                                    } else {
-                                        self.logger.warning("Got record but it didn't match the key target key")
-                                        self.logger.warning("\(record)")
-                                    }
-                                }
-
-                                return self.eventLoop.flatSubmit {
-                                    self.list.insertMany(closerPeers.compactMap { try? $0.toPeerInfo() })
-                                    self.logger.warning("Query to peer \(next.peer) succeeded, got \(closerPeers.count) additional peers")
-                                    return self._recursivelyQueryForValue(on: on, decrementingQueries: true)
-                                }
-                            } else {
-                                return self.eventLoop.flatSubmit {
-                                    self.logger.warning("Query to peer \(next.peer) failed, removing them from our list")
-                                    self.list.remove(next.peer)
-                                    return self._recursivelyQueryForValue(on: on, decrementingQueries: true)
-                                }
-                            }
+                        }
                     }
                 }
             }
@@ -376,62 +431,75 @@ class KeyLookup {
     }
 
     // TODO: Support minimum providers before terminating
-    private func _recursivelyQueryForProvider(on: EventLoop, decrementingQueries: Bool = false) -> EventLoopFuture<Void> {
+    private func _recursivelyQueryForProvider(on: EventLoop, decrementingQueries: Bool = false) -> EventLoopFuture<Void>
+    {
         self.eventLoop.flatSubmit {
             if decrementingQueries { self.queriesInProgress -= 1 }
-            guard !self.canceled else { self.logger.warning("Lookup Canceled"); return self.eventLoop.makeSucceededVoidFuture() }
+            guard !self.canceled else {
+                self.logger.warning("Lookup Canceled")
+                return self.eventLoop.makeSucceededVoidFuture()
+            }
             guard let next = self.list.next() else {
                 if self.queriesInProgress > 0 {
                     /// We have an outstanding query that might return more work, lets check back in a few ms...
-                    return self.eventLoop.flatScheduleTask(in: .milliseconds(50)) { self._recursivelyQueryForProvider(on: on) }.futureResult
+                    return self.eventLoop.flatScheduleTask(in: .milliseconds(50)) {
+                        self._recursivelyQueryForProvider(on: on)
+                    }.futureResult
                 }
                 self.logger.warning("Done Processing Peers")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
-            self.logger.warning("Querying \(next.peer.b58String) for cid: \(KadDHT.keyToHumanReadableString(self.target.original))")
+            self.logger.warning(
+                "Querying \(next.peer.b58String) for cid: \(KadDHT.keyToHumanReadableString(self.target.original))"
+            )
             self.queriesInProgress += 1
             return on.flatSubmit {
-                return self.host._sendQuery(.getProviders(cid: self.target.original), to: next, on: on).flatMapAlways { result in
+                self.host._sendQuery(.getProviders(cid: self.target.original), to: next, on: on).flatMapAlways {
+                    result in
                     switch result {
-                        case .failure(let error):
+                    case .failure(let error):
+                        return self.eventLoop.flatSubmit {
+                            self.logger.warning(
+                                "Query to peer \(next.peer) failed due to \(error), removing them from our list"
+                            )
+                            self.list.remove(next.peer)
+                            return self._recursivelyQueryForProvider(on: on, decrementingQueries: true)
+                        }
+                    case .success(let response):
+                        if case let .getProviders(cid, providers, closerPeers) = response, cid == self.target.original {
+                            /// If we found a provider, store it...
+                            if !providers.isEmpty {
+                                let providerPeers = providers.compactMap { try? $0.toPeerInfo() }.filter { pInfo in
+                                    !pInfo.addresses.isEmpty
+                                }
+                                for prov in providerPeers {
+                                    if !self.providers.contains(where: { $0.peer == prov.peer }) {
+                                        self.providers.append(prov)
+                                    }
+                                }
+                                //self.providers.append(contentsOf: providerPeers)
+
+                                /// Terminate Lookup now that we have a value...
+
+                                //self.list.cancel()
+                                //self.canceled = true
+                                //return self.eventLoop.makeSucceededVoidFuture()
+                            }
+
                             return self.eventLoop.flatSubmit {
-                                self.logger.warning("Query to peer \(next.peer) failed due to \(error), removing them from our list")
+                                self.list.insertMany(closerPeers.compactMap { try? $0.toPeerInfo() })
+                                self.logger.warning(
+                                    "Query to peer \(next.peer) succeeded, got \(closerPeers.count) additional peers"
+                                )
+                                return self._recursivelyQueryForProvider(on: on, decrementingQueries: true)
+                            }
+                        } else {
+                            return self.eventLoop.flatSubmit {
+                                self.logger.warning("Query to peer \(next.peer) failed, removing them from our list")
                                 self.list.remove(next.peer)
                                 return self._recursivelyQueryForProvider(on: on, decrementingQueries: true)
                             }
-                        case .success(let response):
-                            if case let .getProviders(cid, providers, closerPeers) = response, cid == self.target.original {
-                                /// If we found a provider, store it...
-                                if !providers.isEmpty {
-                                    let providerPeers = providers.compactMap { try? $0.toPeerInfo() }.filter { pInfo in
-                                        !pInfo.addresses.isEmpty
-                                    }
-                                    for prov in providerPeers {
-                                        if !self.providers.contains(where: { $0.peer == prov.peer }) {
-                                            self.providers.append(prov)
-                                        }
-                                    }
-                                    //self.providers.append(contentsOf: providerPeers)
-
-                                    /// Terminate Lookup now that we have a value...
-
-                                    //self.list.cancel()
-                                    //self.canceled = true
-                                    //return self.eventLoop.makeSucceededVoidFuture()
-                                }
-
-                                return self.eventLoop.flatSubmit {
-                                    self.list.insertMany(closerPeers.compactMap { try? $0.toPeerInfo() })
-                                    self.logger.warning("Query to peer \(next.peer) succeeded, got \(closerPeers.count) additional peers")
-                                    return self._recursivelyQueryForProvider(on: on, decrementingQueries: true)
-                                }
-                            } else {
-                                return self.eventLoop.flatSubmit {
-                                    self.logger.warning("Query to peer \(next.peer) failed, removing them from our list")
-                                    self.list.remove(next.peer)
-                                    return self._recursivelyQueryForProvider(on: on, decrementingQueries: true)
-                                }
-                            }
+                        }
                     }
                 }
             }

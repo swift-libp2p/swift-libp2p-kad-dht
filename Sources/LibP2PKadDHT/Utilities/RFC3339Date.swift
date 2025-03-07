@@ -1,9 +1,16 @@
+//===----------------------------------------------------------------------===//
 //
-//  RFC3339Date.swift
+// This source file is part of the swift-libp2p open source project
 //
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
-//  Created by Brandon Toms on 9/30/22.
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
 //
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
 import Foundation
 
@@ -42,7 +49,9 @@ struct RFC3339Date: Equatable, Comparable {
 
         self.originalString = string
         self.date = date
-        if let nano = Int(nanoString), let date = Calendar.current.date(bySetting: .nanosecond, value: nano, of: self.date) {
+        if let nano = Int(nanoString),
+            let date = Calendar.current.date(bySetting: .nanosecond, value: nano, of: self.date)
+        {
             self.date = date
         }
     }
@@ -68,29 +77,29 @@ struct RFC3339Date: Equatable, Comparable {
 
     static func == (lhs: RFC3339Date, rhs: RFC3339Date) -> Bool {
         switch (lhs.originalString, rhs.originalString) {
-            case (.some(let ogL), .some(let ogR)):
-                return ogL == ogR
-            default:
-                return lhs.date == rhs.date
+        case (.some(let ogL), .some(let ogR)):
+            return ogL == ogR
+        default:
+            return lhs.date == rhs.date
         }
     }
 
     static func < (lhs: RFC3339Date, rhs: RFC3339Date) -> Bool {
         switch (lhs.originalString, rhs.originalString) {
-            case (.some(let ogL), .some(let ogR)):
-                guard lhs.date == rhs.date else {
-                    return lhs.date < rhs.date
-                }
-                // Parse out the nanoseconds from the original strings and compare them...
-                let nanoLeftString = ogL[ogL.lastIndex(of: ".")!...].dropFirst().dropLast()
-                let nanoLeft = UInt64(nanoLeftString)!
-
-                let nanoRightString = ogR[ogR.lastIndex(of: ".")!...].dropFirst().dropLast()
-                let nanoRight = UInt64(nanoRightString)!
-
-                return nanoLeft < nanoRight
-            default:
+        case (.some(let ogL), .some(let ogR)):
+            guard lhs.date == rhs.date else {
                 return lhs.date < rhs.date
+            }
+            // Parse out the nanoseconds from the original strings and compare them...
+            let nanoLeftString = ogL[ogL.lastIndex(of: ".")!...].dropFirst().dropLast()
+            let nanoLeft = UInt64(nanoLeftString)!
+
+            let nanoRightString = ogR[ogR.lastIndex(of: ".")!...].dropFirst().dropLast()
+            let nanoRight = UInt64(nanoRightString)!
+
+            return nanoLeft < nanoRight
+        default:
+            return lhs.date < rhs.date
         }
     }
 }

@@ -1,12 +1,19 @@
+//===----------------------------------------------------------------------===//
 //
-//  toBytes.swift
+// This source file is part of the swift-libp2p open source project
 //
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
-//  Created by Brandon Toms on 4/29/22.
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
 //
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
-import Foundation
 import CoreFoundation
+import Foundation
 
 protocol UIntToBytesConvertable {
     var toBytes: [UInt8] { get }
@@ -27,11 +34,15 @@ extension UIntToBytesConvertable {
 extension UInt64: UIntToBytesConvertable {
     var toBytes: [UInt8] {
         if CFByteOrderGetCurrent() == Int(CFByteOrderLittleEndian.rawValue) {
-            return toByteArr(endian: self.littleEndian,
-                             count: MemoryLayout<UInt64>.size)
+            return toByteArr(
+                endian: self.littleEndian,
+                count: MemoryLayout<UInt64>.size
+            )
         } else {
-            return toByteArr(endian: self.bigEndian,
-                             count: MemoryLayout<UInt64>.size)
+            return toByteArr(
+                endian: self.bigEndian,
+                count: MemoryLayout<UInt64>.size
+            )
         }
     }
 }

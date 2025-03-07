@@ -1,16 +1,23 @@
+//===----------------------------------------------------------------------===//
 //
-//  RoutesBuilder+DHT.swift
+// This source file is part of the swift-libp2p open source project
 //
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
-//  Created by Brandon Toms on 7/19/23.
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
 //
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
 import LibP2P
 import RoutingKit
 
 extension RoutesBuilder {
     // MARK: Path
-    
+
     /// Creates a new `Router` that will automatically prepend the supplied path components.
     ///
     ///     let users = router.grouped("user")
@@ -22,10 +29,10 @@ extension RoutesBuilder {
     /// - parameters:
     ///     - path: Group path components separated by commas.
     /// - returns: Newly created `Router` wrapped in the path.
-    public func namespace(_ path: PathComponent..., validator:some Validator) -> RoutesBuilder {
-        return self.grouped(path, handlers: [.validator(validator)])
+    public func namespace(_ path: PathComponent..., validator: some Validator) -> RoutesBuilder {
+        self.grouped(path, handlers: [.validator(validator)])
     }
-    
+
     /// Creates a new `Router` that will automatically prepend the supplied path components.
     ///
     ///     router.group("user") { users in
@@ -38,19 +45,23 @@ extension RoutesBuilder {
     /// - parameters:
     ///     - path: Group path components separated by commas.
     ///     - configure: Closure to configure the newly created `Router`.
-    public func namespace(_ path: PathComponent..., validator:some Validator, configure: (RoutesBuilder) throws -> ()) rethrows {
-        return try group(path, handlers: [.validator(validator)], configure: configure)
+    public func namespace(
+        _ path: PathComponent...,
+        validator: some Validator,
+        configure: (RoutesBuilder) throws -> Void
+    ) rethrows {
+        try group(path, handlers: [.validator(validator)], configure: configure)
     }
 }
 
 public enum DHTMethod: Equatable, Sendable {
-    static var key:String = "LibP2P.DHT.Method"
+    static var key: String = "LibP2P.DHT.Method"
     internal enum HasBody {
         case yes
         case no
         case unlikely
     }
-    
+
     case GET
     case PUT
 }
@@ -61,9 +72,8 @@ extension RoutesBuilder {
         _ path: PathComponent...,
         use closure: @escaping (Request) throws -> Response
     ) -> Route
-        where Response: ResponseEncodable
-    {
-        return self.on(.GET, path, use: closure)
+    where Response: ResponseEncodable {
+        self.on(.GET, path, use: closure)
     }
 
     @discardableResult
@@ -71,32 +81,28 @@ extension RoutesBuilder {
         _ path: [PathComponent],
         use closure: @escaping (Request) throws -> Response
     ) -> Route
-        where Response: ResponseEncodable
-    {
-        return self.on(.GET, path, use: closure)
+    where Response: ResponseEncodable {
+        self.on(.GET, path, use: closure)
     }
-    
+
     @discardableResult
     public func put<Response>(
         _ path: PathComponent...,
         use closure: @escaping (Request) throws -> Response
     ) -> Route
-        where Response: ResponseEncodable
-    {
-        return self.on(.PUT, path, use: closure)
+    where Response: ResponseEncodable {
+        self.on(.PUT, path, use: closure)
     }
-    
+
     @discardableResult
     public func put<Response>(
         _ path: [PathComponent],
         use closure: @escaping (Request) throws -> Response
     ) -> Route
-        where Response: ResponseEncodable
-    {
-        return self.on(.PUT, path, use: closure)
+    where Response: ResponseEncodable {
+        self.on(.PUT, path, use: closure)
     }
-    
-    
+
     @discardableResult
     public func on<Response>(
         _ method: DHTMethod,
@@ -105,13 +111,18 @@ extension RoutesBuilder {
         handlers: [Application.ChildChannelHandlers.Provider] = [],
         use closure: @escaping (Request) throws -> Response
     ) -> Route
-        where Response: ResponseEncodable
-    {
-        return self.on(method, path, body: body, handlers: handlers, use: { request in
-            return try closure(request)
-        })
+    where Response: ResponseEncodable {
+        self.on(
+            method,
+            path,
+            body: body,
+            handlers: handlers,
+            use: { request in
+                try closure(request)
+            }
+        )
     }
-    
+
     @discardableResult
     public func on<Response>(
         _ method: DHTMethod,
@@ -120,10 +131,9 @@ extension RoutesBuilder {
         handlers: [Application.ChildChannelHandlers.Provider] = [],
         use closure: @escaping (Request) throws -> Response
     ) -> Route
-        where Response: ResponseEncodable
-    {
+    where Response: ResponseEncodable {
         let responder = BasicResponder { request in
-            return try closure(request)
+            try closure(request)
                 .encodeResponse(for: request)
         }
         let route = Route(
@@ -132,13 +142,12 @@ extension RoutesBuilder {
             handlers: handlers,
             requestType: Request.self,
             responseType: Response.self
-            //userInfo: [DHTMethod.key: method]
+                //userInfo: [DHTMethod.key: method]
         )
         self.add(route)
         return route
     }
 }
-
 
 //extension RoutesBuilder {
 //    @discardableResult
@@ -182,21 +191,20 @@ extension RoutesBuilder {
 //    }
 //}
 
-
 public final class DHTRoute: CustomStringConvertible {
     public var method: DHTMethod
     public var path: [PathComponent]
     public var responder: Responder
     public var requestType: Any.Type
     public var responseType: Any.Type
-    
+
     public var userInfo: [AnyHashable: Any]
 
     public var description: String {
         let path = self.path.map { "\($0)" }.joined(separator: "/")
         return "\(self.method) /\(path)"
     }
-    
+
     public init(
         method: DHTMethod,
         path: [PathComponent],
@@ -212,7 +220,7 @@ public final class DHTRoute: CustomStringConvertible {
         self.responseType = responseType
         self.userInfo = [:]
     }
-       
+
     @discardableResult
     public func description(_ string: String) -> DHTRoute {
         self.userInfo["description"] = string

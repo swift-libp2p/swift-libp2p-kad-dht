@@ -1,9 +1,16 @@
+//===----------------------------------------------------------------------===//
 //
-//  LookupList.swift
+// This source file is part of the swift-libp2p open source project
 //
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
-//  Created by Brandon Toms on 4/29/22.
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
 //
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
 import LibP2P
 
@@ -66,27 +73,27 @@ class LookupList {
         for i in 0..<self.slots.count {
             let contact = self.slots[i]
             switch self.id.compareDistancesFromSelf(to: KadDHT.Key(peer.peer), and: KadDHT.Key(contact.peer.peer)) {
-                case .sameDistance:
-                    return true
+            case .sameDistance:
+                return true
 
-                case .secondKey:
-                    continue
+            case .secondKey:
+                continue
 
-                case .firstKey:
-                    self.slots.insert(Contact(peer: peer), at: i)
+            case .firstKey:
+                self.slots.insert(Contact(peer: peer), at: i)
 
-                    /// If our list exceeds max capacity, drop the last element
-                    if self.slots.count > self.capacity {
-                        let removedPeer = self.slots.removeLast()
-                        /// If we processed this peer and they didn't
-                        if removedPeer.processed == true {
-                            self.further.append(removedPeer)
-                        } else {
-                            self.furtherUnqueried.append(removedPeer)
-                        }
+                /// If our list exceeds max capacity, drop the last element
+                if self.slots.count > self.capacity {
+                    let removedPeer = self.slots.removeLast()
+                    /// If we processed this peer and they didn't
+                    if removedPeer.processed == true {
+                        self.further.append(removedPeer)
+                    } else {
+                        self.furtherUnqueried.append(removedPeer)
                     }
+                }
 
-                    return true
+                return true
             }
         }
         if self.slots.count < self.capacity {
@@ -131,10 +138,10 @@ class LookupList {
         }
 
         /// If we have furtherUnqueried Peers and space in our slots add them??
-//        while self.slots.count < self.capacity && !self.furtherUnqueried.isEmpty {
-//            print("LookupList::Inserting Peer From Unqueried Overflow List")
-//            let _ = self._insert(self.furtherUnqueried.removeFirst().peer)
-//        }
+        //        while self.slots.count < self.capacity && !self.furtherUnqueried.isEmpty {
+        //            print("LookupList::Inserting Peer From Unqueried Overflow List")
+        //            let _ = self._insert(self.furtherUnqueried.removeFirst().peer)
+        //        }
 
         return didRemove
     }
@@ -159,12 +166,12 @@ class LookupList {
         var results: [PeerInfo] = []
         results.append(contentsOf: self.slots.map { $0.peer })
         /// If our final list is shy of our capcity/target then attempt to fill it with further peers that we're bumped out of our list with what apparently turned out to be unreachable / bad peers
-//        if results.count < self.capacity {
-//            print("LookupList::Adding an additional \(self.further.count) further peers")
-//            results.append(contentsOf: self.further.sorted(by: { lhs, rhs in
-//                self.id.compareDistancesFromSelf(to: KadDHT.Key(lhs.peer.id), and: KadDHT.Key(rhs.peer.id)) >= 0
-//            }).prefix(self.capacity - results.count).map { $0.peer })
-//        }
+        //        if results.count < self.capacity {
+        //            print("LookupList::Adding an additional \(self.further.count) further peers")
+        //            results.append(contentsOf: self.further.sorted(by: { lhs, rhs in
+        //                self.id.compareDistancesFromSelf(to: KadDHT.Key(lhs.peer.id), and: KadDHT.Key(rhs.peer.id)) >= 0
+        //            }).prefix(self.capacity - results.count).map { $0.peer })
+        //        }
 
         return results
     }

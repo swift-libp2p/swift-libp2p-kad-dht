@@ -1,15 +1,22 @@
+//===----------------------------------------------------------------------===//
 //
-//  Application+KadDHT.swift
+// This source file is part of the swift-libp2p open source project
 //
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
-//  Created by Brandon Toms on 4/30/22.
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
 //
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
 import LibP2P
 
 public protocol Database {
-    func put() -> Void
-    func get() -> Void
+    func put()
+    func get()
 }
 
 extension KadDHT {
@@ -122,26 +129,41 @@ extension Application.DHTServices.Provider {
     public static var kadDHT: Self {
         .init {
             $0.dht.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(network: app, mode: .client, bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes, options: KadDHT.NodeOptions())
+                let dht = try! KadDHT.Node(
+                    network: app,
+                    mode: .client,
+                    bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes,
+                    options: KadDHT.NodeOptions()
+                )
                 app.lifecycle.use(dht)
-                app.discovery.use { _ in dht } // Does this work??
+                app.discovery.use { _ in dht }  // Does this work??
                 return dht
             }
         }
     }
 
     /// Configures a KadDHT Node with the specified parameters
-    public static func kadDHT(mode: KadDHT.Mode, options: KadDHT.NodeOptions? = nil, bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes, autoUpdate: Bool = true) -> Self {
+    public static func kadDHT(
+        mode: KadDHT.Mode,
+        options: KadDHT.NodeOptions? = nil,
+        bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
+        autoUpdate: Bool = true
+    ) -> Self {
         .init {
             $0.dht.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(network: app, mode: mode, bootstrapPeers: bootstrapPeers, options: options ?? KadDHT.NodeOptions())
+                let dht = try! KadDHT.Node(
+                    network: app,
+                    mode: mode,
+                    bootstrapPeers: bootstrapPeers,
+                    options: options ?? KadDHT.NodeOptions()
+                )
                 dht.autoUpdate = autoUpdate
                 if case .server = mode {
                     let _ = dht.handle(namespace: "pk", validator: KadDHT.PubKeyValidator())
                     let _ = dht.handle(namespace: "ipns", validator: KadDHT.IPNSValidator())
                 }
                 app.lifecycle.use(dht)
-                app.discovery.use { _ in dht } // Does this work??
+                app.discovery.use { _ in dht }  // Does this work??
                 return dht
             }
         }
@@ -180,7 +202,7 @@ extension Application.DHTServices.Provider {
                     let _ = dht.handle(namespace: "ipns", validator: KadDHT.IPNSValidator())
                 }
                 app.lifecycle.use(dht)
-                app.discovery.use { _ in dht } // Does this work??
+                app.discovery.use { _ in dht }  // Does this work??
                 return dht
             }
         }
@@ -191,7 +213,9 @@ extension Application.DHTServices {
 
     public var kadDHT: KadDHT.Node {
         guard let kad = self.service(for: KadDHT.Node.self) else {
-            fatalError("KadDHT accessed without instantiating it first. Use app.dht.use(.kadDHT) to initialize a shared KadDHT instance.")
+            fatalError(
+                "KadDHT accessed without instantiating it first. Use app.dht.use(.kadDHT) to initialize a shared KadDHT instance."
+            )
         }
         return kad
     }
@@ -203,9 +227,14 @@ extension Application.DiscoveryServices.Provider {
     public static var kadDHT: Self {
         .init {
             $0.discovery.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(network: app, mode: .client, bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes, options: KadDHT.NodeOptions())
+                let dht = try! KadDHT.Node(
+                    network: app,
+                    mode: .client,
+                    bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes,
+                    options: KadDHT.NodeOptions()
+                )
                 app.lifecycle.use(dht)
-                app.dht.use { _ in dht } // Does this work??
+                app.dht.use { _ in dht }  // Does this work??
                 return dht
             }
         }

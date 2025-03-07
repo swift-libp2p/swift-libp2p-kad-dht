@@ -1,14 +1,22 @@
+//===----------------------------------------------------------------------===//
 //
-//  LookupListTests.swift
-//  
+// This source file is part of the swift-libp2p open source project
 //
-//  Created by Brandon Toms on 4/30/22.
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
-import XCTest
-import LibP2P
 import CryptoSwift
+import LibP2P
 import LibP2PCrypto
+import XCTest
+
 @testable import LibP2PKadDHT
 
 class LookupListTests: XCTestCase {
@@ -54,20 +62,20 @@ class LookupListTests: XCTestCase {
         for i in 0..<contacts.count - 1 {
             XCTAssertEqual(ourID.compareDistancesFromSelf(to: contacts[i].peer, and: contacts[i + 1].peer), .firstKey)
         }
-      
+
         print(list.dumpMetrics())
     }
 
     func testLookupListNext() throws {
-        let list = LookupList(id: KadDHT.Key.ZeroKey, capacity: 20)
+        let list = LookupList(id: KadDHT.Key.Zero, capacity: 20)
 
         /// Insert a few keys
         let randomPeers = try (0..<20).map { _ in try generateRandomPeerInfo() }
         let sorted = randomPeers.map { $0.peer }.sortedAbsolutely()
 
         /// Insert the peers in random order
-        randomPeers.forEach {
-            XCTAssertTrue(list.insert($0))
+        for peer in randomPeers {
+            XCTAssertTrue(list.insert(peer))
         }
 
         /// Ask for the first peer using .next()
@@ -76,7 +84,7 @@ class LookupListTests: XCTestCase {
         XCTAssertEqual(next!.peer, sorted[0])
 
         /// If we try and insert that same peer again, we return true to indicate that the peer is in the list, but we shouldn't be handed that peer twice when calling .next()
-        list.insert( next! )
+        list.insert(next!)
 
         /// Calling next repeatedly should return results in sorted order until each has been processed
         XCTAssertEqual(list.next()!.peer, sorted[1])
@@ -98,7 +106,7 @@ class LookupListTests: XCTestCase {
         XCTAssertEqual(list.next()!.peer, sorted[17])
         XCTAssertEqual(list.next()!.peer, sorted[18])
         XCTAssertEqual(list.next()!.peer, sorted[19])
-        XCTAssertNil( list.next() )
+        XCTAssertNil(list.next())
     }
-    
+
 }
