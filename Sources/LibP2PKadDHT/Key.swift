@@ -122,12 +122,12 @@ extension KadDHT.Key: Comparable {
         KadDHT.Key.compareDistances(from: self, to: key1, and: key2)
     }
 
-    static let ZeroKey = {
+    static let Zero = {
         KadDHT.Key(preHashedBytes: [UInt8](repeating: 0, count: 32))
     }()
 
     static func < (lhs: KadDHT.Key, rhs: KadDHT.Key) -> Bool {
-        self.ZeroKey.compareDistancesFromSelf(to: lhs, and: rhs).rawValue > 0
+        self.Zero.compareDistancesFromSelf(to: lhs, and: rhs).rawValue > 0
     }
 
     /// Returns the hex string representation of the keys underlying bytes
