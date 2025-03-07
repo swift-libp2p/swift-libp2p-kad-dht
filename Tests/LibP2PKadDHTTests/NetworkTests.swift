@@ -123,10 +123,7 @@ class NetworkTests: XCTestCase {
         }
 
         try testAddresses.forEach {
-            guard let cid = $0.addresses.first?.getPeerID() else {
-                return XCTFail("Failed to extract PeerID from multiaddress")
-            }
-            XCTAssertNoThrow(try PeerID(cid: cid))
+            XCTAssertNoThrow(try $0.addresses.first?.getPeerID())
         }
 
         /// Test Query.findNode and Response.nodeSearch
