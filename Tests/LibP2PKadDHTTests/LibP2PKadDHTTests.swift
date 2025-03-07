@@ -249,7 +249,8 @@ class LibP2PKadDHTTests: XCTestCase {
         try node4.start()
 
         // Ensure Node4 can find Node1 via Node2 & Node3
-        let peer = try? node4.dht.kadDHT.findPeer(peer: node1.peerID).wait()  //peerRouting.findPeer(peer: node1.peerID)
+        //peerRouting.findPeer(peer: node1.peerID)
+        let peer = try? node4.dht.kadDHT.findPeer(peer: node1.peerID).wait()
         XCTAssertNotNil(peer)
         XCTAssertEqual(peer?.peer, node1.peerID)
         XCTAssertEqual(peer?.addresses, node1.listenAddresses)

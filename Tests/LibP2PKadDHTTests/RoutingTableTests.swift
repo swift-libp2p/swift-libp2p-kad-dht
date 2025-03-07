@@ -809,7 +809,9 @@ class RoutingTableTests: XCTestCase {
         XCTAssertEqual(try routingTable.find(id: peer1).wait()?.id, peer1.id)
         XCTAssertEqual(try routingTable.find(id: peer3).wait()?.id, peer3.id)
         XCTAssertNil(try routingTable.find(id: peer4).wait())
-        XCTAssertEqual(try routingTable.bucketCount.wait(), 2)  // The attempt to add another CPL = 0 Peer results in a nextBucket operation being invoked, so we should have 2 buckets, the last one being empty..
+        // The attempt to add another CPL = 0 Peer results in a nextBucket operation being invoked,
+        // so we should have 2 buckets, the last one being empty...
+        XCTAssertEqual(try routingTable.bucketCount.wait(), 2)
         print(routingTable)
 
         /// Generate a fifth peer with CPL = 1 and attempt to add to table, this should succeed because we have excess capcity for peers with CPL = 1 (2 slots available at the moment)

@@ -192,7 +192,7 @@ class DHTKeyTests: XCTestCase {
         print(UInt8(sum % 256))
     }
 
-    /* The following KadDHT tests were lifted from https://github.com/jeanlauliac/kademlia-dht/blob/master/test/id.test.js */
+    // The following KadDHT tests were lifted from https://github.com/jeanlauliac/kademlia-dht/blob/master/test/id.test.js
     func testKadDHTZeroKey() throws {
         /// Defaults to 32 bytes
         let id0 = KadDHT.Key.Zero
