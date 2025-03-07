@@ -67,7 +67,7 @@ class LookupListTests: XCTestCase {
     }
 
     func testLookupListNext() throws {
-        let list = LookupList(id: KadDHT.Key.ZeroKey, capacity: 20)
+        let list = LookupList(id: KadDHT.Key.Zero, capacity: 20)
 
         /// Insert a few keys
         let randomPeers = try (0..<20).map { _ in try generateRandomPeerInfo() }
