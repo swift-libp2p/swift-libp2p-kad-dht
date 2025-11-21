@@ -40,7 +40,7 @@ class Lookup {
         target: PeerID,
         concurrentRequests: Int = 1,
         seeds: [PeerInfo] = [],
-        groupProvider: Application.EventLoopGroupProvider = .createNew
+        groupProvider: Application.EventLoopGroupProvider = .singleton
     ) {
         self.host = host
         self.target = target
@@ -204,7 +204,7 @@ class KeyLookup {
         target: KadDHT.Key,
         concurrentRequests: Int = 1,
         seeds: [PeerInfo] = [],
-        groupProvider: Application.EventLoopGroupProvider = .createNew
+        groupProvider: Application.EventLoopGroupProvider = .singleton
     ) {
         self.host = host
         self.target = target
