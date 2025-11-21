@@ -84,7 +84,7 @@ extension KadDHT {
             }
             let payload: [UInt8] = [UInt8](bytes.dropFirst(prefix.bytesRead))
 
-            guard let dht = try? DHT.Message(contiguousBytes: payload) else { throw Errors.DecodingErrorInvalidType }
+            guard let dht = try? DHT.Message(serializedBytes: payload) else { throw Errors.DecodingErrorInvalidType }
 
             switch dht.type {
             case .findNode:
@@ -105,7 +105,7 @@ extension KadDHT {
             case .putValue:
                 /// .store
                 /// In the request, record is set to the record to be stored and key on Message is set to equal key of the Record.
-                let rec = try DHT.Record(contiguousBytes: dht.record)
+                let rec = try DHT.Record(serializedBytes: dht.record)
                 guard rec.hasValue, rec.hasKey, !rec.value.isEmpty, !rec.key.isEmpty, dht.key == rec.key else {
                     throw Errors.DecodingErrorInvalidType
                 }
