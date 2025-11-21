@@ -15,22 +15,26 @@
 import CID
 import LibP2P
 import Multihash
+import NIOConcurrencyHelpers
 
 public enum KadDHT {
-    public static var multicodec: String = "/ipfs/kad/1.0.0"
-    public static var multicodecLAN: String = "ipfs/lan/kad/1.0.0"
+    public static let multicodec: String = "/ipfs/kad/1.0.0"
+    public static let multicodecLAN: String = "ipfs/lan/kad/1.0.0"
 
-    static var CPL_BITS_NOT_BYTES: Bool = true
+    static let CPL_BITS_NOT_BYTES: Bool = true
 
-    public enum Mode {
+    public enum Mode: Sendable {
         case client
         case server
     }
 
-    public class Node: DHTCore, EventLoopService, LifecycleHandler, PeerRouting, ContentRouting {
-        public static var key: String = "KadDHT"
+    /// A Kad DHT Node
+    ///
+    /// - Note: As long as we perform all mutating opperation on the specified eventloop we should be thread safe (hence the @unchecked Sendable conformance)
+    public class Node: DHTCore, EventLoopService, LifecycleHandler, PeerRouting, ContentRouting, @unchecked Sendable {
+        public static let key: String = "KadDHT"
 
-        enum State {
+        enum State: Sendable {
             case started
             case stopped
         }
@@ -242,7 +246,7 @@ public enum KadDHT {
             if let opd = self.onPeerDiscovered {
                 let _ = self.peerstore.all().map { peers in
                     for peer in peers {
-                        opd(PeerInfo(peer: peer.id, addresses: peer.addresses))
+                        opd(PeerInfo(peer: peer.id, addresses: Array(peer.addresses)))
                     }
                 }
             }
@@ -312,7 +316,7 @@ public enum KadDHT {
                         let (peers, dhtValues) = arg0
                         self.logger.notice("\(self.routingTable.description)")
                         if let data = try? JSONEncoder().encode(MetadataBook.PrunableMetadata(prunable: .necessary))
-                            .bytes
+                            .byteArray
                         {
                             self.logger.notice(
                                 "Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.Prunable.rawValue] == data }).count)>"
@@ -370,7 +374,7 @@ public enum KadDHT {
             self.eventLoop.makeFailedFuture(Errors.notSupported)
         }
 
-        public var onPeerDiscovered: ((PeerInfo) -> Void)?
+        public var onPeerDiscovered: (@Sendable (PeerInfo) -> Void)?
 
         /// Handles a new namespace via the provided validator.
         /// - Parameters:
@@ -538,7 +542,7 @@ public enum KadDHT {
                     return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil))
                 }
 
-                guard (try? validator.validate(key: key, value: value.serializedData().bytes)) != nil else {
+                guard (try? validator.validate(key: key, value: value.serializedData().byteArray)) != nil else {
                     request.logger.warning(
                         "Query::PutValue::KeyVal failed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'"
                     )
@@ -685,7 +689,7 @@ public enum KadDHT {
                         /// We encapsulate the multiaddr with the peers expected public key so we can verify the responder is who we're expecting.
                         let ma =
                             addy.getPeerIDString() != nil
-                            ? addy : try addy.encapsulate(proto: .p2p, address: to.peer.cidString)
+                            ? addy : try addy.encapsulate(proto: .p2p, address: to.peer.b58String)
                         //let ma = addy.addresses.contains(where: { $0.codec == .p2p }) ? addy : try addy.encapsulate(proto: .p2p, address: to.peer.cidString)
                         self.logger.info(
                             "Dialable Addresses For \(to.peer): [\(dialableAddresses.map { $0.description }.joined(separator: ","))]"
@@ -696,7 +700,7 @@ public enum KadDHT {
                             withRequest: Data(payload),
                             withTimeout: self.connectionTimeout
                         ).flatMapThrowing { resp in
-                            try Response.decode(resp.bytes)
+                            try Response.decode(resp.byteArray)
                         }
                     } catch {
                         return (on ?? self.eventLoop).makeFailedFuture(Errors.peerIDMultiaddrEncapsulationFailed)
@@ -785,7 +789,7 @@ public enum KadDHT {
             self.logger.notice(
                 "Sharing \(KadDHT.keyToHumanReadableString(key.original)) with the \(peerCount) closest peers"
             )
-            var successfulPuts: [PeerID] = []
+            let successfulPuts: NIOLockedValueBox<[PeerID]> = .init([])
             return self._nearest(peerCount, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Bool> in
                 nearestPeers.compactMap { peer -> EventLoopFuture<Bool> in
                     self._sendQuery(.putValue(key: key.original, record: value), to: peer).flatMapAlways {
@@ -802,7 +806,7 @@ public enum KadDHT {
                                 return self.eventLoop.makeSucceededFuture(false)
                             }
                             self.logger.debug("They Stored It!")
-                            successfulPuts.append(peer.peer)
+                            successfulPuts.withLockedValue { $0.append(peer.peer) }
                             return self.eventLoop.makeSucceededFuture(true)
 
                         case .failure(let error):
@@ -812,7 +816,7 @@ public enum KadDHT {
                     }
                 }.flatten(on: self.eventLoop).map({ $0.contains(true) }).always { results in
                     self.logger.notice(
-                        "Done Sharing Key:\(KadDHT.keyToHumanReadableString(key.original)) with \(successfulPuts.count)/\(nearestPeers.count) peers"
+                        "Done Sharing Key:\(KadDHT.keyToHumanReadableString(key.original)) with \(successfulPuts.withLockedValue({$0}).count)/\(nearestPeers.count) peers"
                     )
                 }
             }
@@ -1034,17 +1038,30 @@ public enum KadDHT {
             }
         }
 
-        public class LookupTrace: CustomStringConvertible {
-            var events: [(TimeInterval, PeerInfo, Response)]
-            var depth: Int
+        public final class LookupTrace: CustomStringConvertible, Sendable {
+            struct Event: Sendable {
+                let time: TimeInterval
+                let peer: PeerInfo
+                let response: Response
+            }
+
+            let events: NIOLockedValueBox<[Event]>
+
+            var depth: Int {
+                get { _depth.withLockedValue { $0 } }
+                set { _depth.withLockedValue { $0 = newValue } }
+            }
+            let _depth: NIOLockedValueBox<Int>
 
             init() {
-                self.events = []
-                self.depth = 0
+                self.events = .init([])
+                self._depth = .init(0)
             }
 
             func add(_ query: Response, from: PeerInfo) {
-                self.events.append((Date().timeIntervalSince1970, from, query))
+                self.events.withLockedValue { e in
+                    e.append(.init(time: Date().timeIntervalSince1970, peer: from, response: query))
+                }
             }
 
             func incrementDepth() {
@@ -1052,7 +1069,10 @@ public enum KadDHT {
             }
 
             func containsPeer(_ pInfo: PeerInfo) -> Bool {
-                self.events.contains(where: { $0.1.peer.b58String == pInfo.peer.b58String })
+                self.events.withLockedValue { e in
+                    // TODO: Should we be comparing the b58Strings or the PeerIDs directly
+                    e.contains(where: { $0.peer.peer.b58String == pInfo.peer.b58String })
+                }
             }
 
             public var description: String {
@@ -1064,12 +1084,14 @@ public enum KadDHT {
             }
 
             private func eventsToDescription() -> String {
-                if self.events.isEmpty {
-                    return "Node had the key in their DHT"
-                } else {
-                    return self.events.map { "Asked: \($0.1.peer) got: \(self.responseToDescription($0.2))" }.joined(
-                        separator: "\n"
-                    )
+                self.events.withLockedValue { e in
+                    if e.isEmpty {
+                        return "Node had the key in their DHT"
+                    } else {
+                        return e.map {
+                            "Asked: \($0.peer.peer) got: \(self.responseToDescription($0.response))"
+                        }.joined(separator: "\n")
+                    }
                 }
             }
 
@@ -1079,7 +1101,7 @@ public enum KadDHT {
                     return "Result for key \(key.asString(base: .base16)): `\(record.value.asString(base: .base16))`"
                 } else if !closerPeers.isEmpty {
                     return
-                        "Closer peers [\(closerPeers.compactMap { try? PeerID(fromBytesID: $0.id.bytes).b58String }.joined(separator: "\n"))]"
+                        "Closer peers [\(closerPeers.compactMap { try? PeerID(fromBytesID: $0.id.byteArray).b58String }.joined(separator: "\n"))]"
                 }
                 return "Lookup Exhausted"
             }
@@ -1191,7 +1213,7 @@ public enum KadDHT {
             }
             return self.peerstore.add(
                 metaKey: MetadataBook.Keys.Prunable.rawValue,
-                data: data.bytes,
+                data: data.byteArray,
                 toPeer: peer,
                 on: self.eventLoop
             )
@@ -1205,7 +1227,7 @@ public enum KadDHT {
             }
             return self.peerstore.add(
                 metaKey: MetadataBook.Keys.Prunable.rawValue,
-                data: data.bytes,
+                data: data.byteArray,
                 toPeer: peer,
                 on: self.eventLoop
             )
@@ -1340,19 +1362,6 @@ extension PeerStore {
 extension KadDHT.Node {
     func dumpPeerstore() {
         self.peerstore.dumpAll()
-    }
-}
-
-extension PeerInfo: CustomStringConvertible {
-    public var description: String {
-        if self.addresses.isEmpty {
-            return self.peer.description
-        }
-        return """
-            \(self.peer) [
-            \(self.addresses.map({ $0.description }).joined(separator: "\n") )
-            ]
-            """
     }
 }
 
