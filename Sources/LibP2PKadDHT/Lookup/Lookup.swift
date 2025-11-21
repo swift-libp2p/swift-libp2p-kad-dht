@@ -14,7 +14,7 @@
 
 import LibP2P
 
-class Lookup {
+final class Lookup: @unchecked Sendable {
     let target: PeerID
     let maxConcurrentRequests: Int
     let list: LookupList
@@ -180,7 +180,7 @@ class Lookup {
     }
 }
 
-class KeyLookup {
+final class KeyLookup: @unchecked Sendable {
     let target: KadDHT.Key
     let maxConcurrentRequests: Int
     let list: LookupList
@@ -397,7 +397,7 @@ class KeyLookup {
                         if case let .getValue(key, record, closerPeers) = response {
                             /// If we found a record, store it...
                             if let record = record {
-                                if record.key.bytes == self.target.original, key == self.target.original {
+                                if record.key.byteArray == self.target.original, key == self.target.original {
                                     self.value.append(record)
                                     self.logger.warning("Query to peer \(next.peer) succeeded, got value \(record)")
                                     /// Terminate Lookup now that we have a value...
