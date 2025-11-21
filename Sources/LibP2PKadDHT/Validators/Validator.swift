@@ -83,8 +83,8 @@ extension KadDHT {
         let selectFunction: SelectFunction
 
         init(
-            validationFunction: @escaping (_ key: [UInt8], _ value: [UInt8]) throws -> Void,
-            selectFunction: @escaping (_ key: [UInt8], _ values: [[UInt8]]) throws -> Int
+            validationFunction: @escaping ValidateFuntion,
+            selectFunction: @escaping SelectFunction
         ) {
             self.validateFunction = validationFunction
             self.selectFunction = selectFunction
