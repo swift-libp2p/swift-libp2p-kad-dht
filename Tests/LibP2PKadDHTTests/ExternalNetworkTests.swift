@@ -14,19 +14,12 @@
 
 import CID
 import LibP2P
-import XCTest
+import Testing
 
 @testable import LibP2PKadDHT
 
-final class ExternalNetworkTests: XCTestCase {
-
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
+@Suite("External Network Tests", .externalIntegrationTestsEnabled, .serialized)
+final class ExternalNetworkTests {
 
     /// ********************************************
     ///    Testing External KadDHT - Heartbeat
@@ -49,8 +42,8 @@ final class ExternalNetworkTests: XCTestCase {
     /// b[1] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
     /// ---------------------------------------
     /// 3 heartbeats --> Time:  59 seconds,  Mem: 12.5 --> 14.5,  CPU: 0-12%,  Peers: 27
+    @Test(.disabled())
     func testLibP2PKadDHT_SingleHeartbeat() throws {
-        throw XCTSkip("External Network Tests Skipped By Default")
         /// Init the libp2p node
         let lib = try makeHost()
 
@@ -61,7 +54,7 @@ final class ExternalNetworkTests: XCTestCase {
         try lib.start()
 
         /// Do your test stuff ...
-        XCTAssertTrue(lib.dht.kadDHT.state == .started)
+        #expect(lib.dht.kadDHT.state == .started)
 
         //let exp = expectation(description: "Wait for response")
         print("*** Before Lookup ***")
@@ -84,10 +77,10 @@ final class ExternalNetworkTests: XCTestCase {
         print("")
 
         print("*** After Lookup ***")
-        let pAll = try lib.peers.all().wait()
-        print(
-            "(Libp2p Peerstore: \(pAll.count)) - \(pAll.map { "\($0.id)\nMultiaddr: [\($0.addresses.map { $0.description }.joined(separator: ", "))]\nProtocols: [\($0.protocols.map { $0.stringValue }.joined(separator: ", "))]\nMetadata: \($0.metadata.map { "\($0.key): \(String(data: Data($0.value), encoding: .utf8) ?? "NIL")" }.joined(separator: ", "))" }.joined(separator: "\n\n"))"
-        )
+        //        let pAll = try lib.peers.all().wait()
+        //        print(
+        //            "(Libp2p Peerstore: \(pAll.count)) - \(pAll.map { "\($0.id)\nMultiaddr: [\($0.addresses.map { $0.description }.joined(separator: ", "))]\nProtocols: [\($0.protocols.map { $0.stringValue }.joined(separator: ", "))]\nMetadata: \($0.metadata.map { "\($0.key): \(String(data: Data($0.value), encoding: .utf8) ?? "NIL")" }.joined(separator: ", "))" }.joined(separator: "\n\n"))"
+        //        )
 
         print("")
         lib.peers.dumpAll()
@@ -120,8 +113,8 @@ final class ExternalNetworkTests: XCTestCase {
     ///
     /// - For getValue(key: )
     ///   - let key = try "/pk/".bytes + CID("QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ").multihash.value
+    @Test(.disabled())
     func testLibP2PKadDHT_DirectPing() throws {
-        throw XCTSkip("External Network Tests Skipped By Default")
         /// Init the libp2p node
         let lib = try makeHost()
 
@@ -129,7 +122,7 @@ final class ExternalNetworkTests: XCTestCase {
         try lib.start()
 
         /// Do your test stuff ...
-        XCTAssertTrue(lib.dht.kadDHT.state == .started)
+        #expect(lib.dht.kadDHT.state == .started)
 
         let bootstrapPeer = PeerInfo(
             peer: try PeerID(cid: "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"),
@@ -155,8 +148,8 @@ final class ExternalNetworkTests: XCTestCase {
     ///
     /// - For getValue(key: )
     ///   - let key = try "/pk/".bytes + CID("QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ").multihash.value
+    @Test(.disabled())
     func testLibP2PKadDHT_GetValueQuery() throws {
-        throw XCTSkip("External Network Tests Skipped By Default")
         /// Init the libp2p node
         let lib = try makeHost()
 
@@ -164,7 +157,7 @@ final class ExternalNetworkTests: XCTestCase {
         try lib.start()
 
         /// Do your test stuff ...
-        XCTAssertTrue(lib.dht.kadDHT.state == .started)
+        #expect(lib.dht.kadDHT.state == .started)
 
         // This doesn't work... we need to find an actual value to query...
         //let key = try "/ipfs/".bytes + CID("QmXuNFLZc6Nb5akB4sZsxK3doShsFKT1sZFvxLXJvZQwAW").multihash.value // Doesnt work
@@ -190,8 +183,8 @@ final class ExternalNetworkTests: XCTestCase {
     ///
     /// - For getValue(key: )
     ///   - let key = try "/pk/".bytes + CID("QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ").multihash.value
+    @Test(.disabled())
     func testLibP2PKadDHT_GetValueQuery_PeerRecord() throws {
-        throw XCTSkip("External Network Tests Skipped By Default")
         /// Init the libp2p node
         let lib = try makeHost()
 
@@ -199,7 +192,7 @@ final class ExternalNetworkTests: XCTestCase {
         try lib.start()
 
         /// Do your test stuff ...
-        XCTAssertTrue(lib.dht.kadDHT.state == .started)
+        #expect(lib.dht.kadDHT.state == .started)
 
         //let peerID = "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN" // nil
         //let peerID = "QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt" // nil
@@ -215,14 +208,14 @@ final class ExternalNetworkTests: XCTestCase {
         let val = try lib.dht.kadDHT.getUsingLookupList(key).wait()
         //let _ = try lib.identify.ping(peer: PeerID(cid: "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ")).wait()
 
-        XCTAssertNotNil(val)
+        #expect(val != nil)
         if let val = val {
             print(try val.toProtobuf().serializedData().toHexString())
             print("DHT Record")
-            print("Key (Hex): \(val.key.bytes)")
-            print("Value (Hex): \(val.value.bytes)")
+            print("Key (Hex): \(val.key.byteArray)")
+            print("Value (Hex): \(val.value.byteArray)")
             print("Time Received: \(val.timeReceived)")
-            XCTAssertEqual(try PeerID(marshaledPublicKey: val.value).b58String, peerID)
+            #expect(try PeerID(marshaledPublicKey: val.value).b58String == peerID)
         } else {
             print("NIL")
         }
@@ -245,8 +238,8 @@ final class ExternalNetworkTests: XCTestCase {
     ///
     /// - For findProvider(cid: )
     ///   - let key = try CID("QmXuNFLZc6Nb5akB4sZsxK3doShsFKT1sZFvxLXJvZQwAW").multihash.value (results in found providers)
+    @Test(.disabled())
     func testLibP2PKadDHT_FindProviderQuery() throws {
-        throw XCTSkip("External Network Tests Skipped By Default")
         /// Init the libp2p node
         let lib = try makeHost()
 
@@ -257,7 +250,7 @@ final class ExternalNetworkTests: XCTestCase {
         try lib.start()
 
         /// Do your test stuff ...
-        XCTAssertTrue(lib.dht.kadDHT.state == .started)
+        #expect(lib.dht.kadDHT.state == .started)
 
         /// Attempt to find providers of the following CID
         //let key = try CID("QmXuNFLZc6Nb5akB4sZsxK3doShsFKT1sZFvxLXJvZQwAW").multihash.value
@@ -268,7 +261,7 @@ final class ExternalNetworkTests: XCTestCase {
         print("--- Providers For \(key.toBase64()) ---")
         print(val)
         print("----------------------------")
-        XCTAssertFalse(val.isEmpty)
+        #expect(val.isEmpty == false)
 
         /// Stop the node
         lib.shutdown()
@@ -282,8 +275,8 @@ final class ExternalNetworkTests: XCTestCase {
     ///
     /// - For findProvider(cid: )
     ///   - let key = try CID("QmXuNFLZc6Nb5akB4sZsxK3doShsFKT1sZFvxLXJvZQwAW").multihash.value (results in found providers)
+    @Test(.disabled())
     func testLibP2PKadDHT_Provide() throws {
-        throw XCTSkip("External Network Tests Skipped By Default")
         /// Init the libp2p node
         let lib = try makeHost()
 
@@ -291,7 +284,7 @@ final class ExternalNetworkTests: XCTestCase {
         try lib.start()
 
         /// Do your test stuff ...
-        XCTAssertTrue(lib.dht.kadDHT.state == .started)
+        #expect(lib.dht.kadDHT.state == .started)
 
         /// Create a Public Key Record using our nodes PeerID
 
@@ -337,8 +330,8 @@ final class ExternalNetworkTests: XCTestCase {
     ///    Testing External KadDHT - Single Heartbeat - w/ Topology
     /// **************************************************************
     ///
+    @Test(.disabled())
     func testLibP2PKadDHT_SingleHeartbeat_Topology() throws {
-        throw XCTSkip("External Network Tests Skipped By Default")
         /// Init the libp2p node
         let lib = try makeHost()
 
@@ -346,7 +339,7 @@ final class ExternalNetworkTests: XCTestCase {
         try lib.start()
 
         /// Do your test stuff ...
-        XCTAssertTrue(lib.dht.kadDHT.state == .started)
+        #expect(lib.dht.kadDHT.state == .started)
 
         lib.topology.register(
             TopologyRegistration(
@@ -410,10 +403,11 @@ final class ExternalNetworkTests: XCTestCase {
         options: KadDHT.NodeOptions = .default,
         bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
         autoHeartbeat: Bool = false,
-        usingGroup: Application.EventLoopGroupProvider = .createNew
+        usingGroup: Application.EventLoopGroupProvider = .singleton
     ) throws -> Application {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519), eventLoopGroupProvider: usingGroup)
         lib.security.use(.noise)
+        //lib.muxers.use(.yamux)
         lib.muxers.use(.mplex)
         lib.dht.use(.kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: autoHeartbeat))
         lib.servers.use(.tcp(host: "127.0.0.1", port: nextPort))
@@ -425,7 +419,7 @@ final class ExternalNetworkTests: XCTestCase {
 
         nextPort += 1
 
-        lib.logger.logLevel = .notice
+        lib.logger.logLevel = .info  //.trace
 
         return lib
     }

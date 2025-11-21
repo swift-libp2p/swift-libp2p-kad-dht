@@ -15,38 +15,32 @@
 import CryptoSwift
 import LibP2P
 import LibP2PCrypto
-import XCTest
+import Testing
 
 @testable import LibP2PKadDHT
 
-class DHTKeyTests: XCTestCase {
+@Suite("DHT Key Tests")
+struct DHTKeyTests {
 
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
-
-    func testStuff() {
+    @Test func testStuff() {
         let node: UInt8 = 0b00001110
 
         let nodeA: UInt8 = 0b00001111
         let nodeB: UInt8 = 0b00011110
         let nodeC: UInt8 = 0b01010101
 
-        var nodes = Array([nodeA, nodeB, nodeC].reversed())
-        //nodes.shuffle()
-        print(nodes)
+        let ordered = [nodeA, nodeB, nodeC]
+        var nodes = Array(ordered.reversed())
+
+        #expect(nodes != ordered)
 
         /// Lets sort the nodes
         nodes.sort(by: { closer(to: $0, than: $1, from: node) })
 
-        print(nodes)
+        #expect(nodes == ordered)
     }
 
-    func testZeroPrefixLength() {
+    @Test func testZeroPrefixLength() {
         let byteArrays: [[UInt8]] = [
             [0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00],
             [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
@@ -60,11 +54,11 @@ class DHTKeyTests: XCTestCase {
 
         for bytes in byteArrays.enumerated() {
             print("\(bytes.element.zeroPrefixLength()) == \(zeroLengths[bytes.offset])")
-            XCTAssertEqual(bytes.element.zeroPrefixLength(), zeroLengths[bytes.offset])
+            #expect(bytes.element.zeroPrefixLength() == zeroLengths[bytes.offset])
         }
     }
 
-    func testXORKeySpace() {
+    @Test func testXORKeySpace() {
         let ids: [[UInt8]] = [
             [0xFF, 0xFF, 0xFF, 0xFF],
             [0x00, 0x00, 0x00, 0x00],
@@ -79,13 +73,13 @@ class DHTKeyTests: XCTestCase {
 
         for (i, s) in ks.enumerated() {
             /// Assert that the same bytes results in the same DHTKey each time
-            XCTAssertEqual(s.0, s.1)
+            #expect(s.0 == s.1)
 
             /// Assert that the original bytes we're modified
-            XCTAssertEqual(s.0.original, ids[i])
+            #expect(s.0.original == ids[i])
 
             /// Assert that our SHA256 DHTKey is 32 bytes
-            XCTAssertEqual(s.0.bytes.count, 32)
+            #expect(s.0.bytes.count == 32)
         }
 
         for (i, s) in ks.enumerated() {
@@ -95,16 +89,16 @@ class DHTKeyTests: XCTestCase {
             print(
                 "Symmetrical Distance Calc: \(bytesToInt(s.0.distanceTo(key: ks[i-1].0))) | \(bytesToInt(ks[i-1].0.distanceTo(key: s.0)))"
             )
-            XCTAssertEqual(s.0.distanceTo(key: ks[i - 1].0), ks[i - 1].0.distanceTo(key: s.0))
+            #expect(s.0.distanceTo(key: ks[i - 1].0) == ks[i - 1].0.distanceTo(key: s.0))
 
             /// Ensure neighboring keys aren't equal to one another
-            XCTAssertNotEqual(s.0, ks[i - 1].0)
+            #expect(s.0 != ks[i - 1].0)
 
         }
 
     }
 
-    func testDistanceAndCenterSorting() {
+    @Test func testDistanceAndCenterSorting() {
         let byteArrays: [[UInt8]] = [
             [
                 173, 149, 19, 27, 192, 183, 153, 192, 177, 175, 71, 127, 177, 79, 207, 38, 166, 169, 247, 96, 121, 228,
@@ -137,10 +131,10 @@ class DHTKeyTests: XCTestCase {
         print(keys[2].bytes)
         print(keys[3].bytes)
         print(keys[2].distanceTo(key: keys[3]))
-        XCTAssertEqual(0, bytesToInt(keys[2].distanceTo(key: keys[3])))
+        #expect(0 == bytesToInt(keys[2].distanceTo(key: keys[3])))
 
         print(keys[2].distanceTo(key: keys[4]))
-        XCTAssertEqual(1, bytesToInt(keys[2].distanceTo(key: keys[4])))
+        #expect(1 == bytesToInt(keys[2].distanceTo(key: keys[4])))
 
         print(keys[2].distanceTo(key: keys[5]))
 
@@ -158,11 +152,11 @@ class DHTKeyTests: XCTestCase {
         for item in sorted { print(item) }
 
         for idx in expectedOrder.enumerated() {
-            XCTAssertEqual(keys[idx.element], sorted[idx.offset])
+            #expect(keys[idx.element] == sorted[idx.offset])
         }
     }
 
-    func testSumByteArray() throws {
+    @Test func testSumByteArray() throws {
         let arr1 = try KadDHT.Key(PeerID(.Ed25519))
         let arr2 = try KadDHT.Key(PeerID(.Ed25519))
 
@@ -183,7 +177,7 @@ class DHTKeyTests: XCTestCase {
         print(summation)
     }
 
-    func testByteAddition() {
+    @Test func testByteAddition() {
         let five: UInt8 = 255
         let four: UInt8 = 1
 
@@ -193,7 +187,7 @@ class DHTKeyTests: XCTestCase {
     }
 
     // The following KadDHT tests were lifted from https://github.com/jeanlauliac/kademlia-dht/blob/master/test/id.test.js
-    func testKadDHTZeroKey() throws {
+    @Test func testKadDHTZeroKey() throws {
         /// Defaults to 32 bytes
         let id0 = KadDHT.Key.Zero
         let stringRep = "0000000000000000000000000000000000000000000000000000000000000000"
@@ -201,15 +195,15 @@ class DHTKeyTests: XCTestCase {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ]
 
-        XCTAssertEqual(arrayRep.count, 32)
-        XCTAssertEqual(id0.bytes, arrayRep)
-        XCTAssertEqual(stringRep.count, 64)
-        XCTAssertEqual(id0.toString(), stringRep)
+        #expect(arrayRep.count == 32)
+        #expect(id0.bytes == arrayRep)
+        #expect(stringRep.count == 64)
+        #expect(id0.toString() == stringRep)
 
-        XCTAssertEqual(id0.bytes.asString(base: .base16), id0.bytes.toHexString())
+        #expect(id0.bytes.asString(base: .base16) == id0.bytes.toHexString())
     }
 
-    func testKadDHTZeroKeyBits() throws {
+    @Test func testKadDHTZeroKeyBits() throws {
         /// Defaults to 32 bytes
         let id0 = KadDHT.Key.Zero
         let stringRep = "0000000000000000000000000000000000000000000000000000000000000000"
@@ -217,18 +211,18 @@ class DHTKeyTests: XCTestCase {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ]
 
-        XCTAssertEqual(arrayRep.count, 32)
-        XCTAssertEqual(id0.bytes, arrayRep)
-        XCTAssertEqual(stringRep.count, 64)
-        XCTAssertEqual(id0.toString(), stringRep)
+        #expect(arrayRep.count == 32)
+        #expect(id0.bytes == arrayRep)
+        #expect(stringRep.count == 64)
+        #expect(id0.toString() == stringRep)
 
-        XCTAssertEqual(arrayRep.commonPrefixLengthBits(with: id0.bytes), 256)
+        #expect(arrayRep.commonPrefixLengthBits(with: id0.bytes) == 256)
 
-        XCTAssertEqual(id0.bytes.asString(base: .base16), id0.bytes.toHexString())
+        #expect(id0.bytes.asString(base: .base16) == id0.bytes.toHexString())
     }
 
     /// Our KadDHT Implementation defaults to Sha256, in this test we use Sha1...
-    func testkadDHTKeyFromString() throws {
+    @Test func testkadDHTKeyFromString() throws {
         let id0 = KadDHT.Key("the cake is a lie".bytes)
 
         var hasher = SHA1()
@@ -237,13 +231,13 @@ class DHTKeyTests: XCTestCase {
 
         print(digest.toHexString())
 
-        XCTAssertEqual(digest.toHexString(), "4e13b0c28e17087366ac4d67801ae0835bf9e9a1")
+        #expect(digest.toHexString() == "4e13b0c28e17087366ac4d67801ae0835bf9e9a1")
 
         print(id0.toHex())
         print(id0.original.toHexString())
     }
 
-    func testkadDHTKeyDistance() throws {
+    @Test func testkadDHTKeyDistance() throws {
 
         var hasher = SHA1()
         let _ = try hasher.update(withBytes: "the cake is a lie".bytes)
@@ -253,7 +247,7 @@ class DHTKeyTests: XCTestCase {
 
         /// Ensure distance to self yeilds zero
         for byte in id1.distanceTo(key: id1) {
-            XCTAssertEqual(byte, 0)
+            #expect(byte == 0)
         }
 
         var hasher2 = SHA1()
@@ -264,20 +258,20 @@ class DHTKeyTests: XCTestCase {
 
         let distance = "d4a6bfe55a3715cad428cedd03de6e39a04b43b6"
 
-        XCTAssertEqual(id1.distanceTo(key: id2).toHexString(), distance)
+        #expect(id1.distanceTo(key: id2).toHexString() == distance)
     }
 
-    func testCompareDistance() throws {
+    @Test func testCompareDistance() throws {
         let id0 = KadDHT.Key(prefix: [0b001100101])
         let id1 = KadDHT.Key(prefix: [0b011110011])
         let id2 = KadDHT.Key(prefix: [0b001010101])
 
-        XCTAssertEqual(id0.compareDistancesFromSelf(to: id1, and: id2), .secondKey)
-        XCTAssertEqual(id0.compareDistancesFromSelf(to: id2, and: id1), .firstKey)
-        XCTAssertEqual(id0.compareDistancesFromSelf(to: id1, and: id1), .sameDistance)
+        #expect(id0.compareDistancesFromSelf(to: id1, and: id2) == .secondKey)
+        #expect(id0.compareDistancesFromSelf(to: id2, and: id1) == .firstKey)
+        #expect(id0.compareDistancesFromSelf(to: id1, and: id1) == .sameDistance)
     }
 
-    func testkadDHTKeyEquality() throws {
+    @Test func testkadDHTKeyEquality() throws {
 
         var hasher = SHA1()
         let _ = try hasher.update(withBytes: "the cake is a lie".bytes)
@@ -286,7 +280,7 @@ class DHTKeyTests: XCTestCase {
         let id1 = KadDHT.Key(preHashedBytes: digest)
 
         /// Ensure distance to self yeilds zero
-        XCTAssertTrue(id1 == id1)
+        #expect(id1 == id1)
 
         var hasher2 = SHA1()
         let _ = try hasher2.update(withBytes: "fubar".bytes)
@@ -294,10 +288,10 @@ class DHTKeyTests: XCTestCase {
 
         let id2 = KadDHT.Key(preHashedBytes: digest2)
 
-        XCTAssertFalse(id1 == id2)
+        #expect(id1 != id2)
     }
 
-    func testPeerIDDistance() throws {
+    @Test func testPeerIDDistance() throws {
         let peerID = try PeerID()
         print(peerID.hexString)
 
@@ -342,7 +336,7 @@ class DHTKeyTests: XCTestCase {
     /// | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 71 | 19928 |
     /// '----------------------------------------'
     /// ```
-    func testSHA1_ID_Distance() throws {
+    @Test func testSHA1_ID_Distance() throws {
         typealias Bytes = [UInt8]
         typealias KBucket = [Int]
 
@@ -383,7 +377,7 @@ class DHTKeyTests: XCTestCase {
 
         let dist2 = bytesToInt(distanceBetween(key: ourID, and: ourID))
         print(dist2)
-        XCTAssertEqual(dist2, 0)
+        #expect(dist2 == 0)
 
         var bucket = KBucket(repeating: 0, count: 20)
         for key in peers {
