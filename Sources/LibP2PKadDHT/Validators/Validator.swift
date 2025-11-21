@@ -14,7 +14,7 @@
 
 import LibP2P
 
-public protocol Validator {
+public protocol Validator: Sendable {
     func validate(key: [UInt8], value: [UInt8]) throws
     func select(key: [UInt8], values: [[UInt8]]) throws -> Int
 }
@@ -77,8 +77,10 @@ internal final class ValidatorChannelHandler: ChannelInboundHandler {
 
 extension KadDHT {
     struct BaseValidator: Validator {
-        let validateFunction: (_ key: [UInt8], _ value: [UInt8]) throws -> Void
-        let selectFunction: (_ key: [UInt8], _ values: [[UInt8]]) throws -> Int
+        typealias ValidateFuntion = @Sendable (_ key: [UInt8], _ value: [UInt8]) throws -> Void
+        typealias SelectFunction = @Sendable (_ key: [UInt8], _ values: [[UInt8]]) throws -> Int
+        let validateFunction: ValidateFuntion
+        let selectFunction: SelectFunction
 
         init(
             validationFunction: @escaping (_ key: [UInt8], _ value: [UInt8]) throws -> Void,
@@ -113,7 +115,7 @@ extension KadDHT {
     struct PubKeyValidator: Validator {
         func validate(key: [UInt8], value: [UInt8]) throws {
             print("🔎 PubKeyValidator::Validating key `\(key.toHexString())`")
-            let record = try DHT.Record(contiguousBytes: value)
+            let record = try DHT.Record(serializedBytes: value)
             guard Data(key) == record.key else {
                 throw NSError(domain: "Validator::Key Mismatch. Expected \(Data(key)) got \(record.key) ", code: 0)
             }
@@ -122,7 +124,7 @@ extension KadDHT {
 
         func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
             print("🔎 PubKeyValidator::Selecting key `\(key.toHexString())` from \(values.count) values")
-            let records = values.map { try? DHT.Record(contiguousBytes: $0) }
+            let records = values.map { try? DHT.Record(serializedBytes: $0) }
             guard !records.compactMap({ $0 }).isEmpty else {
                 throw NSError(domain: "Validator::No Records to select", code: 0)
             }
@@ -156,16 +158,16 @@ extension KadDHT {
     struct IPNSValidator: Validator {
         func validate(key: [UInt8], value: [UInt8]) throws {
             print("🔎 IPNSValidator::Validating key `\(key.toHexString())`")
-            let record = try DHT.Record(contiguousBytes: value)
+            let record = try DHT.Record(serializedBytes: value)
             guard Data(key) == record.key else {
                 throw NSError(domain: "Validator::Key Mismatch. Expected \(Data(key)) got \(record.key) ", code: 0)
             }
-            let _ = try IpnsEntry(contiguousBytes: record.value)
+            let _ = try IpnsEntry(serializedBytes: record.value)
         }
 
         func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
             print("🔎 IPNSValidator::Selecting key `\(key.toHexString())` from \(values.count) values")
-            let records = values.map { try? DHT.Record(contiguousBytes: $0) }
+            let records = values.map { try? DHT.Record(serializedBytes: $0) }
             guard !records.compactMap({ $0 }).isEmpty else {
                 throw NSError(domain: "Validator::No Records to select", code: 0)
             }
