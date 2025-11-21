@@ -55,7 +55,7 @@ extension RoutesBuilder {
 }
 
 public enum DHTMethod: Equatable, Sendable {
-    static var key: String = "LibP2P.DHT.Method"
+    static let key: String = "LibP2P.DHT.Method"
     internal enum HasBody {
         case yes
         case no
@@ -70,7 +70,7 @@ extension RoutesBuilder {
     @discardableResult
     public func get<Response>(
         _ path: PathComponent...,
-        use closure: @escaping (Request) throws -> Response
+        use closure: @Sendable @escaping (Request) throws -> Response
     ) -> Route
     where Response: ResponseEncodable {
         self.on(.GET, path, use: closure)
@@ -79,7 +79,7 @@ extension RoutesBuilder {
     @discardableResult
     public func get<Response>(
         _ path: [PathComponent],
-        use closure: @escaping (Request) throws -> Response
+        use closure: @Sendable @escaping (Request) throws -> Response
     ) -> Route
     where Response: ResponseEncodable {
         self.on(.GET, path, use: closure)
@@ -88,7 +88,7 @@ extension RoutesBuilder {
     @discardableResult
     public func put<Response>(
         _ path: PathComponent...,
-        use closure: @escaping (Request) throws -> Response
+        use closure: @Sendable @escaping (Request) throws -> Response
     ) -> Route
     where Response: ResponseEncodable {
         self.on(.PUT, path, use: closure)
@@ -97,7 +97,7 @@ extension RoutesBuilder {
     @discardableResult
     public func put<Response>(
         _ path: [PathComponent],
-        use closure: @escaping (Request) throws -> Response
+        use closure: @Sendable @escaping (Request) throws -> Response
     ) -> Route
     where Response: ResponseEncodable {
         self.on(.PUT, path, use: closure)
@@ -109,7 +109,7 @@ extension RoutesBuilder {
         _ path: PathComponent...,
         body: PayloadStreamStrategy = .stream,
         handlers: [Application.ChildChannelHandlers.Provider] = [],
-        use closure: @escaping (Request) throws -> Response
+        use closure: @Sendable @escaping (Request) throws -> Response
     ) -> Route
     where Response: ResponseEncodable {
         self.on(
@@ -129,7 +129,7 @@ extension RoutesBuilder {
         _ path: [PathComponent],
         body: PayloadStreamStrategy = .stream,
         handlers: [Application.ChildChannelHandlers.Provider] = [],
-        use closure: @escaping (Request) throws -> Response
+        use closure: @Sendable @escaping (Request) throws -> Response
     ) -> Route
     where Response: ResponseEncodable {
         let responder = BasicResponder { request in
