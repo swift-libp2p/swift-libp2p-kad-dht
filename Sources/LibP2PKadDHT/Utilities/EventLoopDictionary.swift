@@ -14,7 +14,11 @@
 
 import NIOCore
 
-public class EventLoopDictionary<Key, Value> where Key: Hashable {
+/// An eventloop bound dictionary
+///
+/// - Note: Because we're bound to a specific eventloop we know we're thread safe here
+public final class EventLoopDictionary<Key, Value>: @unchecked Sendable
+where Key: Hashable & Sendable, Value: Sendable {
     public typealias Element = (key: Key, value: Value)
 
     private let eventLoop: EventLoop
@@ -78,7 +82,7 @@ public class EventLoopDictionary<Key, Value> where Key: Hashable {
     }
 
     @discardableResult func removeAll(
-        where shouldBeRemoved: @escaping (Element) throws -> Bool
+        where shouldBeRemoved: @Sendable @escaping (Element) throws -> Bool
     ) -> EventLoopFuture<Void> {
         self.eventLoop.submit {
             let elementsToBeRemoved = try self.store.filter(shouldBeRemoved)
@@ -86,19 +90,21 @@ public class EventLoopDictionary<Key, Value> where Key: Hashable {
         }
     }
 
-    func filter(where shouldBeRemoved: @escaping (Element) throws -> Bool) -> EventLoopFuture<[Key: Value]> {
+    func filter(where shouldBeRemoved: @Sendable @escaping (Element) throws -> Bool) -> EventLoopFuture<[Key: Value]> {
         self.eventLoop.submit {
             try self.store.filter(shouldBeRemoved)
         }
     }
 
-    func mapValues<T>(_ transform: @escaping (Value) throws -> T) rethrows -> EventLoopFuture<[Key: T]> {
+    func mapValues<T>(_ transform: @Sendable @escaping (Value) throws -> T) rethrows -> EventLoopFuture<[Key: T]> {
         self.eventLoop.submit {
             try self.store.mapValues(transform)
         }
     }
 
-    func compactMapValues<T>(_ transform: @escaping (Value) throws -> T?) rethrows -> EventLoopFuture<[Key: T]> {
+    func compactMapValues<T>(
+        _ transform: @Sendable @escaping (Value) throws -> T?
+    ) rethrows -> EventLoopFuture<[Key: T]> {
         self.eventLoop.submit {
             try self.store.compactMapValues(transform)
         }
@@ -116,9 +122,9 @@ extension EventLoopDictionary where Key == KadDHT.Key, Value == DHT.Record {
         self.eventLoop.submit {
             if let existingRecord = self.store[kid] {
                 /// Store the best record...
-                let values = [existingRecord, value].compactMap { try? $0.serializedData().bytes }
+                let values = [existingRecord, value].compactMap { try? $0.serializedData().byteArray }
                 let bestIndex = (try? validator.select(key: kid.original, values: values)) ?? 0
-                let best = (try? DHT.Record(contiguousBytes: values[bestIndex])) ?? existingRecord
+                let best = (try? DHT.Record(serializedBytes: values[bestIndex])) ?? existingRecord
 
                 /// Update the value...
                 self.store[kid] = best
@@ -164,7 +170,7 @@ extension EventLoopDictionary where Key == KadDHT.Key, Value == [DHT.Message.Pee
 }
 
 extension EventLoopDictionary {
-    enum StoreResult {
+    enum StoreResult: Sendable {
         case excessSpace
         case alreadyExists
         case updatedValue
