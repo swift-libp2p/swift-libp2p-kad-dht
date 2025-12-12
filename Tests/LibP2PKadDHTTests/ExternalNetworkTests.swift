@@ -147,8 +147,8 @@ final class ExternalNetworkTests {
         print("")
 
         print("Connections: ")
-        try await lib.connections.getConnections(on: nil).get().forEach {
-            print("\($0)")
+        for conn in try await lib.connections.getConnections(on: nil).get() {
+            print("\(conn)")
         }
 
         print("*** History ***")
