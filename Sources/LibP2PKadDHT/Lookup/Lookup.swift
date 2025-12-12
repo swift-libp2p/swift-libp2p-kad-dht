@@ -14,7 +14,7 @@
 
 import LibP2P
 
-class Lookup {
+final class Lookup: @unchecked Sendable {
     let target: PeerID
     let maxConcurrentRequests: Int
     let list: LookupList
@@ -40,7 +40,7 @@ class Lookup {
         target: PeerID,
         concurrentRequests: Int = 1,
         seeds: [PeerInfo] = [],
-        groupProvider: Application.EventLoopGroupProvider = .createNew
+        groupProvider: Application.EventLoopGroupProvider = .singleton
     ) {
         self.host = host
         self.target = target
@@ -142,7 +142,7 @@ class Lookup {
                 self.logger.warning("Worker Terminating - No More Work")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
-            self.logger.info("Querying \(next.peer.b58String) for id: \(self.target.b58String.prefix(6))")
+            self.logger.info("Querying \(next.peer.b58String) for id: \(self.target.b58String)")
             self.requestsInProgress += 1
             return on.flatSubmit {
                 self.host._sendQuery(.findNode(id: self.target), to: next, on: on).flatMapAlways { result in
@@ -180,7 +180,7 @@ class Lookup {
     }
 }
 
-class KeyLookup {
+final class KeyLookup: @unchecked Sendable {
     let target: KadDHT.Key
     let maxConcurrentRequests: Int
     let list: LookupList
@@ -204,7 +204,7 @@ class KeyLookup {
         target: KadDHT.Key,
         concurrentRequests: Int = 1,
         seeds: [PeerInfo] = [],
-        groupProvider: Application.EventLoopGroupProvider = .createNew
+        groupProvider: Application.EventLoopGroupProvider = .singleton
     ) {
         self.host = host
         self.target = target
@@ -397,7 +397,7 @@ class KeyLookup {
                         if case let .getValue(key, record, closerPeers) = response {
                             /// If we found a record, store it...
                             if let record = record {
-                                if record.key.bytes == self.target.original, key == self.target.original {
+                                if record.key.byteArray == self.target.original, key == self.target.original {
                                     self.value.append(record)
                                     self.logger.warning("Query to peer \(next.peer) succeeded, got value \(record)")
                                     /// Terminate Lookup now that we have a value...

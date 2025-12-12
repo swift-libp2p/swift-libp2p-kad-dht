@@ -31,7 +31,7 @@ extension DHTRecord {
 
 extension DHT.Message.Peer: CustomStringConvertible {
     var description: String {
-        if let pid = try? PeerID(fromBytesID: self.id.bytes) {
+        if let pid = try? PeerID(fromBytesID: self.id.byteArray) {
             return """
                 \(pid) (\(self.connectionToString(self.connection.rawValue))) [
                     \(self.addrs.map { addyBytes -> String in
@@ -50,7 +50,7 @@ extension DHT.Message.Peer: CustomStringConvertible {
 
     func toPeerInfo() throws -> PeerInfo {
         PeerInfo(
-            peer: try PeerID(fromBytesID: self.id.bytes),
+            peer: try PeerID(fromBytesID: self.id.byteArray),
             addresses: try self.addrs.map {
                 try Multiaddr($0)
             }

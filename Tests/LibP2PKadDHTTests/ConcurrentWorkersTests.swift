@@ -15,31 +15,24 @@
 import CryptoSwift
 import LibP2P
 import LibP2PCrypto
-import XCTest
+import Testing
 
 @testable import LibP2PKadDHT
 
-class ConcurrentWorkersTests: XCTestCase {
-
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
+@Suite("Concurrent Workers Test")
+struct ConcurrentWorkersTests {
 
     /// This test spawns a group of workers that work on a single (thread protected) list of 'work'.
     /// Each worker checks for work to be done, recursively, then performs the work on their own eventloop and returns when there is no more work to be done.
     /// - Note: This example allocates all work up front (doesn't add new work to the queue over time).
     /// - Note: Our LookupLists use a different algorithm than this...
-    func testEventLoopGroupConcurrentWorkers() throws {
+    @Test func testEventLoopGroupConcurrentWorkers() async throws {
 
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 4)
 
         let workers: Int = 4
 
-        var stuffToDo: [(taskDuration: UInt32, processed: Bool)] = (0..<10).map {
+        var stuffToDo: [(taskDuration: UInt32, processed: Bool)] = (0..<20).map {
             i -> (taskDuration: UInt32, processed: Bool) in
             (UInt32.random(in: 10_000...1_000_000), false)
         }
@@ -48,7 +41,7 @@ class ConcurrentWorkersTests: XCTestCase {
 
         let mainLoop = group.next()
 
-        func nextTask() -> EventLoopFuture<UInt32?> {
+        @Sendable func nextTask() -> EventLoopFuture<UInt32?> {
             mainLoop.submit {
                 guard let next = stuffToDo.firstIndex(where: { $0.processed == false }) else { return nil }
                 print("Dequeing task \(next) for work")
@@ -57,21 +50,22 @@ class ConcurrentWorkersTests: XCTestCase {
             }
         }
 
-        func recursivelyWork(on: EventLoop) -> EventLoopFuture<Void> {
+        @Sendable func recursivelyWork(worker: Int, on: EventLoop) -> EventLoopFuture<Void> {
             nextTask().flatMap { task in
                 on.flatSubmit {
                     guard let task = task else { return on.makeSucceededVoidFuture() }
+                    print("Worker \(worker) performing next task")
                     self.doSomeWork(duration: task)
-                    return recursivelyWork(on: on)
+                    return recursivelyWork(worker: worker, on: on)
                 }
             }
         }
 
-        let workExpectation = expectation(description: "waiting for work")
+        let workExpectation = AsyncSemaphore(value: 0)
 
-        (0..<workers).compactMap { _ -> EventLoopFuture<Void> in
+        (0..<workers).compactMap { worker -> EventLoopFuture<Void> in
             print("Deploying Worker")
-            return recursivelyWork(on: group.next())
+            return recursivelyWork(worker: worker, on: group.next())
         }.flatten(on: mainLoop).whenComplete { result in
             switch result {
             case .failure(let error):
@@ -80,15 +74,16 @@ class ConcurrentWorkersTests: XCTestCase {
                 print("All done with work")
                 print(stuffToDo)
             }
-            workExpectation.fulfill()
+            workExpectation.signal()
         }
 
-        waitForExpectations(timeout: 11, handler: nil)
+        await workExpectation.wait()
+
         print("Shutting down event loop")
-        try! group.syncShutdownGracefully()
+        try await group.shutdownGracefully()
     }
 
-    private func doSomeWork(duration: UInt32) {
+    @Sendable private func doSomeWork(duration: UInt32) {
         usleep(duration)
     }
 

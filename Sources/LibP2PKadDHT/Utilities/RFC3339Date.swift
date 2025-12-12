@@ -15,9 +15,9 @@
 import Foundation
 
 struct RFC3339Date: Equatable, Comparable {
-    private static var strFormat: String = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSS'Z'"
-    private static var locale: Locale = Locale(identifier: "en_US_POSIX")
-    private static var formatter: DateFormatter = {
+    private static let strFormat: String = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSS'Z'"
+    private static let locale: Locale = Locale(identifier: "en_US_POSIX")
+    private static let formatter: DateFormatter = {
         //print("RFC3339Date Initializing Date Formatter")
         let f = DateFormatter()
         f.locale = RFC3339Date.locale

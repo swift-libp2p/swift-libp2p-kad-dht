@@ -17,7 +17,8 @@ import LibP2P
 /// The routing table is responsible for maintaining a set of kBuckets each containing a group of DHTPeers that are sorted by distance with respect to our local ID.
 ///
 /// - Note: These buckets needs to be accessed in a thread safe manner using the eventloop.
-class RoutingTable: EventLoopService {
+/// - Note: Because we perform all mutating operations on a specific event loop we should be thread safe (hence the @unchecked Sendable)
+class RoutingTable: EventLoopService, @unchecked Sendable {
     public typealias Filter = (DHTPeerInfo) -> Bool
     public typealias DiversityFilter = (DHTPeerInfo) -> DiversityFilterResult
 

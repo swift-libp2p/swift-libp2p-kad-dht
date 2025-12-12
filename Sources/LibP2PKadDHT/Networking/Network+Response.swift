@@ -87,7 +87,7 @@ extension KadDHT {
             }
             let payload: [UInt8] = [UInt8](bytes.dropFirst(prefix.bytesRead))
 
-            guard let dht = try? DHT.Message(contiguousBytes: payload) else { throw Errors.DecodingErrorInvalidType }
+            guard let dht = try? DHT.Message(serializedBytes: payload) else { throw Errors.DecodingErrorInvalidType }
 
             //print(dht)
 
@@ -104,7 +104,7 @@ extension KadDHT {
 
                 let rec: DHT.Record?
                 if dht.hasRecord {
-                    rec = try DHT.Record(contiguousBytes: dht.record)
+                    rec = try DHT.Record(serializedBytes: dht.record)
                 } else {
                     rec = nil
                 }
@@ -117,7 +117,7 @@ extension KadDHT {
 
                 let rec: DHT.Record?
                 if dht.hasRecord {
-                    rec = try DHT.Record(contiguousBytes: dht.record)
+                    rec = try DHT.Record(serializedBytes: dht.record)
                 } else {
                     rec = nil
                 }

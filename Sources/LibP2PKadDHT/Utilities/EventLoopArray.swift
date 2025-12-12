@@ -14,7 +14,7 @@
 
 import NIOCore
 
-public class EventLoopArray<Element> {
+public final class EventLoopArray<Element>: @unchecked Sendable {
     private let eventLoop: EventLoop
     private var store: [Element]
 
