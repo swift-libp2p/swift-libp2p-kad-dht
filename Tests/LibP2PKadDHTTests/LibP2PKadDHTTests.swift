@@ -15,9 +15,8 @@
 import CID
 import CryptoSwift
 import LibP2P
-//import LibP2PYAMUX
-import LibP2PMPLEX
 import LibP2PNoise
+import LibP2PYAMUX
 import Multihash
 import Testing
 

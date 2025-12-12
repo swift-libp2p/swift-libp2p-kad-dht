@@ -15,9 +15,8 @@
 import CID
 import CryptoSwift
 import LibP2P
-//import LibP2PYAMUX
-import LibP2PMPLEX
 import LibP2PNoise
+import LibP2PYAMUX
 import Multihash
 import Testing
 
@@ -401,8 +400,7 @@ final class InternalNetworkTests {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519), eventLoopGroupProvider: usingGroup)
         lib.logger.logLevel = .notice
         lib.security.use(.noise)
-        //lib.muxers.use(.yamux)
-        lib.muxers.use(.mplex)
+        lib.muxers.use(.yamux)
         lib.dht.use(.kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: autoHeartbeat))
         lib.servers.use(.tcp(host: "127.0.0.1", port: self.nextPort))
 
