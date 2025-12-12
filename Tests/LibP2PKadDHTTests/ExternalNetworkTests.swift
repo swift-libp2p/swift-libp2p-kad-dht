@@ -14,6 +14,7 @@
 
 import CID
 import LibP2P
+import LibP2PYAMUX
 import Testing
 
 @testable import LibP2PKadDHT
@@ -47,9 +48,6 @@ final class ExternalNetworkTests {
         /// Init the libp2p node
         let lib = try makeHost()
 
-        /// Prepare our expectations
-        //let expectationNode1ReceivedNode2Subscription = expectation(description: "Node1 received fruit subscription from Node2")
-
         /// Start the node
         try lib.start()
 
@@ -76,12 +74,6 @@ final class ExternalNetworkTests {
         print("(DHT Peerstore: \(try lib.dht.kadDHT.peerstore.count().wait()) - \(lib.dht.kadDHT.peerstore)")
         print("")
 
-        print("*** After Lookup ***")
-        //        let pAll = try lib.peers.all().wait()
-        //        print(
-        //            "(Libp2p Peerstore: \(pAll.count)) - \(pAll.map { "\($0.id)\nMultiaddr: [\($0.addresses.map { $0.description }.joined(separator: ", "))]\nProtocols: [\($0.protocols.map { $0.stringValue }.joined(separator: ", "))]\nMetadata: \($0.metadata.map { "\($0.key): \(String(data: Data($0.value), encoding: .utf8) ?? "NIL")" }.joined(separator: ", "))" }.joined(separator: "\n\n"))"
-        //        )
-
         print("")
         lib.peers.dumpAll()
         print("")
@@ -98,13 +90,80 @@ final class ExternalNetworkTests {
         print("*** Routing Table ***")
         print(lib.dht.kadDHT.routingTable)
 
-        //waitForExpectations(timeout: 10, handler: nil)
         sleep(2)
 
         /// Stop the node
         lib.shutdown()
 
         print("All Done!")
+    }
+
+    /// 20 heartbeats --> Time:  415 seconds,  Mem: 17.2,  CPU: 0-20%,  Peers: 170
+    /// 📒 --------------------------------- 📒
+    /// Routing Table [<peer.ID LFMPqX>]
+    /// Bucket Count: 8 buckets of size: 20
+    /// Total Peers: 99
+    /// b[0] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    /// b[1] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    /// b[2] = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
+    /// b[3] = []
+    /// b[4] = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+    /// b[5] = [5, 5, 5, 5, 5, 5]
+    /// b[6] = [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6]
+    /// b[7] = [14, 9, 10, 9, 9, 9, 10, 10, 10, 10, 10, 10, 11, 11, 11, 12, 13]
+    /// ---------------------------------------
+    @Test(.disabled())
+    func testLibP2PKadDHT_SingleHeartbeat_Async() async throws {
+        /// Init the libp2p node
+        let lib = try makeHost()
+
+        /// Start the node
+        try await lib.startup()
+
+        /// Do your test stuff ...
+        #expect(lib.dht.kadDHT.state == .started)
+
+        print("*** Before Lookup ***")
+        print(lib.dht.kadDHT.peerstore)
+        print("")
+
+        print("*** Before Lookup ***")
+        lib.peers.dumpAll()
+        print("")
+
+        for _ in (0..<20) {
+            /// Trigger a heartbeat (which will perform a peer lookup for our peerID)
+            try await lib.dht.kadDHT.heartbeat().get()
+
+            try await Task.sleep(for: .seconds(1))
+        }
+
+        print("*** After Lookup ***")
+        print("(DHT Peerstore: \(try await lib.dht.kadDHT.peerstore.count().get()) - \(lib.dht.kadDHT.peerstore)")
+        print("")
+
+        print("")
+        lib.peers.dumpAll()
+        print("")
+
+        print("Connections: ")
+        try await lib.connections.getConnections(on: nil).get().forEach {
+            print("\($0)")
+        }
+
+        print("*** History ***")
+        lib.connections.dumpConnectionHistory()
+
+        print("*** Metrics ***")
+        for hist in lib.dht.kadDHT.metrics.history { print(hist.event) }
+
+        print("*** Routing Table ***")
+        print(lib.dht.kadDHT.routingTable)
+
+        try await Task.sleep(for: .milliseconds(50))
+
+        /// Stop the node
+        try await lib.asyncShutdown()
     }
 
     /// ******************************************************
@@ -255,8 +314,8 @@ final class ExternalNetworkTests {
         /// Attempt to find providers of the following CID
         //let key = try CID("QmXuNFLZc6Nb5akB4sZsxK3doShsFKT1sZFvxLXJvZQwAW").multihash.value
         //let key = try CID("QmdSn5nS2toXqj5jKGvpsoNJjk2rofY6ctk7RY86t6KeMS").multihash.value
-        //let key = try CID("QmdmQXB2mzChmMeKY47C43LxUdg1NDJ5MWcKMKxDu7RgQm").multihash.value // XKCD Archives
-        let key = try CID("Qmdp4pcmePccsVHedMC4CsSnkEtXLXT2N3go7S8qeLg3RY").multihash.value  // 101 - Laser Scope
+        let key = try CID("QmdmQXB2mzChmMeKY47C43LxUdg1NDJ5MWcKMKxDu7RgQm").multihash.value  // XKCD Archives
+        //let key = try CID("Qmdp4pcmePccsVHedMC4CsSnkEtXLXT2N3go7S8qeLg3RY").multihash.value  // 101 - Laser Scope
         let val = try lib.dht.kadDHT.getProvidersUsingLookupList(key).wait()
         print("--- Providers For \(key.toBase64()) ---")
         print(val)
@@ -407,10 +466,11 @@ final class ExternalNetworkTests {
     ) throws -> Application {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519), eventLoopGroupProvider: usingGroup)
         lib.security.use(.noise)
-        //lib.muxers.use(.yamux)
-        lib.muxers.use(.mplex)
+        lib.muxers.use(.yamux)
         lib.dht.use(.kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: autoHeartbeat))
         lib.servers.use(.tcp(host: "127.0.0.1", port: nextPort))
+
+        //lib.connectionManager.use(connectionType: BasicConnectionLight.self)
 
         //try lib.peers.add(peerInfo: PeerInfo(
         //    peer: PeerID(cid: "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN"),
@@ -419,7 +479,7 @@ final class ExternalNetworkTests {
 
         nextPort += 1
 
-        lib.logger.logLevel = .info  //.trace
+        lib.logger.logLevel = .notice  //.trace
 
         return lib
     }
