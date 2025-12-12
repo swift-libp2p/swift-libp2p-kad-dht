@@ -142,7 +142,7 @@ final class Lookup: @unchecked Sendable {
                 self.logger.warning("Worker Terminating - No More Work")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
-            self.logger.info("Querying \(next.peer.b58String) for id: \(self.target.b58String.prefix(6))")
+            self.logger.info("Querying \(next.peer.b58String) for id: \(self.target.b58String)")
             self.requestsInProgress += 1
             return on.flatSubmit {
                 self.host._sendQuery(.findNode(id: self.target), to: next, on: on).flatMapAlways { result in
