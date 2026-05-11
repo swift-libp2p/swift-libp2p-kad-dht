@@ -199,6 +199,22 @@ final class KeyLookup: @unchecked Sendable {
     private var canceled: Bool = false
     private let sharedELG: Bool
 
+    /// `_recursivelyQueryForTarget` issues `findNode` RPCs, and our
+    /// `Query` type's `findNode(id:)` case wraps a `PeerID`. We
+    /// pre-compute the `PeerID` once at construction so we don't
+    /// retry the (deterministic) conversion per-peer-per-iteration —
+    /// and so we can log the failure once with a clear, non-misleading
+    /// message instead of accusing each peer of an invalid PeerID.
+    ///
+    /// `nil` means the target's raw bytes aren't a multihash (e.g., a
+    /// CIDv1 with a version+codec prefix, or an arbitrary value-store
+    /// key). In that case `_recursivelyQueryForTarget` short-circuits
+    /// — callers get an empty result rather than an iterative walk.
+    /// This is a long-standing structural limitation of this
+    /// implementation's `findNode` wire mapping; the wire format
+    /// itself uses unstructured bytes.
+    private let targetAsPeerID: PeerID?
+
     init(
         host: KadDHT.Node,
         target: KadDHT.Key,
@@ -222,10 +238,16 @@ final class KeyLookup: @unchecked Sendable {
         self.began = false
         self.logger = Logger(label: "KeyLookup[\(UUID().uuidString.prefix(5))]")
         self.logger.logLevel = self.host.logger.logLevel
+        self.targetAsPeerID = try? PeerID(fromBytesID: target.original)
 
         self.logger.warning(
             "KeyLookup Instantiated with \(seeds.count) Seeds, searching for key: \(String(data: Data(target.original), encoding: .utf8) ?? "NIL")"
         )
+        if self.targetAsPeerID == nil {
+            self.logger.debug(
+                "Lookup target is not a multihash-shaped peer ID; findNode-style iterative discovery will short-circuit. Lookup type that emits getProviders / getValue queries (proceedForProvider / proceedForValue) are unaffected."
+            )
+        }
     }
 
     deinit { print("KeyLookup::deinit") }
@@ -302,6 +324,15 @@ final class KeyLookup: @unchecked Sendable {
                 self.logger.warning("Lookup Canceled")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
+            // If the target isn't a peer-ID-shaped multihash we can't
+            // form `Query.findNode(id:)` at all. Short-circuit the
+            // whole iteration; callers get whatever seed peers are
+            // already in the list. The condition was logged once at
+            // init time, so we don't repeat it here. See the doc on
+            // ``targetAsPeerID`` for the structural background.
+            guard self.targetAsPeerID != nil else {
+                return self.eventLoop.makeSucceededVoidFuture()
+            }
             guard let next = self.list.next() else {
                 if self.queriesInProgress > 0 {
                     /// We have an outstanding query that might return more work, lets check back in a few ms...
@@ -317,13 +348,9 @@ final class KeyLookup: @unchecked Sendable {
             )
             self.queriesInProgress += 1
             return on.flatSubmit {
-                guard let p = try? PeerID(fromBytesID: self.target.original) else {
-                    self.logger.warning(
-                        "Query to peer \(next.peer) failed due to having an invalid PeerID, removing them from our list"
-                    )
-                    self.list.remove(next.peer)
-                    return self._recursivelyQueryForTarget(on: on, decrementingQueries: true)
-                }
+                // Force-unwrap is safe: the guard above ensures we
+                // never reach this branch when targetAsPeerID is nil.
+                let p = self.targetAsPeerID!
                 return self.host._sendQuery(.findNode(id: p), to: next, on: on).flatMapAlways { result in
                     switch result {
                     case .failure(let error):
