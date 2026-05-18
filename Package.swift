@@ -30,7 +30,18 @@ let package = Package(
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
-        .package(url: "https://github.com/swift-libp2p/swift-libp2p.git", .upToNextMinor(from: "0.3.0")),
+        // jerimiah797/swift-libp2p (burrows-impl): tag 0.3.5 +
+        // defensive guards for post-shutdown property access
+        // (isShuttingDown flag + per-accessor early returns +
+        // TCPServer.listeningAddress race fix). Pinned by
+        // revision so SPM resolves deterministically — and so
+        // downstream Burrows can pin the same fork without a
+        // chain-of-identity conflict (two different repos
+        // claiming the `swift-libp2p` identity).
+        .package(
+            url: "https://github.com/jerimiah797/swift-libp2p.git",
+            revision: "02e64b133e1383e02ccb2d68acb04366747c16f8"
+        ),
 
         // Testing dependencies
         .package(url: "https://github.com/swift-libp2p/swift-libp2p-noise.git", .upToNextMinor(from: "0.2.0")),
