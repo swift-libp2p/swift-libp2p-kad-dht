@@ -1097,10 +1097,38 @@ public enum KadDHT {
         }
 
         public func storeNew(_ key: [UInt8], value: DHTRecord) -> EventLoopFuture<Bool> {
-            /// Perform key lookup and request the returned closest k peers to store the value
+            /// Perform key lookup and request the returned closest k peers to store the value.
+            ///
+            /// Local-first: store on our own kv before fanning the
+            /// value out to closest peers. Mirrors ``provide(cid:announce:)``,
+            /// which writes its provider record to the local
+            /// ``providerStore`` before announcing. Two consequences:
+            ///
+            /// 1. The publisher's own ``getUsingLookupList`` calls
+            ///    for this key succeed immediately, without a round
+            ///    trip.
+            /// 2. Remote peers performing iterative GET_VALUE on
+            ///    this key can resolve it against the publisher
+            ///    once the publisher is in their routing table —
+            ///    even if the publisher's own routing table was
+            ///    empty at storeNew time (e.g. bootstrap addition
+            ///    hadn't completed yet).
+            ///
+            /// `storeNew` therefore returns `true` whenever the
+            /// local write succeeds, even if no closest-peer
+            /// putValue accepts. Best-effort announce semantics —
+            /// the heartbeat's ``_shareDHTKVs`` will continue
+            /// pushing the value out to closer peers on its own
+            /// cadence.
             let targetID = KadDHT.Key(key)
             let value = value.toProtobuf()
-            return self._nearest(self.routingTable.bucketSize, peersToKey: targetID).flatMap {
+
+            return self.dht.updateValue(value, forKey: targetID).flatMap {
+                _ -> EventLoopFuture<Bool> in
+                self.logger.notice(
+                    "storeNew: stored locally key=\(KadDHT.keyToHumanReadableString(key))"
+                )
+                return self._nearest(self.routingTable.bucketSize, peersToKey: targetID).flatMap {
                 seeds -> EventLoopFuture<Bool> in
                 let lookup = KeyLookup(
                     host: self,
@@ -1157,14 +1185,18 @@ public enum KadDHT {
                                     }
                                 }
                         }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
-                            self.logger.warning(
-                                "\(results.filter({ $0 }).count)/\(results.count) peers were able to store the value \(value)"
+                            self.logger.notice(
+                                "storeNew: \(results.filter({ $0 }).count)/\(results.count) peers accepted the value (local copy stored regardless)"
                             )
-                            /// return true if any of the peers we're able to store the value
-                            self.logger.warning("\(self.eventLoop.description)")
-                            return self.eventLoop.makeSucceededFuture(results.contains { $0 == true })
+                            /// Local-first semantics: the value is
+                            /// already stored locally — return true.
+                            /// Remote acceptance is advisory; the
+                            /// heartbeat's ``_shareDHTKVs`` will
+                            /// continue propagating the value.
+                            return self.eventLoop.makeSucceededFuture(true)
                         }
                     }
+                }
                 }
             }
         }
