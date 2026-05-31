@@ -40,7 +40,7 @@ let package = Package(
         // claiming the `swift-libp2p` identity).
         .package(
             url: "https://github.com/jerimiah797/swift-libp2p.git",
-            revision: "afff31ddd525222e30550ca0e9988948e1684ed8"
+            revision: "c5e1533a6914fba74bae23b4735dc7890810b981"
         ),
 
         // Testing dependencies

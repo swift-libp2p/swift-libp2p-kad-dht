@@ -341,7 +341,23 @@ public enum KadDHT {
                 return self.eventLoop.makeFailedFuture(Errors.invalidCID)
             }
             let kid = KadDHT.Key(cid, keySpace: .xor)
-            let externalAddrs = self.network?.listenAddresses ?? []
+            // Publish externally-reachable addresses: the announce override
+            // unioned with listen addresses, with internal (LAN) and unspecified
+            // (`0.0.0.0`) addresses stripped — a provider record is served to
+            // peers on any network, so it must never carry a wildcard a remote
+            // peer would dial and fail. (Previously this published raw
+            // `listenAddresses`, which leaked `0.0.0.0`.)
+            //
+            // Fallback: if there is no externally-reachable address (a LAN-only
+            // node, or one without an announce address), publish the
+            // interface-local addresses instead so same-network discovery still
+            // works — `findProviders` consumers skip address-less records. A
+            // node that needs to be reachable off-LAN must set an announce
+            // address; until then it is only discoverable on its own LAN.
+            var externalAddrs = self.network?.advertisedAddresses(forRemote: false) ?? []
+            if externalAddrs.isEmpty {
+                externalAddrs = self.network?.advertisedAddresses(forRemote: true) ?? []
+            }
             let myPeerInfo = PeerInfo(peer: self.peerID, addresses: externalAddrs)
             guard let myProviderPeer = try? DHT.Message.Peer(myPeerInfo) else {
                 return self.eventLoop.makeFailedFuture(Errors.encodingError)
