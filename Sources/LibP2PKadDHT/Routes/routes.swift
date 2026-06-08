@@ -18,7 +18,23 @@ import LibP2P
 func registerDHTRoute(_ app: Application) throws {
     app.group("ipfs", "kad") { kad in
 
-        kad.on("1.0.0", handlers: []) { req -> EventLoopFuture<Response<ByteBuffer>> in
+        // Install a uvarint length-prefix frame decoder on the inbound
+        // side of the `/ipfs/kad/1.0.0` stream. Canonical libp2p frames
+        // every kad message as `uvarint(len) + protobuf`; `VarintFrameDecoder`
+        // buffers across partial reads and emits exactly one complete,
+        // length-prefix-stripped frame per message as `req.payload`.
+        //
+        // Without it the route fired per raw read and `Query.decode` assumed
+        // each read was exactly one whole frame — which only held when the
+        // peer flushed one message per yamux frame (swift↔swift). Peers that
+        // chunk their writes differently (e.g. rust-libp2p) tripped the
+        // length assertion, so we reset the stream and they saw an
+        // UnexpectedEof.
+        //
+        // Only the inbound decoder is installed; the outbound response keeps
+        // its own manual length prefix (`Response.encode`), so it is framed
+        // exactly once.
+        kad.on("1.0.0", handlers: [.varIntFrameDecoder]) { req -> EventLoopFuture<Response<ByteBuffer>> in
 
             req.application.dht.kadDHT.processRequest(req)
 
