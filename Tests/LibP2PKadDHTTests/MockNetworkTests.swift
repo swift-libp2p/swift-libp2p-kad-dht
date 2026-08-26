@@ -183,7 +183,7 @@ struct MockNetworkTests {
         let pid = try PeerID(.Ed25519)
         let recordKey = "/pk/".bytes + pid.id
 
-        /// Sanity check: this key is deliberately NOT a valid PeerID.
+        /// Ensure that this key is NOT a valid PeerID.
         #expect(throws: (any Error).self) { try PeerID(fromBytesID: recordKey) }
 
         let encoded = try KadDHT.Query.findNode(key: recordKey).encode()
