@@ -16,6 +16,10 @@ import LibP2P
 
 extension KadDHT {
 
+    /// The maximum provider key length we'll accept
+    /// - Note: We match go-libp2p-kad-dht's bound in `handleGetProviders` and `handleAddProvider`.
+    static let maxProviderKeyLength: Int = 80
+
     enum Query: CustomStringConvertible {
         /// In the request key must be set to the binary PeerId of the node to be found
         case findNode(id: PeerID)
