@@ -70,15 +70,15 @@ extension KadDHT {
     }
 
     public struct NodeOptions {
-        let connectionTimeout: TimeAmount
-        let maxConcurrentConnections: Int
-        let bucketSize: Int
-        let maxPeers: Int
-        let maxKeyValueStoreSize: Int
-        let maxProviderStoreSize: Int
-        let supportLocalNetwork: Bool
+        public let connectionTimeout: TimeAmount
+        public let maxConcurrentConnections: Int
+        public let bucketSize: Int
+        public let maxPeers: Int
+        public let maxKeyValueStoreSize: Int
+        public let maxProviderStoreSize: Int
+        public let supportLocalNetwork: Bool
 
-        init(
+        public init(
             connectionTimeout: TimeAmount = .seconds(4),
             maxConcurrentConnections: Int = 4,
             bucketSize: Int = 20,
@@ -96,7 +96,7 @@ extension KadDHT {
             self.supportLocalNetwork = supportLocalNetwork
         }
 
-        static var `default`: NodeOptions {
+        public static var `default`: NodeOptions {
             .init()
         }
     }
