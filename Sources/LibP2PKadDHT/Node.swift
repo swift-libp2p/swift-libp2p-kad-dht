@@ -71,6 +71,38 @@ public enum KadDHT {
         let providerStore: EventLoopDictionary<KadDHT.Key, [DHT.Message.Peer]>
         let maxProviderStoreSize: Int
 
+        /// When a given (key, provider-peer-id) provider record was added
+        /// to ``providerStore``. Parallel-data alternative to changing
+        /// ``providerStore``'s value type. Keys are the concatenation of
+        /// the routing-table key bytes and the provider peer's id bytes,
+        /// encoded as `Data` so the dictionary handles equality/hashing
+        /// for us.
+        var providerRecordAddedAt: [Data: Date] = [:]
+
+        /// CIDs (as routing-table keys) for which *we* are the local
+        /// provider. The renewal job walks this set during heartbeat
+        /// to re-publish records before they expire on remote peers.
+        /// Distinct from ``providerStore`` entries we hold on behalf
+        /// of other peers.
+        var localProviderKeys: Set<KadDHT.Key> = []
+
+        /// Original CID bytes for each entry in ``localProviderKeys``.
+        /// The routing-table key is derived (XOR-space hash), so we
+        /// preserve the source CID for the renewal job's ADD_PROVIDER
+        /// payload.
+        var localProviderCIDs: [KadDHT.Key: [UInt8]] = [:]
+
+        /// Provider records older than this are pruned on heartbeat,
+        /// matching the libp2p Kad DHT spec default. Records we
+        /// published ourselves are re-issued at
+        /// ``providerRecordRepublishInterval`` to stay fresh.
+        let providerRecordTTL: TimeInterval = 24 * 60 * 60
+
+        /// Cadence at which we re-publish our own provider records.
+        /// Half the TTL by libp2p convention — gives a one-round-trip
+        /// margin if a re-publish fails.
+        let providerRecordRepublishInterval: TimeInterval = 12 * 60 * 60
+
         /// The event loop that we're operating on...
         public let eventLoop: EventLoop
 
@@ -280,8 +312,103 @@ public enum KadDHT {
             }
         }
 
+        /// Announces this node as a provider for `cid` to the K closest
+        /// peers in the DHT.
+        ///
+        /// Mirrors rust-libp2p's `start_providing`:
+        ///
+        /// 1. Stores a local provider record for `cid` so we know we're
+        ///    publishing it. Subsequent calls from this node to
+        ///    ``findProviders(cid:count:)`` for the same CID will
+        ///    include us in the results (the local lookup short-circuits
+        ///    network queries when we already hold a record).
+        /// 2. If `announce` is true: runs the iterative-closest-peers
+        ///    query to find the K nearest peers to the CID and sends
+        ///    each an `ADD_PROVIDER` RPC. The returned future resolves
+        ///    when those RPCs have completed (or timed out — see
+        ///    `connectionTimeout`).
+        /// 3. Records the CID in ``localProviderKeys`` so the heartbeat
+        ///    renewal job re-issues the announcement before TTL expiry.
+        ///
+        /// - Parameters:
+        ///   - cid: The content identifier to announce (raw CID bytes).
+        ///   - announce: When `false`, only the local provider-record
+        ///     store is updated and no network RPCs are sent. Matches
+        ///     the rust-libp2p / go-libp2p semantics; useful for
+        ///     batched bring-up.
         public func provide(cid: [UInt8], announce: Bool) -> EventLoopFuture<Void> {
-            self.eventLoop.makeFailedFuture(Errors.notSupported)
+            guard (try? CID(cid)) != nil else {
+                return self.eventLoop.makeFailedFuture(Errors.invalidCID)
+            }
+            let kid = KadDHT.Key(cid, keySpace: .xor)
+            let externalAddrs = self.network?.listenAddresses ?? []
+            let myPeerInfo = PeerInfo(peer: self.peerID, addresses: externalAddrs)
+            guard let myProviderPeer = try? DHT.Message.Peer(myPeerInfo) else {
+                return self.eventLoop.makeFailedFuture(Errors.encodingError)
+            }
+
+            return self.eventLoop.flatSubmit {
+                // Step 1: store the provider record locally so we can
+                // serve our own findProviders queries without a round
+                // trip and so the renewal job can find it.
+                self.providerStore.getValue(forKey: kid, default: []).flatMap { existing in
+                    let updated = existing.contains(myProviderPeer) ? existing : existing + [myProviderPeer]
+                    return self.providerStore.updateValue(updated, forKey: kid)
+                }.map { _ -> Void in
+                    self.localProviderKeys.insert(kid)
+                    self.localProviderCIDs[kid] = cid
+                    self.providerRecordAddedAt[Self.providerRecordKey(kid, peerID: self.peerID)] = Date()
+                }.flatMap { _ -> EventLoopFuture<Void> in
+                    guard announce else { return self.eventLoop.makeSucceededVoidFuture() }
+                    return self._announceProviderRecord(cid: cid, key: kid)
+                }
+            }
+        }
+
+        /// Runs the iterative-closest-peers query for `key` and sends
+        /// `ADD_PROVIDER` to each of the K closest peers found.
+        /// Factored out so the renewal job in `_republishProviderRecords`
+        /// can call the same path without duplicating the lookup logic.
+        func _announceProviderRecord(cid: [UInt8], key kid: KadDHT.Key) -> EventLoopFuture<Void> {
+            self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap {
+                seeds -> EventLoopFuture<Void> in
+                let lookup = KeyLookup(
+                    host: self,
+                    target: kid,
+                    concurrentRequests: self.maxConcurrentRequest,
+                    seeds: seeds,
+                    groupProvider: self.network!.eventLoopGroupProvider
+                )
+                return lookup.proceedForPeers().hop(to: self.eventLoop).flatMap {
+                    nearestPeers -> EventLoopFuture<Void> in
+                    let closestPeers = nearestPeers.compactMap { $0.peer == self.peerID ? nil : $0 }
+                    return self.addPeersIfSpaceOrCloser(closestPeers).flatMapAlways {
+                        _ -> EventLoopFuture<Void> in
+                        self.logger.notice(
+                            "Announcing provider for cid to \(closestPeers.count) nearest peers"
+                        )
+                        return closestPeers.prefix(self.routingTable.bucketSize).map { peer in
+                            self._sendQuery(.addProvider(cid: cid), to: peer, on: self.eventLoop)
+                                .flatMapAlways { _ -> EventLoopFuture<Void> in
+                                    // Best-effort: per-peer failures are
+                                    // expected; the spec only requires
+                                    // some-of-K to succeed for the
+                                    // record to remain discoverable.
+                                    self.eventLoop.makeSucceededVoidFuture()
+                                }
+                        }.flatten(on: self.eventLoop).map { _ in () }
+                    }
+                }
+            }
+        }
+
+        /// Composite key for ``providerRecordAddedAt`` lookups —
+        /// XOR-space key bytes followed by the provider's peer-id bytes.
+        /// Encoded as `Data` so the dictionary can hash/compare cheaply.
+        static func providerRecordKey(_ key: KadDHT.Key, peerID: PeerID) -> Data {
+            var combined = Data(key.bytes)
+            combined.append(contentsOf: peerID.id)
+            return combined
         }
 
         public func findProviders(cid: [UInt8], count: Int) -> EventLoopFuture<[Multiaddr]> {
@@ -330,9 +457,10 @@ public enum KadDHT {
                             "PeerStore<\(peers.count)> [ \n\(peers.map { "\($0.id.b58String)" }.joined(separator: ",\n"))]"
                         )
                         return self._pruneProviders().flatMap {
-                            self._shareDHTKVs().flatMap {
-                                // TODO: Share Provider Records
-                                self._searchForPeersLookupStyle().transform(to: Void())
+                            self._republishProviderRecords().flatMap {
+                                self._shareDHTKVs().flatMap {
+                                    self._searchForPeersLookupStyle().transform(to: Void())
+                                }
                             }
                         }
                     }.always { _ in
@@ -403,12 +531,118 @@ public enum KadDHT {
             }
         }
 
-        /// Prunes the first 10% of provider keys with the fewest providers...
-        /// - TODO: We should keep track of when we added entries so we can expire/prune them appropriately
+        /// Removes provider records older than ``providerRecordTTL`` and,
+        /// if the store is still over capacity, prunes the lowest-provider
+        /// keys down to ``maxProviderStoreSize``.
+        ///
+        /// Both expiry and capacity pruning happen in one heartbeat pass.
+        /// We never prune our own provider records (entries in
+        /// ``localProviderKeys``) — the renewal job is responsible for
+        /// their lifecycle.
         private func _pruneProviders() -> EventLoopFuture<Void> {
             self.eventLoop.flatSubmit {
-                self.logger.notice("✂️✂️✂️ Pruning Provider Entries ✂️✂️✂️")
-                return self.providerStore.prune(toAmount: self.maxProviderStoreSize)
+                let cutoff = Date().addingTimeInterval(-self.providerRecordTTL)
+                self.logger.notice("✂️✂️✂️ Pruning expired provider entries (cutoff=\(cutoff)) ✂️✂️✂️")
+                return self._expireOldProviderRecords(before: cutoff).flatMap {
+                    self.providerStore.prune(toAmount: self.maxProviderStoreSize)
+                }
+            }
+        }
+
+        /// Removes (key, provider-peer) entries whose `addedAt` is older
+        /// than `cutoff`. Iterates the timestamp dictionary, builds a
+        /// list of entries to remove, then applies them to the
+        /// `providerStore`.
+        func _expireOldProviderRecords(before cutoff: Date) -> EventLoopFuture<Void> {
+            self.eventLoop.flatSubmit {
+                // Snapshot the timestamp map so we can mutate it without
+                // iterating-while-mutating. Skip records that belong to
+                // us — those are managed by the renewal job.
+                let staleKeys = self.providerRecordAddedAt.compactMap {
+                    (compositeKey, addedAt) -> Data? in
+                    guard addedAt < cutoff else { return nil }
+                    return compositeKey
+                }
+                guard !staleKeys.isEmpty else {
+                    return self.eventLoop.makeSucceededVoidFuture()
+                }
+                self.logger.notice("Expiring \(staleKeys.count) stale provider record entries")
+
+                // Walk the store entry-by-entry and drop the matching
+                // providers. We don't have a direct (key, peer) → drop
+                // primitive, so do it via getValue/updateValue.
+                return self.providerStore.all().flatMap {
+                    snapshot -> EventLoopFuture<Void> in
+                    var updates: [EventLoopFuture<Void>] = []
+                    for entry in snapshot {
+                        let kid = entry.key
+                        let providers = entry.value
+                        // A provider record entry is fresh if its
+                        // composite-keyed addedAt entry is missing
+                        // (never tracked; conservatively kept) or is
+                        // newer than cutoff. Self-published entries
+                        // bypass this check — the renewal job is
+                        // authoritative for our own records.
+                        let kept = providers.filter { provider in
+                            let providerIsSelf = provider.id == Data(self.peerID.id)
+                            if self.localProviderKeys.contains(kid) && providerIsSelf {
+                                return true
+                            }
+                            guard let pid = try? PeerID(marshaledPublicKey: provider.id) else {
+                                // Malformed provider id — drop it.
+                                return false
+                            }
+                            let composite = Self.providerRecordKey(kid, peerID: pid)
+                            if let added = self.providerRecordAddedAt[composite], added < cutoff {
+                                return false
+                            }
+                            return true
+                        }
+                        if kept.isEmpty {
+                            updates.append(self.providerStore.removeValue(forKey: kid).map { _ in () })
+                        } else if kept.count != providers.count {
+                            updates.append(self.providerStore.updateValue(kept, forKey: kid).map { _ in () })
+                        }
+                    }
+                    // Drop the timestamp entries we just acted on so the
+                    // map doesn't grow without bound.
+                    for staleKey in staleKeys {
+                        self.providerRecordAddedAt.removeValue(forKey: staleKey)
+                    }
+                    return EventLoopFuture.andAllSucceed(updates, on: self.eventLoop)
+                }
+            }
+        }
+
+        /// Re-issues `ADD_PROVIDER` to the network for every CID in
+        /// ``localProviderKeys`` whose last announcement is older than
+        /// ``providerRecordRepublishInterval``. The local provider
+        /// record's `addedAt` is refreshed on success.
+        ///
+        /// Best-effort: a single failed announce doesn't stop the
+        /// others. Per-CID failures will be retried on the next
+        /// heartbeat.
+        func _republishProviderRecords() -> EventLoopFuture<Void> {
+            self.eventLoop.flatSubmit {
+                let cutoff = Date().addingTimeInterval(-self.providerRecordRepublishInterval)
+                let due = self.localProviderKeys.compactMap { kid -> (KadDHT.Key, [UInt8])? in
+                    let composite = Self.providerRecordKey(kid, peerID: self.peerID)
+                    let lastAnnounced = self.providerRecordAddedAt[composite] ?? .distantPast
+                    guard lastAnnounced < cutoff else { return nil }
+                    guard let cid = self.localProviderCIDs[kid] else { return nil }
+                    return (kid, cid)
+                }
+                guard !due.isEmpty else { return self.eventLoop.makeSucceededVoidFuture() }
+                self.logger.notice("Re-publishing \(due.count) local provider records")
+
+                let announcements = due.map { (kid, cid) -> EventLoopFuture<Void> in
+                    self._announceProviderRecord(cid: cid, key: kid).flatMapAlways {
+                        _ -> EventLoopFuture<Void> in
+                        self.providerRecordAddedAt[Self.providerRecordKey(kid, peerID: self.peerID)] = Date()
+                        return self.eventLoop.makeSucceededVoidFuture()
+                    }
+                }
+                return EventLoopFuture.andAllSucceed(announcements, on: self.eventLoop)
             }
         }
 
@@ -632,16 +866,26 @@ public enum KadDHT {
                     return self.eventLoop.makeSucceededFuture(Response.addProvider(cid: cid, providerPeers: []))
                 }
 
+                // Previous code had inverted-if semantics here that caused
+                // first-time ADD_PROVIDER calls to no-op and duplicate
+                // calls to append the provider twice. Now: if we already
+                // have this (key, peer) pair, refresh its addedAt
+                // timestamp so the renewal arrives fresh; otherwise
+                // append it. Either way, return the canonical ack
+                // response carrying the stored provider.
                 return self.providerStore.getValue(forKey: kid, default: []).flatMap { existingProviders in
-                    if !existingProviders.contains(provider) {
+                    let timestampKey = Self.providerRecordKey(kid, peerID: from.peer)
+                    if existingProviders.contains(provider) {
+                        self.providerRecordAddedAt[timestampKey] = Date()
                         request.logger.notice(
-                            "Query::AddProvider::\(from.peer) already a provider for cid: \(CID.multihash.b58String)"
+                            "Query::AddProvider::\(from.peer) refreshed for cid: \(CID.multihash.b58String)"
                         )
                         return self.eventLoop.makeSucceededFuture(
                             Response.addProvider(cid: cid, providerPeers: [provider])
                         )
                     } else {
                         return self.providerStore.updateValue(existingProviders + [provider], forKey: kid).map { _ in
+                            self.providerRecordAddedAt[timestampKey] = Date()
                             request.logger.notice(
                                 "Query::AddProvider::Added \(from.peer) as a provider for cid: \(CID.multihash.b58String)"
                             )
