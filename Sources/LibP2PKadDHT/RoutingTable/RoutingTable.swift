@@ -862,7 +862,7 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         /// Sort the peers by their distance to our local key and return the requested number of closest peers
         return [DHTPeerInfo](
             peersToSort.sorted(by: { lhs, rhs in
-                peer.compareDistancesFromSelf(to: lhs.dhtID, and: rhs.dhtID).rawValue >= 0
+                peer.compareDistancesFromSelf(to: lhs.dhtID, and: rhs.dhtID) == .firstKey
             }).prefix(count)
         )
     }
