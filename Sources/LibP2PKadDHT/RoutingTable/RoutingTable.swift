@@ -126,7 +126,7 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
     func stop() throws {
         guard self._state == .started else { return }
         self._state = .stopped
-        try self.eventLoop.close()
+        /// - Note: We deliberately don't close our `eventLoop` here. It's shared with the `KadDHT.Node`.
     }
 
     func numberOfPeers(withCommonPrefixLength cpl: Int) -> EventLoopFuture<Int> {
