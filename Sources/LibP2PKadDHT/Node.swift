@@ -508,23 +508,29 @@ public enum KadDHT {
             case .ping:
                 return self.eventLoop.makeSucceededFuture(Response.ping)
 
-            case .findNode(let target):
+            case .findNode(let key):
                 /// If they're looking for us, tell them about us.
                 ///
                 /// - Note: go's `handleFindPeer` answers `[self]` in this case. Returning our *neighbours*
                 ///   instead (which is what we used to do, since `_nearest` filters us out) means a peer
                 ///   asking us directly for our own address never learns it.
-                if target == self.peerID.id {
+                if key == self.peerID.id {
                     return self.eventLoop.submit {
-                        guard let us = try? DHT.Message.Peer(PeerInfo(peer: self.peerID, addresses: self.ourAddresses()))
+                        guard
+                            let us = try? DHT.Message.Peer(PeerInfo(peer: self.peerID, addresses: self.ourAddresses()))
                         else { return Response.findNode(closerPeers: []) }
                         return Response.findNode(closerPeers: [us])
                     }
                 } else {
-                    /// Otherwise return the k closest peers we know of to the target
+                    /// Otherwise return the k closest peers we know of to `key` in XOR space.
+                    ///
+                    /// - Note: `key` is an arbitrary Kademlia key (canonical FIND_NODE), so we hash the raw
+                    ///   bytes into key space via `KadDHT.Key(_:)` rather than requiring a PeerID. When the
+                    ///   key is a PeerId's bytes this is identical to the old `KadDHT.Key(peerID)` path, so
+                    ///   swift↔swift lookups are unchanged.
                     return self.nearest(
                         self.routingTable.bucketSize,
-                        toKey: KadDHT.Key(target, keySpace: .xor),
+                        toKey: KadDHT.Key(key, keySpace: .xor),
                         excluding: from.peer
                     )
                 }
@@ -624,7 +630,8 @@ public enum KadDHT {
                     !matchingInfo.addresses.isEmpty
                 {
                     /// Union the addresses they advertised with the one we observed.
-                    let addresses = matchingInfo.addresses + from.addresses.filter { !matchingInfo.addresses.contains($0) }
+                    let addresses =
+                        matchingInfo.addresses + from.addresses.filter { !matchingInfo.addresses.contains($0) }
                     provider = try? DHT.Message.Peer(PeerInfo(peer: from.peer, addresses: addresses))
                 } else {
                     if !advertised.isEmpty {

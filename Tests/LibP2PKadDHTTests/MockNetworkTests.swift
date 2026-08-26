@@ -31,7 +31,7 @@ struct MockNetworkTests {
 
         /// Send it over the wire...
 
-        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
+        let decodedQuery = try decodeQueryFrame(encodedQuery)
         print("Recovered Query: \(decodedQuery)")
 
         guard case .ping = decodedQuery else {
@@ -63,7 +63,7 @@ struct MockNetworkTests {
 
         /// Send it over the wire...
 
-        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
+        let decodedQuery = try decodeQueryFrame(encodedQuery)
         print("Recovered Query: \(decodedQuery)")
 
         guard case .putValue(let qKey, let qRecord) = decodedQuery else {
@@ -100,7 +100,7 @@ struct MockNetworkTests {
 
         /// Send it over the wire...
 
-        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
+        let decodedQuery = try decodeQueryFrame(encodedQuery)
         print("Recovered Query: \(decodedQuery)")
 
         guard case .putValue(let key, let value) = decodedQuery else {
@@ -140,22 +140,21 @@ struct MockNetworkTests {
         }
 
         /// Test Query.findNode and Response.nodeSearch
-        let target = testAddresses.first!.peer
-        let query = KadDHT.Query.findNode(key: target.id)
+        let targetPeer = testAddresses.first!.peer
+        let query = KadDHT.Query.findNode(key: targetPeer.id)
         let encodedQuery = try query.encode()
 
-        /// Send it over the wire...
-        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
+        /// Send it over the wire... (`decodeQueryFrame` unframes first, mirroring the receive path)
+        let decodedQuery = try decodeQueryFrame(encodedQuery)
         print("Recovered Query: \(decodedQuery)")
 
-        guard case .findNode(let recoveredKey) = decodedQuery else {
+        guard case .findNode(let key) = decodedQuery else {
             Issue.record("Query is not a findNode")
             return
         }
+        #expect(key == targetPeer.id)
 
-        #expect(recoveredKey == target.id)
-
-        let closer = try testAddresses.filter({ $0.peer != target }).map { try DHT.Message.Peer($0) }
+        let closer = try testAddresses.filter({ $0.peer != targetPeer }).map { try DHT.Message.Peer($0) }
         let response = KadDHT.Response.findNode(closerPeers: closer)
         let encodedResponse = try response.encode()
 
@@ -170,8 +169,10 @@ struct MockNetworkTests {
         print(closerPeers)
 
         #expect(closerPeers.count == testAddresses.count - 1)
+        // Broken out of the `#expect` macro: the inline `try ... contains(where:) == false` form tripped a
+        // Swift type-checker timeout in this toolchain.
         let recoveredPeers = try closerPeers.map { try $0.toPeerInfo().peer }
-        #expect(recoveredPeers.contains(target) == false)
+        #expect(recoveredPeers.contains(targetPeer) == false)
     }
 
     /// A FIND_NODE whose key is a *record* key rather than a PeerID must still round-trip.
@@ -186,7 +187,7 @@ struct MockNetworkTests {
         #expect(throws: (any Error).self) { try PeerID(fromBytesID: recordKey) }
 
         let encoded = try KadDHT.Query.findNode(key: recordKey).encode()
-        let decoded = try KadDHT.Query.decode(encoded)
+        let decoded = try decodeQueryFrame(encoded)
 
         guard case .findNode(let recovered) = decoded else {
             Issue.record("Query is not a findNode")
@@ -208,7 +209,7 @@ struct MockNetworkTests {
 
         /// Send it over the wire...
 
-        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
+        let decodedQuery = try decodeQueryFrame(encodedQuery)
         print("Recovered Query: \(decodedQuery)")
 
         guard case .getValue(let key) = decodedQuery else {
@@ -256,7 +257,7 @@ struct MockNetworkTests {
 
         /// Send it over the wire...
 
-        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
+        let decodedQuery = try decodeQueryFrame(encodedQuery)
         print("Recovered Query: \(decodedQuery)")
 
         guard case .getValue(let key) = decodedQuery else {
@@ -340,7 +341,7 @@ struct MockNetworkTests {
         #expect(throws: Never.self) { try CID(sha256Multihash) }
 
         for key in [sha256Multihash, blake3Multihash] {
-            let decoded = try KadDHT.Query.decode(try KadDHT.Query.getProviders(key: key).encode())
+            let decoded = try decodeQueryFrame(try KadDHT.Query.getProviders(key: key).encode())
             guard case .getProviders(let recovered) = decoded else {
                 Issue.record("Query is not a getProviders for key \(key.toHexString())")
                 return
@@ -386,7 +387,7 @@ struct MockNetworkTests {
         let key = try Multihash(raw: "provider test", hashedWith: .sha2_256).value
         let me = try generateRandomPeerInfo()
 
-        let decoded = try KadDHT.Query.decode(
+        let decoded = try decodeQueryFrame(
             try KadDHT.Query.addProvider(key: key, providerPeers: [try DHT.Message.Peer(me)]).encode()
         )
 

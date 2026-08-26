@@ -23,27 +23,28 @@ extension KadDHT {
     enum Query: CustomStringConvertible {
         /// In the request `key` is the raw target of the lookup.
         ///
-        /// - Note: This is usually the binary PeerId of the node being looked for, but Kademlia treats it
-        ///   as opaque bytes: `PUT_VALUE`/`GET_VALUE` lookups walk towards a *record* key (e.g.
-        ///   `/pk/<multihash>`), which is not a valid PeerID.
+        /// - Note: This is usually the binary PeerId of the node being looked for, but canonical FIND_NODE
+        ///   returns the closest peers to *any* key, and Kademlia treats it as opaque bytes.
+        ///   `PUT_VALUE`/`GET_VALUE` lookups walk towards a *record* key (e.g. `/pk/<multihash>`), and
+        ///   rust-libp2p's bootstrap probes raw 32-byte keys. Neither is a valid PeerID.
         case findNode(key: [UInt8])
-        
+
         /// In the request, `key` is an unstructured array of bytes.
         case getValue(key: [UInt8])
-        
+
         /// In the request, `record` is set to the record to be stored.
         /// In the response, `key` is set to equal the key of the Record.
         case putValue(key: [UInt8], record: DHT.Record)
-        
+
         /// In the request, `key` is the multihash of the content being looked for.
         ///
         /// - Note: Provider keys are multihashes, not CIDs.
         case getProviders(key: [UInt8])
-        
+
         /// In the request, `key` is the multihash of the content being provided, and `providerPeers` carries
         /// the provider's own `PeerInfo` (the entries whose ID matches the sender are the ones recorded).
         case addProvider(key: [UInt8], providerPeers: [DHT.Message.Peer])
-        
+
         /// Deprecated message type replaced by the dedicated ping protocol. Implementations may still handle incoming PING requests for backwards compatibility. Implementations must not actively send PING requests.
         case ping  // Deprecated
 
@@ -59,7 +60,8 @@ extension KadDHT {
 
             case let .findNode(key):
                 req.type = .findNode
-                /// In the request, key is the raw lookup target (a binary PeerId, or a record key)
+                /// In the request, key is the Kademlia key whose closest peers we want (often, but not
+                /// necessarily, a PeerId).
                 guard !key.isEmpty else { throw Errors.encodingError }
                 req.key = Data(key)
 
@@ -99,23 +101,24 @@ extension KadDHT {
         }
 
         /// This is someone sending our node a query, the remote peer is the initiator, we're just reacting...
+        ///
+        /// `bytes` is one complete protobuf message whose uvarint length
+        /// prefix has already been stripped by the route's
+        /// `VarintFrameDecoder` (see `registerDHTRoute`). We deliberately do
+        /// NOT re-read a length prefix here: the old
+        /// `prefix.value == bytes.count - bytesRead` assertion assumed the
+        /// whole frame arrived in a single read, which breaks against peers
+        /// that segment their writes differently (e.g. rust-libp2p).
         static func decode(_ bytes: [UInt8]) throws -> Query {
-            let prefix = uVarInt(bytes)
-            guard prefix.value > 0, prefix.value == (bytes.count - prefix.bytesRead) else {
-                throw Errors.DecodingErrorInvalidLength
-            }
-            let payload: [UInt8] = [UInt8](bytes.dropFirst(prefix.bytesRead))
-
-            guard let dht = try? DHT.Message(serializedBytes: payload) else { throw Errors.DecodingErrorInvalidType }
+            guard let dht = try? DHT.Message(serializedBytes: bytes) else { throw Errors.DecodingErrorInvalidType }
 
             switch dht.type {
             case .findNode:
                 /// .findNode
-                /// In the request, key is the raw lookup target.
-                ///
-                /// - Note: We deliberately do NOT require the key to parse as a `PeerID`. Peers walking
-                ///   towards a record key (e.g. `/pk/<multihash>`) send those bytes here, and rejecting
-                ///   them would break `PUT_VALUE`/`GET_VALUE` interop with go-libp2p.
+                /// In the request, key is an arbitrary Kademlia key. We do
+                /// NOT require it to be a multihash-shaped PeerId: canonical
+                /// FIND_NODE finds the closest peers to any key, and peers
+                /// like rust-libp2p send raw 32-byte keys during bootstrap.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
                 return Query.findNode(key: [UInt8](dht.key))
 
@@ -161,7 +164,7 @@ extension KadDHT {
         var description: String {
             switch self {
             case .findNode(let key):
-                return "Query::FindNode(target: \(KadDHT.keyToHumanReadableString(key)))"
+                return "Query::FindNode(key: \(KadDHT.keyToHumanReadableString(key)))"
             case .getValue(let key):
                 return "Query::GetValue(key: \(KadDHT.keyToHumanReadableString(key)))"
             case .putValue(let key, let record):

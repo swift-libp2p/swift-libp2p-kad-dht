@@ -322,7 +322,8 @@ final class KeyLookup: @unchecked Sendable {
                 /// - Note: This used to require `PeerID(fromBytesID: self.target.original)` first. For a
                 ///   `KeyLookup` the target is a *record* key (e.g. `/pk/<multihash>`), which never parses
                 ///   as a PeerID, so that guard dropped every seed peer and every key lookup returned an
-                ///   empty list — meaning `storeNew` could never find anyone to store to.
+                ///   empty list — meaning `storeNew` could never find anyone to store to. Now that
+                ///   FIND_NODE carries an arbitrary Kademlia key, no conversion is needed.
                 self.host._sendQuery(.findNode(key: self.target.original), to: next, on: on).flatMapAlways {
                     result in
                     switch result {
