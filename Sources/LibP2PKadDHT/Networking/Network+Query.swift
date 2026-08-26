@@ -17,8 +17,10 @@ import LibP2P
 extension KadDHT {
 
     enum Query: CustomStringConvertible {
-        /// In the request key must be set to the binary PeerId of the node to be found
-        case findNode(id: PeerID)
+        /// In the request key is an arbitrary Kademlia key — canonical
+        /// FIND_NODE returns the closest peers to *any* key, not only to a
+        /// PeerID (e.g. rust-libp2p's bootstrap probes random keys).
+        case findNode(key: [UInt8])
         /// In the request key is an unstructured array of bytes.
         case getValue(key: [UInt8])
         /// In the request record is set to the record to be stored and key on Message is set to equal key of the Record.
@@ -40,10 +42,11 @@ extension KadDHT {
                 req.type = .ping
                 req.key = Data(DispatchTime.now().uptimeNanoseconds.toBytes)
 
-            case let .findNode(pid):
+            case let .findNode(key):
                 req.type = .findNode
-                ///  In the request, key must be set to the binary PeerId of the node to be found
-                req.key = Data(pid.id)
+                /// In the request, key is the Kademlia key whose closest
+                /// peers we want (often, but not necessarily, a PeerId).
+                req.key = Data(key)
 
             case let .getValue(key):
                 req.type = .getValue
@@ -77,24 +80,26 @@ extension KadDHT {
         }
 
         /// This is someone sending our node a query, the remote peer is the initiator, we're just reacting...
+        ///
+        /// `bytes` is one complete protobuf message whose uvarint length
+        /// prefix has already been stripped by the route's
+        /// `VarintFrameDecoder` (see `registerDHTRoute`). We deliberately do
+        /// NOT re-read a length prefix here: the old
+        /// `prefix.value == bytes.count - bytesRead` assertion assumed the
+        /// whole frame arrived in a single read, which breaks against peers
+        /// that segment their writes differently (e.g. rust-libp2p).
         static func decode(_ bytes: [UInt8]) throws -> Query {
-            let prefix = uVarInt(bytes)
-            guard prefix.value > 0, prefix.value == (bytes.count - prefix.bytesRead) else {
-                throw Errors.DecodingErrorInvalidLength
-            }
-            let payload: [UInt8] = [UInt8](bytes.dropFirst(prefix.bytesRead))
-
-            guard let dht = try? DHT.Message(serializedBytes: payload) else { throw Errors.DecodingErrorInvalidType }
+            guard let dht = try? DHT.Message(serializedBytes: bytes) else { throw Errors.DecodingErrorInvalidType }
 
             switch dht.type {
             case .findNode:
                 /// .findNode
-                /// In the request, key must be set to the binary PeerId of the node to be found
+                /// In the request, key is an arbitrary Kademlia key. We do
+                /// NOT require it to be a multihash-shaped PeerId: canonical
+                /// FIND_NODE finds the closest peers to any key, and peers
+                /// like rust-libp2p send raw 32-byte keys during bootstrap.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
-                guard let cid = try? PeerID(fromBytesID: [UInt8](dht.key)) else {
-                    throw Errors.DecodingErrorInvalidType
-                }
-                return Query.findNode(id: cid)
+                return Query.findNode(key: [UInt8](dht.key))
 
             case .getValue:
                 /// .findValue
@@ -133,8 +138,8 @@ extension KadDHT {
 
         var description: String {
             switch self {
-            case .findNode(let peerID):
-                return "Query::FindNode(peerID: \(peerID.b58String))"
+            case .findNode(let key):
+                return "Query::FindNode(key: \(KadDHT.keyToHumanReadableString(key)))"
             case .getValue(let key):
                 return "Query::GetValue(key: \(KadDHT.keyToHumanReadableString(key)))"
             case .putValue(let key, let record):

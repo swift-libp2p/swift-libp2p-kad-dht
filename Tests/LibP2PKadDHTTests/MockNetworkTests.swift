@@ -138,20 +138,25 @@ struct MockNetworkTests {
         }
 
         /// Test Query.findNode and Response.nodeSearch
-        let query = KadDHT.Query.findNode(id: testAddresses.first!.peer)
+        let targetPeer = testAddresses.first!.peer
+        let query = KadDHT.Query.findNode(key: targetPeer.id)
         let encodedQuery = try query.encode()
 
-        /// Send it over the wire...
-        let decodedQuery = try KadDHT.Query.decode(encodedQuery)
+        /// On the wire a query is `uvarint(len) + protobuf`. The route's
+        /// `VarintFrameDecoder` strips the length prefix before `Query.decode`
+        /// sees it, so drop the prefix here to mirror the receive path.
+        let queryFrame = Array(encodedQuery.dropFirst(uVarInt(encodedQuery).bytesRead))
+        let decodedQuery = try KadDHT.Query.decode(queryFrame)
         print("Recovered Query: \(decodedQuery)")
 
-        guard case .findNode(let peer) = decodedQuery else {
+        guard case .findNode(let key) = decodedQuery else {
             Issue.record("Query is not a findNode")
             return
         }
+        #expect(key == targetPeer.id)
 
         let response = try KadDHT.Response.findNode(
-            closerPeers: testAddresses.filter({ $0.peer != peer }).map { try DHT.Message.Peer($0) }
+            closerPeers: testAddresses.filter({ $0.peer.id != key }).map { try DHT.Message.Peer($0) }
         )
         let encodedResponse = try response.encode()
 
@@ -166,7 +171,11 @@ struct MockNetworkTests {
         print(closerPeers)
 
         #expect(closerPeers.count == testAddresses.count - 1)
-        #expect(try closerPeers.contains(where: { try $0.toPeerInfo().peer == peer }) == false)
+        // Broken out of the `#expect` macro: the inline
+        // `try ... contains(where:) == false` form tripped a Swift
+        // type-checker timeout in this toolchain.
+        let containsTargetPeer = try closerPeers.contains(where: { try $0.toPeerInfo().peer.id == key })
+        #expect(containsTargetPeer == false)
     }
 
     @Test func testDHTFauxNetworkQuery_GetValue_NoValue() throws {
