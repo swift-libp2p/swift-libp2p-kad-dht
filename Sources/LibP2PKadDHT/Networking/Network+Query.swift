@@ -21,16 +21,29 @@ extension KadDHT {
     static let maxProviderKeyLength: Int = 80
 
     enum Query: CustomStringConvertible {
-        /// In the request key must be set to the binary PeerId of the node to be found
-        case findNode(id: PeerID)
-        /// In the request key is an unstructured array of bytes.
+        /// In the request `key` is the raw target of the lookup.
+        ///
+        /// - Note: This is usually the binary PeerId of the node being looked for, but Kademlia treats it
+        ///   as opaque bytes: `PUT_VALUE`/`GET_VALUE` lookups walk towards a *record* key (e.g.
+        ///   `/pk/<multihash>`), which is not a valid PeerID.
+        case findNode(key: [UInt8])
+        
+        /// In the request, `key` is an unstructured array of bytes.
         case getValue(key: [UInt8])
-        /// In the request record is set to the record to be stored and key on Message is set to equal key of the Record.
+        
+        /// In the request, `record` is set to the record to be stored.
+        /// In the response, `key` is set to equal the key of the Record.
         case putValue(key: [UInt8], record: DHT.Record)
-        /// In the request key is set to a CID.
-        case getProviders(cid: [UInt8])
-        /// In the request key is set to a CID.
-        case addProvider(cid: [UInt8])
+        
+        /// In the request, `key` is the multihash of the content being looked for.
+        ///
+        /// - Note: Provider keys are multihashes, not CIDs.
+        case getProviders(key: [UInt8])
+        
+        /// In the request, `key` is the multihash of the content being provided, and `providerPeers` carries
+        /// the provider's own `PeerInfo` (the entries whose ID matches the sender are the ones recorded).
+        case addProvider(key: [UInt8], providerPeers: [DHT.Message.Peer])
+        
         /// Deprecated message type replaced by the dedicated ping protocol. Implementations may still handle incoming PING requests for backwards compatibility. Implementations must not actively send PING requests.
         case ping  // Deprecated
 
@@ -44,10 +57,11 @@ extension KadDHT {
                 req.type = .ping
                 req.key = Data(DispatchTime.now().uptimeNanoseconds.toBytes)
 
-            case let .findNode(pid):
+            case let .findNode(key):
                 req.type = .findNode
-                ///  In the request, key must be set to the binary PeerId of the node to be found
-                req.key = Data(pid.id)
+                /// In the request, key is the raw lookup target (a binary PeerId, or a record key)
+                guard !key.isEmpty else { throw Errors.encodingError }
+                req.key = Data(key)
 
             case let .getValue(key):
                 req.type = .getValue
@@ -68,11 +82,15 @@ extension KadDHT {
 
             case let .getProviders(key):
                 req.type = .getProviders
+                guard (1...KadDHT.maxProviderKeyLength).contains(key.count) else { throw Errors.encodingError }
                 req.key = Data(key)
 
-            case let .addProvider(key):
+            case let .addProvider(key, providerPeers):
                 req.type = .addProvider
+                guard (1...KadDHT.maxProviderKeyLength).contains(key.count) else { throw Errors.encodingError }
                 req.key = Data(key)
+                /// The provider advertises itself (and its dialable addresses) in `providerPeers`.
+                req.providerPeers = providerPeers
             }
 
             let payload = try [UInt8](req.serializedData())
@@ -93,12 +111,13 @@ extension KadDHT {
             switch dht.type {
             case .findNode:
                 /// .findNode
-                /// In the request, key must be set to the binary PeerId of the node to be found
+                /// In the request, key is the raw lookup target.
+                ///
+                /// - Note: We deliberately do NOT require the key to parse as a `PeerID`. Peers walking
+                ///   towards a record key (e.g. `/pk/<multihash>`) send those bytes here, and rejecting
+                ///   them would break `PUT_VALUE`/`GET_VALUE` interop with go-libp2p.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
-                guard let cid = try? PeerID(fromBytesID: [UInt8](dht.key)) else {
-                    throw Errors.DecodingErrorInvalidType
-                }
-                return Query.findNode(id: cid)
+                return Query.findNode(key: [UInt8](dht.key))
 
             case .getValue:
                 /// .findValue
@@ -117,14 +136,18 @@ extension KadDHT {
                 return Query.putValue(key: [UInt8](dht.key), record: rec)
 
             case .getProviders:
-                /// In the request, key is set to a CID.
-                guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
-                return Query.getProviders(cid: [UInt8](dht.key))
+                /// In the request, key is the multihash of the content being looked for.
+                guard dht.hasKey, (1...KadDHT.maxProviderKeyLength).contains(dht.key.count) else {
+                    throw Errors.DecodingErrorInvalidType
+                }
+                return Query.getProviders(key: [UInt8](dht.key))
 
             case .addProvider:
-                /// In the request, key is set to a CID.
-                guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
-                return Query.addProvider(cid: [UInt8](dht.key))
+                /// In the request, key is the multihash of the content being provided.
+                guard dht.hasKey, (1...KadDHT.maxProviderKeyLength).contains(dht.key.count) else {
+                    throw Errors.DecodingErrorInvalidType
+                }
+                return Query.addProvider(key: [UInt8](dht.key), providerPeers: dht.providerPeers)
 
             case .ping:
                 /// .ping (deprecated)
@@ -137,16 +160,17 @@ extension KadDHT {
 
         var description: String {
             switch self {
-            case .findNode(let peerID):
-                return "Query::FindNode(peerID: \(peerID.b58String))"
+            case .findNode(let key):
+                return "Query::FindNode(target: \(KadDHT.keyToHumanReadableString(key)))"
             case .getValue(let key):
                 return "Query::GetValue(key: \(KadDHT.keyToHumanReadableString(key)))"
             case .putValue(let key, let record):
                 return "Query::PutValue(key: \(KadDHT.keyToHumanReadableString(key)), record: \(record))"
-            case .getProviders(let cid):
-                return "Query::GetProviders(cid: \(KadDHT.keyToHumanReadableString(cid)))"
-            case .addProvider(let cid):
-                return "Query::AddProviders(cid: \(KadDHT.keyToHumanReadableString(cid)))"
+            case .getProviders(let key):
+                return "Query::GetProviders(key: \(KadDHT.keyToHumanReadableString(key)))"
+            case .addProvider(let key, let providerPeers):
+                return
+                    "Query::AddProviders(key: \(KadDHT.keyToHumanReadableString(key)), providers: \(providerPeers.count))"
             case .ping:
                 return "Query::PING"
             }
