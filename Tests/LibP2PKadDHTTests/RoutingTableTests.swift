@@ -1023,4 +1023,125 @@ struct RoutingTableTests {
         #expect(peersSet.contains(where: { $0.id == peer1.id }) == false)
     }
 
+    /// `Bucket.maxCommonPrefixLength` used to pass a `>` closure to `max(by:)`, which expects
+    /// `areInIncreasingOrder` — so it returned the *minimum* CPL. It also force-unwrapped, trapping on an
+    /// empty bucket.
+    @Test func testBucketMaxCommonPrefixLength() throws {
+        let local = RandomDHTKey()
+
+        /// An empty bucket must not trap
+        let empty: Bucket = []
+        #expect(empty.maxCommonPrefixLength(target: local.bytes) == 0)
+
+        /// Peers with a known spread of CPLs — the answer is the largest, not the smallest.
+        let cpls = [0, 1, 4, 9, 2]
+        let bucket: Bucket = cpls.map { RandomDHTPeer(withCPL: $0, wrt: local) }
+
+        #expect(bucket.maxCommonPrefixLength(target: local.bytes) == cpls.max()!)
+
+        /// A single-peer bucket reports that peer's CPL
+        let single: Bucket = [RandomDHTPeer(withCPL: 6, wrt: local)]
+        #expect(single.maxCommonPrefixLength(target: local.bytes) == 6)
+    }
+
+    /// `_nearest` sorted with `.rawValue >= 0`, which returns `true` for equal elements and so isn't a
+    /// strict weak ordering. Verify we now get a correctly ordered k-set out of a table holding well over
+    /// `k` peers.
+    @Test func testNearestReturnsCorrectlyOrderedKSet() throws {
+        let local = RandomDHTPeer()
+        let bucketSize = 20
+
+        let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { try! elg.syncShutdownGracefully() }
+
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: bucketSize,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
+
+        /// Fill the table with more than 2k peers so the bucket scan has to reach across buckets
+        var added: [PeerID] = []
+        for _ in 0..<(bucketSize * 3) {
+            let peer = RandomPeerID()
+            if try routingTable.addPeer(peer, isQueryPeer: true, replacementStrategy: .anyReplaceable).wait() {
+                added.append(peer)
+            }
+        }
+        #expect(added.count > bucketSize)
+
+        let target = RandomDHTKey()
+        let nearest = try routingTable.nearest(bucketSize, peersToKey: target).wait()
+
+        #expect(nearest.count == bucketSize)
+
+        /// No duplicates
+        #expect(Set(nearest.map { $0.id.b58String }).count == nearest.count)
+
+        /// Strictly increasing distance from the target
+        for (lhs, rhs) in zip(nearest, nearest.dropFirst()) {
+            #expect(target.compareDistancesFromSelf(to: lhs.dhtID, and: rhs.dhtID) == .firstKey)
+        }
+    }
+
+    /// A peer that's already in the table gets its `lastUsefulAt` bumped on first query. This used to bind
+    /// `if var peer = bucket.getPeer(...)`, mutating a throw-away copy of the struct.
+    @Test func testAddPeerBumpsLastUsefulAtInPlace() throws {
+        let local = RandomDHTPeer()
+
+        let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { try! elg.syncShutdownGracefully() }
+
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 20,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
+
+        let peer = RandomPeerID()
+
+        /// Add it as a non-query peer, so `lastUsefulAt` starts out nil
+        #expect(try routingTable.addPeer(peer, isQueryPeer: false).wait())
+        #expect(try routingTable.find(id: peer).wait()?.lastUsefulAt == nil)
+
+        /// Re-adding as a query peer returns false (already present) but must persist the usefulness bump
+        #expect(try routingTable.addPeer(peer, isQueryPeer: true).wait() == false)
+        #expect(try routingTable.find(id: peer).wait()?.lastUsefulAt != nil)
+    }
+
+    /// `markPeerIrreplaceable` called `_markPeerReplaceable`, doing the opposite of what it says.
+    @Test func testMarkPeerIrreplaceable() throws {
+        let local = RandomDHTPeer()
+
+        let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { try! elg.syncShutdownGracefully() }
+
+        let routingTable = RoutingTable(
+            eventloop: elg.next(),
+            bucketSize: 20,
+            localPeerID: local.id,
+            latency: .hours(1),
+            peerstoreMetrics: [:],
+            usefulnessGracePeriod: .hours(1)
+        )
+
+        let peer = RandomPeerID()
+        #expect(try routingTable.addPeer(peer, isQueryPeer: true, isReplaceable: true).wait())
+        #expect(try routingTable.find(id: peer).wait()?.replaceable == true)
+
+        let dhtPeer = try routingTable.find(id: peer).wait()!
+        #expect(try routingTable.markPeerIrreplaceable(dhtPeer).wait())
+        #expect(try routingTable.find(id: peer).wait()?.replaceable == false)
+
+        /// And the inverse still works
+        #expect(try routingTable.markPeerReplaceable(dhtPeer).wait())
+        #expect(try routingTable.find(id: peer).wait()?.replaceable == true)
+    }
+
 }
