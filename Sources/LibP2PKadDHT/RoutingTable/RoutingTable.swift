@@ -669,7 +669,7 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
     }
 
     public func markPeerIrreplaceable(_ peer: DHTPeerInfo) -> EventLoopFuture<Bool> {
-        self.eventLoop.submit { self._markPeerReplaceable(peer) }
+        self.eventLoop.submit { self._markPeerIrreplaceable(peer) }
     }
 
     private func _markPeerIrreplaceable(_ peer: DHTPeerInfo) -> Bool {
