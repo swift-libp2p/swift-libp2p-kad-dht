@@ -172,12 +172,16 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         }
 
         /// If the peer already exists in the Routing Table
-        if var peer = self.buckets[bucketID].getPeer(peer) {
-            /// if we're querying the peer first time after adding it, let's give it a usefulness bump.
-            /// - Note: This will ONLY happen once.
-            if peer.lastUsefulAt == nil && isQueryPeer {
-                peer.lastUsefulAt = lastUsefulAt
+        if self.buckets[bucketID].getPeer(
+            peer,
+            modifier: { existing in
+                /// if we're querying the peer first time after adding it, let's give it a usefulness bump.
+                /// - Note: This will ONLY happen once.
+                if existing.lastUsefulAt == nil && isQueryPeer {
+                    existing.lastUsefulAt = lastUsefulAt
+                }
             }
+        ) {
             return false
         }
 
@@ -373,12 +377,16 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
             }
 
             /// If the peer already exists in the Routing Table
-            if var peer = self.buckets[bucketID].getPeer(peer) {
-                /// if we're querying the peer first time after adding it, let's give it a usefulness bump.
-                /// - Note: This will ONLY happen once.
-                if peer.lastUsefulAt == nil && isQueryPeer {
-                    peer.lastUsefulAt = lastUsefulAt
+            if self.buckets[bucketID].getPeer(
+                peer,
+                modifier: { existing in
+                    /// if we're querying the peer first time after adding it, let's give it a usefulness bump.
+                    /// - Note: This will ONLY happen once.
+                    if existing.lastUsefulAt == nil && isQueryPeer {
+                        existing.lastUsefulAt = lastUsefulAt
+                    }
                 }
+            ) {
                 self.logger.debug("Peer Already Exists. Returning Without Adding")
                 return false
             }
