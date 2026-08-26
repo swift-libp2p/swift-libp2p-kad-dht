@@ -142,12 +142,7 @@ extension KadDHT {
 
             case .ping:
                 /// Deprecated...
-                if dht.hasKey {
-                    let tic = UInt64(littleEndian: dht.key.withUnsafeBytes({ $0.pointee }))
-                    print("Ping took \((DispatchTime.now().uptimeNanoseconds - tic) / 1_000_000)ms")
-                }
                 return Response.ping
-            //throw Errors.DecodingErrorInvalidType
 
             default:
                 throw Errors.DecodingErrorInvalidType
