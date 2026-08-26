@@ -46,7 +46,11 @@ final class ProvideTests {
         let node = app.dht.kadDHT
 
         // Use a deterministic CID derived from short content.
-        let cid = try CID(version: .v1, codec: .raw, multihash: try Multihash(raw: "phase-3.0-test".bytes, hashedWith: .sha2_256)).rawBuffer
+        let cid = try CID(
+            version: .v1,
+            codec: .raw,
+            multihash: try Multihash(raw: "phase-3.0-test".bytes, hashedWith: .sha2_256)
+        ).rawBuffer
 
         // Provide with announce:false so no network RPCs are sent.
         try node.provide(cid: cid, announce: false).wait()

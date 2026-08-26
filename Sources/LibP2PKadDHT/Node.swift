@@ -413,13 +413,13 @@ public enum KadDHT {
                                 to: peer,
                                 on: self.eventLoop
                             )
-                                .flatMapAlways { _ -> EventLoopFuture<Void> in
-                                    // Best-effort: per-peer failures are
-                                    // expected; the spec only requires
-                                    // some-of-K to succeed for the
-                                    // record to remain discoverable.
-                                    self.eventLoop.makeSucceededVoidFuture()
-                                }
+                            .flatMapAlways { _ -> EventLoopFuture<Void> in
+                                // Best-effort: per-peer failures are
+                                // expected; the spec only requires
+                                // some-of-K to succeed for the
+                                // record to remain discoverable.
+                                self.eventLoop.makeSucceededVoidFuture()
+                            }
                         }.flatten(on: self.eventLoop).map { _ in () }
                     }
                 }
@@ -1173,74 +1173,74 @@ public enum KadDHT {
                     "storeNew: stored locally key=\(KadDHT.keyToHumanReadableString(key))"
                 )
                 return self._nearest(self.routingTable.bucketSize, peersToKey: targetID).flatMap {
-                seeds -> EventLoopFuture<Bool> in
-                let lookup = KeyLookup(
-                    host: self,
-                    target: targetID,
-                    concurrentRequests: self.maxConcurrentRequest,
-                    seeds: seeds,
-                    groupProvider: self.network!.eventLoopGroupProvider
-                )
-                /// Jump back onto our main event loop to ensure that we're not piggy backing on the lookup's eventloop that's trying to shutdown...
-                return lookup.proceedForPeers().hop(to: self.eventLoop).flatMap {
-                    nearestPeers -> EventLoopFuture<Bool> in
-                    let closestPeers = nearestPeers.compactMap { $0.peer == self.peerID ? nil : $0 }
-                    /// We have the closest peers to this key that the network knows of...
-                    /// Take this opportunity to process / store these new peers
-                    return self.addPeersIfSpaceOrCloser(closestPeers).flatMapAlways { _ -> EventLoopFuture<Bool> in
-                        /// Lets ask each one to store the value and hope at least one returns true
-                        self.logger.warning(
-                            "Asking the closest \(closestPeers.count) peers to store our value \(value)"
-                        )
-                        /// TODO: We need to limit concurrent queries here as well..
-                        //guard let externalAddys = self.network?.externalListeningAddresses, !externalAddys.isEmpty else {
-                        //    return self.eventLoop.makeFailedFuture(Errors.cantPutValueWithoutExternallyDialableAddress)
-                        //}
-                        //let providerInfo = Peer.PeerInfo(id: self.peerID, addresses: externalAddys)
-                        var record = DHT.Record()
-                        record.key = value.key  //Data(targetID.bytes)
-                        record.value = value.value
-                        //record.timeReceived = value.timeReceived
-                        return closestPeers.prefix(4).compactMap { peer in
-                            self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop)
-                                .flatMapAlways { res -> EventLoopFuture<Bool> in
-                                    switch res {
-                                    case .success(let response):
-                                        self.logger.info("PutValue Response -> \(response)")
-                                        guard case .putValue(let k, let rec) = response else {
+                    seeds -> EventLoopFuture<Bool> in
+                    let lookup = KeyLookup(
+                        host: self,
+                        target: targetID,
+                        concurrentRequests: self.maxConcurrentRequest,
+                        seeds: seeds,
+                        groupProvider: self.network!.eventLoopGroupProvider
+                    )
+                    /// Jump back onto our main event loop to ensure that we're not piggy backing on the lookup's eventloop that's trying to shutdown...
+                    return lookup.proceedForPeers().hop(to: self.eventLoop).flatMap {
+                        nearestPeers -> EventLoopFuture<Bool> in
+                        let closestPeers = nearestPeers.compactMap { $0.peer == self.peerID ? nil : $0 }
+                        /// We have the closest peers to this key that the network knows of...
+                        /// Take this opportunity to process / store these new peers
+                        return self.addPeersIfSpaceOrCloser(closestPeers).flatMapAlways { _ -> EventLoopFuture<Bool> in
+                            /// Lets ask each one to store the value and hope at least one returns true
+                            self.logger.warning(
+                                "Asking the closest \(closestPeers.count) peers to store our value \(value)"
+                            )
+                            /// TODO: We need to limit concurrent queries here as well..
+                            //guard let externalAddys = self.network?.externalListeningAddresses, !externalAddys.isEmpty else {
+                            //    return self.eventLoop.makeFailedFuture(Errors.cantPutValueWithoutExternallyDialableAddress)
+                            //}
+                            //let providerInfo = Peer.PeerInfo(id: self.peerID, addresses: externalAddys)
+                            var record = DHT.Record()
+                            record.key = value.key  //Data(targetID.bytes)
+                            record.value = value.value
+                            //record.timeReceived = value.timeReceived
+                            return closestPeers.prefix(4).compactMap { peer in
+                                self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop)
+                                    .flatMapAlways { res -> EventLoopFuture<Bool> in
+                                        switch res {
+                                        case .success(let response):
+                                            self.logger.info("PutValue Response -> \(response)")
+                                            guard case .putValue(let k, let rec) = response else {
+                                                return self.eventLoop.makeSucceededFuture(false)
+                                            }
+                                            self.logger.info("PutValue Response from...")
+                                            self.logger.info("Peer: \(peer.peer.b58String)")
+                                            self.logger.info("Addresses: \(peer.addresses)")
+                                            self.logger.info("Query Key: \(key)")
+                                            self.logger.info("Response Key: \(k)")
+                                            self.logger.info("Query Rec: \(value)")
+                                            if let rec = rec {
+                                                self.logger.info("Response Rec: \(rec)")
+                                            } else {
+                                                self.logger.info("Response Rec: NIL")
+                                            }
+
+                                            return self.eventLoop.makeSucceededFuture(rec != nil && k == key)
+                                        case .failure(let error):
+                                            self.logger.info("PutValue Error -> \(error)")
                                             return self.eventLoop.makeSucceededFuture(false)
                                         }
-                                        self.logger.info("PutValue Response from...")
-                                        self.logger.info("Peer: \(peer.peer.b58String)")
-                                        self.logger.info("Addresses: \(peer.addresses)")
-                                        self.logger.info("Query Key: \(key)")
-                                        self.logger.info("Response Key: \(k)")
-                                        self.logger.info("Query Rec: \(value)")
-                                        if let rec = rec {
-                                            self.logger.info("Response Rec: \(rec)")
-                                        } else {
-                                            self.logger.info("Response Rec: NIL")
-                                        }
-
-                                        return self.eventLoop.makeSucceededFuture(rec != nil && k == key)
-                                    case .failure(let error):
-                                        self.logger.info("PutValue Error -> \(error)")
-                                        return self.eventLoop.makeSucceededFuture(false)
                                     }
-                                }
-                        }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
-                            self.logger.notice(
-                                "storeNew: \(results.filter({ $0 }).count)/\(results.count) peers accepted the value (local copy stored regardless)"
-                            )
-                            /// Local-first semantics: the value is
-                            /// already stored locally — return true.
-                            /// Remote acceptance is advisory; the
-                            /// heartbeat's ``_shareDHTKVs`` will
-                            /// continue propagating the value.
-                            return self.eventLoop.makeSucceededFuture(true)
+                            }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
+                                self.logger.notice(
+                                    "storeNew: \(results.filter({ $0 }).count)/\(results.count) peers accepted the value (local copy stored regardless)"
+                                )
+                                /// Local-first semantics: the value is
+                                /// already stored locally — return true.
+                                /// Remote acceptance is advisory; the
+                                /// heartbeat's ``_shareDHTKVs`` will
+                                /// continue propagating the value.
+                                return self.eventLoop.makeSucceededFuture(true)
+                            }
                         }
                     }
-                }
                 }
             }
         }

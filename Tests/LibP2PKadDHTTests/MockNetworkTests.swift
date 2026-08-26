@@ -267,7 +267,7 @@ struct MockNetworkTests {
 
         print("Key: \(key)")
         #expect(key == "test".bytes)
-        /// Assume we have the key their looking for
+        /// Assume we have the key they're looking for
         let value = DHT.Record.with({ rec in
             rec.key = Data("test".utf8)
             rec.value = Data("Kademlia DHT".utf8)
