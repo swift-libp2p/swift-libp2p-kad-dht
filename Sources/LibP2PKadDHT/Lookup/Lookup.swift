@@ -145,7 +145,7 @@ final class Lookup: @unchecked Sendable {
             self.logger.info("Querying \(next.peer.b58String) for id: \(self.target.b58String)")
             self.requestsInProgress += 1
             return on.flatSubmit {
-                self.host._sendQuery(.findNode(id: self.target), to: next, on: on).flatMapAlways { result in
+                self.host._sendQuery(.findNode(key: self.target.id), to: next, on: on).flatMapAlways { result in
                     switch result {
                     case .failure(let error):
                         return self.eventLoop.flatSubmit {
@@ -317,14 +317,14 @@ final class KeyLookup: @unchecked Sendable {
             )
             self.queriesInProgress += 1
             return on.flatSubmit {
-                guard let p = try? PeerID(fromBytesID: self.target.original) else {
-                    self.logger.warning(
-                        "Query to peer \(next.peer) failed due to having an invalid PeerID, removing them from our list"
-                    )
-                    self.list.remove(next.peer)
-                    return self._recursivelyQueryForTarget(on: on, decrementingQueries: true)
-                }
-                return self.host._sendQuery(.findNode(id: p), to: next, on: on).flatMapAlways { result in
+                /// We send the raw target bytes as the FIND_NODE key.
+                ///
+                /// - Note: This used to require `PeerID(fromBytesID: self.target.original)` first. For a
+                ///   `KeyLookup` the target is a *record* key (e.g. `/pk/<multihash>`), which never parses
+                ///   as a PeerID, so that guard dropped every seed peer and every key lookup returned an
+                ///   empty list — meaning `storeNew` could never find anyone to store to.
+                self.host._sendQuery(.findNode(key: self.target.original), to: next, on: on).flatMapAlways {
+                    result in
                     switch result {
                     case .failure(let error):
                         return self.eventLoop.flatSubmit {
@@ -454,7 +454,7 @@ final class KeyLookup: @unchecked Sendable {
             )
             self.queriesInProgress += 1
             return on.flatSubmit {
-                self.host._sendQuery(.getProviders(cid: self.target.original), to: next, on: on).flatMapAlways {
+                self.host._sendQuery(.getProviders(key: self.target.original), to: next, on: on).flatMapAlways {
                     result in
                     switch result {
                     case .failure(let error):
