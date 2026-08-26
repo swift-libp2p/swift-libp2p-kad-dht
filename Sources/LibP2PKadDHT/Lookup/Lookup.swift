@@ -145,7 +145,7 @@ final class Lookup: @unchecked Sendable {
             self.logger.info("Querying \(next.peer.b58String) for id: \(self.target.b58String)")
             self.requestsInProgress += 1
             return on.flatSubmit {
-                self.host._sendQuery(.findNode(id: self.target), to: next, on: on).flatMapAlways { result in
+                self.host._sendQuery(.findNode(key: self.target.id), to: next, on: on).flatMapAlways { result in
                     switch result {
                     case .failure(let error):
                         return self.eventLoop.flatSubmit {
@@ -324,7 +324,7 @@ final class KeyLookup: @unchecked Sendable {
                     self.list.remove(next.peer)
                     return self._recursivelyQueryForTarget(on: on, decrementingQueries: true)
                 }
-                return self.host._sendQuery(.findNode(id: p), to: next, on: on).flatMapAlways { result in
+                return self.host._sendQuery(.findNode(key: p.id), to: next, on: on).flatMapAlways { result in
                     switch result {
                     case .failure(let error):
                         return self.eventLoop.flatSubmit {

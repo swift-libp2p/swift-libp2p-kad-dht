@@ -506,20 +506,19 @@ public enum KadDHT {
             case .ping:
                 return self.eventLoop.makeSucceededFuture(Response.ping)
 
-            case .findNode(let pid):
-                /// If it's us
-                if pid == self.peerID {
-                    return self._nearest(self.routingTable.bucketSize, peersToKey: KadDHT.Key(self.peerID)).flatMap {
-                        addresses -> EventLoopFuture<Response> in
-                        /// .nodeSearch(peers: Array<Multiaddr>(([self.address] + addresses).prefix(self.routingTable.bucketSize))
-                        self.eventLoop.makeSucceededFuture(
-                            Response.findNode(closerPeers: addresses.compactMap { try? DHT.Message.Peer($0) })
-                        )
-                    }
-                } else {
-                    /// Otherwise return the closest other peer we know of...
-                    //return self.nearestPeerTo(multiaddr)
-                    return self.nearest(self.routingTable.bucketSize, toPeer: pid)
+            case .findNode(let key):
+                /// Return the K closest peers we know of to `key` in XOR
+                /// space. `key` is an arbitrary Kademlia key (canonical
+                /// FIND_NODE), so we hash the raw bytes into key space via
+                /// `KadDHT.Key(_:)` rather than requiring a PeerID. When the
+                /// key is a PeerId's bytes this is identical to the old
+                /// `KadDHT.Key(peerID)` path, so swift↔swift lookups are
+                /// unchanged.
+                return self._nearest(self.routingTable.bucketSize, peersToKey: KadDHT.Key(key)).flatMap {
+                    addresses -> EventLoopFuture<Response> in
+                    self.eventLoop.makeSucceededFuture(
+                        Response.findNode(closerPeers: addresses.compactMap { try? DHT.Message.Peer($0) })
+                    )
                 }
 
             case .putValue(let key, let value):
