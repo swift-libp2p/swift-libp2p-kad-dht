@@ -12,9 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+import CID
 import CryptoSwift
 import LibP2P
 import LibP2PCrypto
+import Multihash
 import Testing
 
 @testable import LibP2PKadDHT
@@ -138,21 +140,23 @@ struct MockNetworkTests {
         }
 
         /// Test Query.findNode and Response.nodeSearch
-        let query = KadDHT.Query.findNode(id: testAddresses.first!.peer)
+        let target = testAddresses.first!.peer
+        let query = KadDHT.Query.findNode(key: target.id)
         let encodedQuery = try query.encode()
 
         /// Send it over the wire...
         let decodedQuery = try KadDHT.Query.decode(encodedQuery)
         print("Recovered Query: \(decodedQuery)")
 
-        guard case .findNode(let peer) = decodedQuery else {
+        guard case .findNode(let recoveredKey) = decodedQuery else {
             Issue.record("Query is not a findNode")
             return
         }
 
-        let response = try KadDHT.Response.findNode(
-            closerPeers: testAddresses.filter({ $0.peer != peer }).map { try DHT.Message.Peer($0) }
-        )
+        #expect(recoveredKey == target.id)
+
+        let closer = try testAddresses.filter({ $0.peer != target }).map { try DHT.Message.Peer($0) }
+        let response = KadDHT.Response.findNode(closerPeers: closer)
         let encodedResponse = try response.encode()
 
         /// Send the response back over the wire...
@@ -166,7 +170,34 @@ struct MockNetworkTests {
         print(closerPeers)
 
         #expect(closerPeers.count == testAddresses.count - 1)
-        #expect(try closerPeers.contains(where: { try $0.toPeerInfo().peer == peer }) == false)
+        let recoveredPeers = try closerPeers.map { try $0.toPeerInfo().peer }
+        #expect(recoveredPeers.contains(target) == false)
+    }
+
+    /// A FIND_NODE whose key is a *record* key rather than a PeerID must still round-trip.
+    ///
+    /// This is what `PUT_VALUE`/`GET_VALUE` lookups walk towards, and go-libp2p sends those bytes
+    /// verbatim. We used to require the key to parse as a `PeerID`, which rejected them outright.
+    @Test func testDHTFauxNetworkQuery_FindNode_RecordKeyTarget() throws {
+        let pid = try PeerID(.Ed25519)
+        let recordKey = "/pk/".bytes + pid.id
+
+        /// Sanity check: this key is deliberately NOT a valid PeerID.
+        #expect(throws: (any Error).self) { try PeerID(fromBytesID: recordKey) }
+
+        let encoded = try KadDHT.Query.findNode(key: recordKey).encode()
+        let decoded = try KadDHT.Query.decode(encoded)
+
+        guard case .findNode(let recovered) = decoded else {
+            Issue.record("Query is not a findNode")
+            return
+        }
+        #expect(recovered == recordKey)
+    }
+
+    /// An empty FIND_NODE key is still rejected.
+    @Test func testDHTFauxNetworkQuery_FindNode_RejectsEmptyKey() throws {
+        #expect(throws: (any Error).self) { try KadDHT.Query.findNode(key: []).encode() }
     }
 
     @Test func testDHTFauxNetworkQuery_GetValue_NoValue() throws {
@@ -287,6 +318,107 @@ struct MockNetworkTests {
             let peerID = try PeerID(fromBytesID: peer.id.byteArray)
             let addresses = try peer.addrs.map { try Multiaddr($0) }
             print(PeerInfo(peer: peerID, addresses: addresses))
+        }
+    }
+
+    // MARK: - Provider records
+
+    /// Provider keys are multihashes, not CIDs. We must accept any multihash code, and reject only on
+    /// go's length bound (1...80).
+    @Test func testDHTFauxNetworkQuery_GetProviders_AcceptsAnyMultihash() throws {
+        /// A sha2-256 multihash (this one happens to also be a valid CIDv0)...
+        let sha256Multihash = try Multihash(raw: "provider test", hashedWith: .sha2_256).value
+
+        /// ...and a blake3-256 multihash, hand-assembled as `varint(code) + varint(length) + digest`.
+        /// We build the bytes directly because what matters here is that we accept an arbitrary
+        /// multihash *code*, not that we can compute that hash.
+        let blake3Multihash: [UInt8] = [0x1e, 0x20] + (try LibP2PCrypto.randomBytes(length: 32))
+
+        /// The point of the fix: this key is NOT parseable as a CID, so the old
+        /// `guard let CID = try? CID(key)` would have rejected it outright.
+        #expect(throws: (any Error).self) { try CID(blake3Multihash) }
+        #expect(throws: Never.self) { try CID(sha256Multihash) }
+
+        for key in [sha256Multihash, blake3Multihash] {
+            let decoded = try KadDHT.Query.decode(try KadDHT.Query.getProviders(key: key).encode())
+            guard case .getProviders(let recovered) = decoded else {
+                Issue.record("Query is not a getProviders for key \(key.toHexString())")
+                return
+            }
+            #expect(recovered == key)
+        }
+    }
+
+    @Test func testDHTFauxNetworkQuery_GetProviders_RejectsOutOfBoundsKeys() throws {
+        #expect(throws: (any Error).self) { try KadDHT.Query.getProviders(key: []).encode() }
+        #expect(throws: (any Error).self) {
+            try KadDHT.Query.getProviders(key: [UInt8](repeating: 0xAB, count: 81)).encode()
+        }
+        /// Exactly at the bound is fine
+        #expect(throws: Never.self) {
+            try KadDHT.Query.getProviders(key: [UInt8](repeating: 0xAB, count: 80)).encode()
+        }
+    }
+
+    /// A GET_PROVIDERS response must be able to carry providers *and* closer peers at the same time.
+    @Test func testDHTFauxNetworkResponse_GetProviders_CarriesProvidersAndCloserPeers() throws {
+        let key = try Multihash(raw: "provider test", hashedWith: .sha2_256).value
+        let providers = try (0..<2).map { _ in try DHT.Message.Peer(try generateRandomPeerInfo()) }
+        let closer = try (0..<3).map { _ in try DHT.Message.Peer(try generateRandomPeerInfo()) }
+
+        let decoded = try KadDHT.Response.decode(
+            try KadDHT.Response.getProviders(cid: key, providerPeers: providers, closerPeers: closer).encode()
+        )
+
+        guard case .getProviders(let recoveredKey, let recoveredProviders, let recoveredCloser) = decoded else {
+            Issue.record("Response is not a getProviders")
+            return
+        }
+
+        #expect(recoveredKey == key)
+        #expect(recoveredProviders.count == 2)
+        #expect(recoveredCloser.count == 3)
+    }
+
+    /// ADD_PROVIDER carries the provider's own PeerInfo in `providerPeers` — that's where a receiving node
+    /// learns the provider's dialable addresses from.
+    @Test func testDHTFauxNetworkQuery_AddProvider_RoundTripsProviderPeers() throws {
+        let key = try Multihash(raw: "provider test", hashedWith: .sha2_256).value
+        let me = try generateRandomPeerInfo()
+
+        let decoded = try KadDHT.Query.decode(
+            try KadDHT.Query.addProvider(key: key, providerPeers: [try DHT.Message.Peer(me)]).encode()
+        )
+
+        guard case .addProvider(let recoveredKey, let recoveredProviders) = decoded else {
+            Issue.record("Query is not an addProvider")
+            return
+        }
+
+        #expect(recoveredKey == key)
+        #expect(recoveredProviders.count == 1)
+        let recoveredInfo = try recoveredProviders[0].toPeerInfo()
+        #expect(recoveredInfo.peer == me.peer)
+        #expect(recoveredInfo.addresses == me.addresses)
+    }
+
+    // MARK: - PING
+
+    /// Decoding a PING response used to read 8 bytes out of `dht.key` regardless of how many the peer
+    /// actually sent, which is an out-of-bounds read driven by remote input.
+    @Test func testDHTFauxNetworkResponse_Ping_ToleratesArbitraryKeyLengths() throws {
+        for length in [0, 1, 3, 7, 8, 9] {
+            var message = DHT.Message()
+            message.type = .ping
+            if length > 0 { message.key = Data([UInt8](repeating: 0xFF, count: length)) }
+
+            let payload = try message.serializedData()
+            let framed = putUVarInt(UInt64(payload.count)) + [UInt8](payload)
+
+            guard case .ping = try KadDHT.Response.decode(framed) else {
+                Issue.record("Response is not a ping for a \(length) byte key")
+                return
+            }
         }
     }
 }
