@@ -95,8 +95,6 @@ extension Bucket {
     }
 
     func maxCommonPrefixLength(target: ID) -> Int {
-        self.max { lhs, rhs in
-            lhs.dhtID.bytes.commonPrefixLength(with: target) > rhs.dhtID.bytes.commonPrefixLength(with: target)
-        }!.dhtID.bytes.commonPrefixLength(with: target)
+        self.map { $0.dhtID.bytes.commonPrefixLength(with: target) }.max() ?? 0
     }
 }
