@@ -23,7 +23,7 @@ import Testing
 @testable import LibP2PKadDHT
 
 @Suite("Libp2p KadDHT Tests", .serialized)
-final class LibP2PKadDHTTests {
+struct LibP2PKadDHTTests {
 
     @Test func testEventLoopArray() throws {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)

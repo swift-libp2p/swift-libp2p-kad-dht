@@ -126,7 +126,7 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
     func stop() throws {
         guard self._state == .started else { return }
         self._state = .stopped
-        try self.eventLoop.close()
+        /// - Note: We deliberately don't close our `eventLoop` here. It's shared with the `KadDHT.Node`.
     }
 
     func numberOfPeers(withCommonPrefixLength cpl: Int) -> EventLoopFuture<Int> {
@@ -172,12 +172,16 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         }
 
         /// If the peer already exists in the Routing Table
-        if var peer = self.buckets[bucketID].getPeer(peer) {
-            /// if we're querying the peer first time after adding it, let's give it a usefulness bump.
-            /// - Note: This will ONLY happen once.
-            if peer.lastUsefulAt == nil && isQueryPeer {
-                peer.lastUsefulAt = lastUsefulAt
+        if self.buckets[bucketID].getPeer(
+            peer,
+            modifier: { existing in
+                /// if we're querying the peer first time after adding it, let's give it a usefulness bump.
+                /// - Note: This will ONLY happen once.
+                if existing.lastUsefulAt == nil && isQueryPeer {
+                    existing.lastUsefulAt = lastUsefulAt
+                }
             }
+        ) {
             return false
         }
 
@@ -373,12 +377,16 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
             }
 
             /// If the peer already exists in the Routing Table
-            if var peer = self.buckets[bucketID].getPeer(peer) {
-                /// if we're querying the peer first time after adding it, let's give it a usefulness bump.
-                /// - Note: This will ONLY happen once.
-                if peer.lastUsefulAt == nil && isQueryPeer {
-                    peer.lastUsefulAt = lastUsefulAt
+            if self.buckets[bucketID].getPeer(
+                peer,
+                modifier: { existing in
+                    /// if we're querying the peer first time after adding it, let's give it a usefulness bump.
+                    /// - Note: This will ONLY happen once.
+                    if existing.lastUsefulAt == nil && isQueryPeer {
+                        existing.lastUsefulAt = lastUsefulAt
+                    }
                 }
+            ) {
                 self.logger.debug("Peer Already Exists. Returning Without Adding")
                 return false
             }
@@ -661,7 +669,7 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
     }
 
     public func markPeerIrreplaceable(_ peer: DHTPeerInfo) -> EventLoopFuture<Bool> {
-        self.eventLoop.submit { self._markPeerReplaceable(peer) }
+        self.eventLoop.submit { self._markPeerIrreplaceable(peer) }
     }
 
     private func _markPeerIrreplaceable(_ peer: DHTPeerInfo) -> Bool {
@@ -854,7 +862,7 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         /// Sort the peers by their distance to our local key and return the requested number of closest peers
         return [DHTPeerInfo](
             peersToSort.sorted(by: { lhs, rhs in
-                peer.compareDistancesFromSelf(to: lhs.dhtID, and: rhs.dhtID).rawValue >= 0
+                peer.compareDistancesFromSelf(to: lhs.dhtID, and: rhs.dhtID) == .firstKey
             }).prefix(count)
         )
     }

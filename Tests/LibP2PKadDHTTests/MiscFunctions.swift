@@ -18,6 +18,19 @@ import LibP2PCrypto
 
 @testable import LibP2PKadDHT
 
+/// Decodes a `Query` the way the receive path actually sees it.
+///
+/// On the wire a query is `uvarint(len) + protobuf`, which is what `Query.encode()` produces. Inbound,
+/// the route's `VarintFrameDecoder` (see `registerDHTRoute`) strips that length prefix before
+/// `Query.decode` ever runs, so `Query.decode` deliberately expects a *bare* protobuf.
+///
+/// That makes `encode` and `decode` asymmetric by design — feeding `encode()` output straight into
+/// `decode()` fails with `malformedProtobuf`, because the leading length byte parses as a bogus field
+/// tag. Tests that want a round trip have to unframe first, which is what this helper does.
+func decodeQueryFrame(_ encoded: [UInt8]) throws -> KadDHT.Query {
+    try KadDHT.Query.decode(Array(encoded.dropFirst(uVarInt(encoded).bytesRead)))
+}
+
 func RandomPeerID() -> PeerID {
     try! PeerID(.Ed25519)
 }

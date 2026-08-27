@@ -16,19 +16,35 @@ import LibP2P
 
 extension KadDHT {
 
+    /// The maximum provider key length we'll accept
+    /// - Note: We match go-libp2p-kad-dht's bound in `handleGetProviders` and `handleAddProvider`.
+    static let maxProviderKeyLength: Int = 80
+
     enum Query: CustomStringConvertible {
-        /// In the request key is an arbitrary Kademlia key — canonical
-        /// FIND_NODE returns the closest peers to *any* key, not only to a
-        /// PeerID (e.g. rust-libp2p's bootstrap probes random keys).
+        /// In the request `key` is the raw target of the lookup.
+        ///
+        /// - Note: This is usually the binary PeerId of the node being looked for, but canonical FIND_NODE
+        ///   returns the closest peers to *any* key, and Kademlia treats it as opaque bytes.
+        ///   `PUT_VALUE`/`GET_VALUE` lookups walk towards a *record* key (e.g. `/pk/<multihash>`), and
+        ///   rust-libp2p's bootstrap probes raw 32-byte keys. Neither is a valid PeerID.
         case findNode(key: [UInt8])
-        /// In the request key is an unstructured array of bytes.
+
+        /// In the request, `key` is an unstructured array of bytes.
         case getValue(key: [UInt8])
-        /// In the request record is set to the record to be stored and key on Message is set to equal key of the Record.
+
+        /// In the request, `record` is set to the record to be stored.
+        /// In the response, `key` is set to equal the key of the Record.
         case putValue(key: [UInt8], record: DHT.Record)
-        /// In the request key is set to a CID.
-        case getProviders(cid: [UInt8])
-        /// In the request key is set to a CID.
-        case addProvider(cid: [UInt8])
+
+        /// In the request, `key` is the multihash of the content being looked for.
+        ///
+        /// - Note: Provider keys are multihashes, not CIDs.
+        case getProviders(key: [UInt8])
+
+        /// In the request, `key` is the multihash of the content being provided, and `providerPeers` carries
+        /// the provider's own `PeerInfo` (the entries whose ID matches the sender are the ones recorded).
+        case addProvider(key: [UInt8], providerPeers: [DHT.Message.Peer])
+
         /// Deprecated message type replaced by the dedicated ping protocol. Implementations may still handle incoming PING requests for backwards compatibility. Implementations must not actively send PING requests.
         case ping  // Deprecated
 
@@ -44,8 +60,9 @@ extension KadDHT {
 
             case let .findNode(key):
                 req.type = .findNode
-                /// In the request, key is the Kademlia key whose closest
-                /// peers we want (often, but not necessarily, a PeerId).
+                /// In the request, key is the Kademlia key whose closest peers we want (often, but not
+                /// necessarily, a PeerId).
+                guard !key.isEmpty else { throw Errors.encodingError }
                 req.key = Data(key)
 
             case let .getValue(key):
@@ -67,11 +84,15 @@ extension KadDHT {
 
             case let .getProviders(key):
                 req.type = .getProviders
+                guard (1...KadDHT.maxProviderKeyLength).contains(key.count) else { throw Errors.encodingError }
                 req.key = Data(key)
 
-            case let .addProvider(key):
+            case let .addProvider(key, providerPeers):
                 req.type = .addProvider
+                guard (1...KadDHT.maxProviderKeyLength).contains(key.count) else { throw Errors.encodingError }
                 req.key = Data(key)
+                /// The provider advertises itself (and its dialable addresses) in `providerPeers`.
+                req.providerPeers = providerPeers
             }
 
             let payload = try [UInt8](req.serializedData())
@@ -118,14 +139,18 @@ extension KadDHT {
                 return Query.putValue(key: [UInt8](dht.key), record: rec)
 
             case .getProviders:
-                /// In the request, key is set to a CID.
-                guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
-                return Query.getProviders(cid: [UInt8](dht.key))
+                /// In the request, key is the multihash of the content being looked for.
+                guard dht.hasKey, (1...KadDHT.maxProviderKeyLength).contains(dht.key.count) else {
+                    throw Errors.DecodingErrorInvalidType
+                }
+                return Query.getProviders(key: [UInt8](dht.key))
 
             case .addProvider:
-                /// In the request, key is set to a CID.
-                guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
-                return Query.addProvider(cid: [UInt8](dht.key))
+                /// In the request, key is the multihash of the content being provided.
+                guard dht.hasKey, (1...KadDHT.maxProviderKeyLength).contains(dht.key.count) else {
+                    throw Errors.DecodingErrorInvalidType
+                }
+                return Query.addProvider(key: [UInt8](dht.key), providerPeers: dht.providerPeers)
 
             case .ping:
                 /// .ping (deprecated)
@@ -144,10 +169,11 @@ extension KadDHT {
                 return "Query::GetValue(key: \(KadDHT.keyToHumanReadableString(key)))"
             case .putValue(let key, let record):
                 return "Query::PutValue(key: \(KadDHT.keyToHumanReadableString(key)), record: \(record))"
-            case .getProviders(let cid):
-                return "Query::GetProviders(cid: \(KadDHT.keyToHumanReadableString(cid)))"
-            case .addProvider(let cid):
-                return "Query::AddProviders(cid: \(KadDHT.keyToHumanReadableString(cid)))"
+            case .getProviders(let key):
+                return "Query::GetProviders(key: \(KadDHT.keyToHumanReadableString(key)))"
+            case .addProvider(let key, let providerPeers):
+                return
+                    "Query::AddProviders(key: \(KadDHT.keyToHumanReadableString(key)), providers: \(providerPeers.count))"
             case .ping:
                 return "Query::PING"
             }

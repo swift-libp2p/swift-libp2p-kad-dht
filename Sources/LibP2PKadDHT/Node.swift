@@ -337,12 +337,18 @@ public enum KadDHT {
         ///     the rust-libp2p / go-libp2p semantics; useful for
         ///     batched bring-up.
         public func provide(cid: [UInt8], announce: Bool) -> EventLoopFuture<Void> {
-            guard (try? CID(cid)) != nil else {
+            guard let parsedCID = try? CID(cid) else {
                 return self.eventLoop.makeFailedFuture(Errors.invalidCID)
             }
-            let kid = KadDHT.Key(cid, keySpace: .xor)
-            let externalAddrs = self.network?.listenAddresses ?? []
-            let myPeerInfo = PeerInfo(peer: self.peerID, addresses: externalAddrs)
+            /// Provider records are keyed by *multihash*, not by CID, so that every CID encoding of the
+            /// same content converges on one key — this has to match `findProviders(cid:count:)`, which
+            /// looks up `cid.multihash.value`. Keying by the raw CID bytes here would make our own
+            /// announcements undiscoverable by any lookup, including our own.
+            let providerKey = parsedCID.multihash.value
+            let kid = KadDHT.Key(providerKey, keySpace: .xor)
+            /// `ourAddresses()` guarantees each address carries our PeerID, which is what remote nodes
+            /// validate the advertised `providerPeers` entry against before recording it.
+            let myPeerInfo = PeerInfo(peer: self.peerID, addresses: self.ourAddresses())
             guard let myProviderPeer = try? DHT.Message.Peer(myPeerInfo) else {
                 return self.eventLoop.makeFailedFuture(Errors.encodingError)
             }
@@ -369,8 +375,22 @@ public enum KadDHT {
         /// `ADD_PROVIDER` to each of the K closest peers found.
         /// Factored out so the renewal job in `_republishProviderRecords`
         /// can call the same path without duplicating the lookup logic.
+        ///
+        /// - Note: The `ADD_PROVIDER` wire key is the CID's *multihash*, matching
+        ///   ``provide(cid:announce:)`` and ``findProviders(cid:count:)``. We also advertise our own
+        ///   `PeerInfo` in `providerPeers`; the receiver validates that entry against the sender's
+        ///   PeerID and takes our dialable addresses from it, falling back to the single address it
+        ///   observed the connection on if we send nothing.
         func _announceProviderRecord(cid: [UInt8], key kid: KadDHT.Key) -> EventLoopFuture<Void> {
-            self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap {
+            guard let providerKey = (try? CID(cid))?.multihash.value else {
+                return self.eventLoop.makeFailedFuture(Errors.invalidCID)
+            }
+            let myPeerInfo = PeerInfo(peer: self.peerID, addresses: self.ourAddresses())
+            guard let myProviderPeer = try? DHT.Message.Peer(myPeerInfo) else {
+                return self.eventLoop.makeFailedFuture(Errors.encodingError)
+            }
+
+            return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap {
                 seeds -> EventLoopFuture<Void> in
                 let lookup = KeyLookup(
                     host: self,
@@ -388,14 +408,18 @@ public enum KadDHT {
                             "Announcing provider for cid to \(closestPeers.count) nearest peers"
                         )
                         return closestPeers.prefix(self.routingTable.bucketSize).map { peer in
-                            self._sendQuery(.addProvider(cid: cid), to: peer, on: self.eventLoop)
-                                .flatMapAlways { _ -> EventLoopFuture<Void> in
-                                    // Best-effort: per-peer failures are
-                                    // expected; the spec only requires
-                                    // some-of-K to succeed for the
-                                    // record to remain discoverable.
-                                    self.eventLoop.makeSucceededVoidFuture()
-                                }
+                            self._sendQuery(
+                                .addProvider(key: providerKey, providerPeers: [myProviderPeer]),
+                                to: peer,
+                                on: self.eventLoop
+                            )
+                            .flatMapAlways { _ -> EventLoopFuture<Void> in
+                                // Best-effort: per-peer failures are
+                                // expected; the spec only requires
+                                // some-of-K to succeed for the
+                                // record to remain discoverable.
+                                self.eventLoop.makeSucceededVoidFuture()
+                            }
                         }.flatten(on: self.eventLoop).map { _ in () }
                     }
                 }
@@ -413,7 +437,9 @@ public enum KadDHT {
 
         public func findProviders(cid: [UInt8], count: Int) -> EventLoopFuture<[Multiaddr]> {
             guard let cid = try? CID(cid) else { return self.eventLoop.makeFailedFuture(Errors.invalidCID) }
-            return self.getProvidersUsingLookupList(cid.rawBuffer).map { peers in
+            /// Provider records are keyed by *multihash*, not by CID, so that every CID encoding of the same
+            /// content converges on one key. `rawBuffer` would include the v1 version/codec prefix.
+            return self.getProvidersUsingLookupList(cid.multihash.value).map { peers in
                 peers.reduce(
                     into: [],
                     { partialResult, pInfo in
@@ -588,7 +614,13 @@ public enum KadDHT {
                             if self.localProviderKeys.contains(kid) && providerIsSelf {
                                 return true
                             }
-                            guard let pid = try? PeerID(marshaledPublicKey: provider.id) else {
+                            /// `DHT.Message.Peer.id` holds the peer's *ID bytes* (see
+                            /// `DHT.Message.Peer.init(_:)`), so it has to be decoded with
+                            /// `fromBytesID`. `PeerID(marshaledPublicKey:)` expects a marshaled
+                            /// protobuf public key and throws on ID bytes — which made this guard
+                            /// drop every remotely-supplied provider on the first heartbeat that
+                            /// saw any stale record.
+                            guard let pid = try? PeerID(fromBytesID: provider.id.byteArray) else {
                                 // Malformed provider id — drop it.
                                 return false
                             }
@@ -741,17 +773,29 @@ public enum KadDHT {
                 return self.eventLoop.makeSucceededFuture(Response.ping)
 
             case .findNode(let key):
-                /// Return the K closest peers we know of to `key` in XOR
-                /// space. `key` is an arbitrary Kademlia key (canonical
-                /// FIND_NODE), so we hash the raw bytes into key space via
-                /// `KadDHT.Key(_:)` rather than requiring a PeerID. When the
-                /// key is a PeerId's bytes this is identical to the old
-                /// `KadDHT.Key(peerID)` path, so swift↔swift lookups are
-                /// unchanged.
-                return self._nearest(self.routingTable.bucketSize, peersToKey: KadDHT.Key(key)).flatMap {
-                    addresses -> EventLoopFuture<Response> in
-                    self.eventLoop.makeSucceededFuture(
-                        Response.findNode(closerPeers: addresses.compactMap { try? DHT.Message.Peer($0) })
+                /// If they're looking for us, tell them about us.
+                ///
+                /// - Note: go's `handleFindPeer` answers `[self]` in this case. Returning our *neighbours*
+                ///   instead (which is what we used to do, since `_nearest` filters us out) means a peer
+                ///   asking us directly for our own address never learns it.
+                if key == self.peerID.id {
+                    return self.eventLoop.submit {
+                        guard
+                            let us = try? DHT.Message.Peer(PeerInfo(peer: self.peerID, addresses: self.ourAddresses()))
+                        else { return Response.findNode(closerPeers: []) }
+                        return Response.findNode(closerPeers: [us])
+                    }
+                } else {
+                    /// Otherwise return the k closest peers we know of to `key` in XOR space.
+                    ///
+                    /// - Note: `key` is an arbitrary Kademlia key (canonical FIND_NODE), so we hash the raw
+                    ///   bytes into key space via `KadDHT.Key(_:)` rather than requiring a PeerID. When the
+                    ///   key is a PeerId's bytes this is identical to the old `KadDHT.Key(peerID)` path, so
+                    ///   swift↔swift lookups are unchanged.
+                    return self.nearest(
+                        self.routingTable.bucketSize,
+                        toKey: KadDHT.Key(key, keySpace: .xor),
+                        excluding: from.peer
                     )
                 }
 
@@ -800,97 +844,98 @@ public enum KadDHT {
                 /// If we have the value, send it back!
                 let kid = KadDHT.Key(key, keySpace: .xor)
                 request.logger.notice("Query::GetValue::\(KadDHT.keyToHumanReadableString(key))")
-                return self.dht.getValue(forKey: kid).flatMap { value in
-                    if let value = value {
-                        request.logger.notice(
-                            "Query::GetValue::Returning value for key: \(KadDHT.keyToHumanReadableString(key))"
+                /// - Note: We attach the k closest peers whether or not we hold the record. go's
+                ///   `handleGetValue` sets `Record` and `CloserPeers` unconditionally; only sending closer
+                ///   peers on a miss truncates the requester's lookup at the first hop that has a copy.
+                return self.dht.getValue(forKey: kid).and(
+                    self._nearest(self.routingTable.bucketSize, peersToKey: kid, excluding: from.peer)
+                ).map { value, peers in
+                    request.logger.notice(
+                        "Query::GetValue::Returning \(value == nil ? "no value" : "value") and \(peers.count) closer peers for key: \(KadDHT.keyToHumanReadableString(key))"
+                    )
+                    return Response.getValue(
+                        key: key,
+                        record: value,
+                        closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }
+                    )
+                }
+
+            case .getProviders(let key):
+                /// - Note: The key here is a multihash, not a CID, so we don't try to parse it. go's
+                ///   `handleGetProviders` only bounds the length, which `Query.decode` has already done.
+                ///   Rejecting anything that isn't a valid CID broke every non-sha2-256 multihash.
+                let kid = KadDHT.Key(key, keySpace: .xor)
+
+                /// Return the providers we know of *and* the k closest peers, matching go.
+                return self.providerStore.getValue(forKey: kid).and(
+                    self._nearest(self.routingTable.bucketSize, peersToKey: kid, excluding: from.peer)
+                ).map { providers, peers in
+                    let providers = providers ?? []
+                    request.logger.notice(
+                        "Query::GetProviders::Returning \(providers.count) providers and \(peers.count) closer peers for key: \(KadDHT.keyToHumanReadableString(key))"
+                    )
+                    return Response.getProviders(
+                        cid: key,
+                        providerPeers: providers,
+                        closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }
+                    )
+                }
+
+            case .addProvider(let key, let advertised):
+                let kid = KadDHT.Key(key, keySpace: .xor)
+
+                /// Only record the advertised `providerPeers` entries that match the sender's PeerID, per the
+                /// spec ("validate that the received PeerInfo matches the sender's peerID"). Those entries
+                /// are where the provider's dialable addresses come from — we used to discard them entirely
+                /// and store only the address we happened to observe this connection on.
+                let provider: DHT.Message.Peer?
+                if let matching = advertised.first(where: { $0.id == Data(from.peer.id) }),
+                    let matchingInfo = try? matching.toPeerInfo(),
+                    !matchingInfo.addresses.isEmpty
+                {
+                    /// Union the addresses they advertised with the one we observed.
+                    let addresses =
+                        matchingInfo.addresses + from.addresses.filter { !matchingInfo.addresses.contains($0) }
+                    provider = try? DHT.Message.Peer(PeerInfo(peer: from.peer, addresses: addresses))
+                } else {
+                    if !advertised.isEmpty {
+                        request.logger.warning(
+                            "Query::AddProvider::No providerPeers entry matched sender \(from.peer), falling back to the observed address"
                         )
-                        return self.eventLoop.makeSucceededFuture(
-                            Response.getValue(key: key, record: value, closerPeers: [])
-                        )
-                    } else {
-                        return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                            request.logger.notice(
-                                "Query::GetValue::Returning \(peers.count) closer peers for key: \(KadDHT.keyToHumanReadableString(key))"
-                            )
-                            return self.eventLoop.makeSucceededFuture(
-                                Response.getValue(
-                                    key: key,
-                                    record: nil,
-                                    closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }
-                                )
-                            )
-                        }
                     }
+                    provider = try? DHT.Message.Peer(from)
                 }
 
-            case .getProviders(let cid):
-                /// Is this correct?? The same thing a getValue?
-                guard let CID = try? CID(cid) else {
-                    return self.eventLoop.makeSucceededFuture(Response.addProvider(cid: cid, providerPeers: []))
-                }
-                let kid = KadDHT.Key(cid, keySpace: .xor)
-
-                return self.providerStore.getValue(forKey: kid).flatMap { value in
-                    if let value = value, !value.isEmpty {
-                        request.logger.notice(
-                            "Query::GetProviders::Returning \(value.count) Provider Peers for CID: \(CID.multihash.b58String)"
-                        )
-                        return self.eventLoop.makeSucceededFuture(
-                            Response.getProviders(cid: cid, providerPeers: value, closerPeers: [])
-                        )
-                    } else {
-                        /// Otherwise return the k closest peers we know of to the key being searched for (excluding us)
-                        return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap { peers in
-                            request.logger.notice(
-                                "Query::GetProviders::Returning \(peers.count) Closer Peers for CID: \(CID.multihash.b58String)"
-                            )
-                            return self.eventLoop.makeSucceededFuture(
-                                Response.getProviders(
-                                    cid: cid,
-                                    providerPeers: [],
-                                    closerPeers: peers.compactMap { try? DHT.Message.Peer($0) }
-                                )
-                            )
-                        }
-                    }
+                guard let provider else {
+                    return self.eventLoop.makeSucceededFuture(Response.addProvider(cid: key, providerPeers: []))
                 }
 
-            case .addProvider(let cid):
-                // Ensure the provided CID is valid...
-                guard let CID = try? CID(cid) else {
-                    return self.eventLoop.makeSucceededFuture(Response.addProvider(cid: cid, providerPeers: []))
-                }
-                let kid = KadDHT.Key(cid, keySpace: .xor)
-                guard let provider = try? DHT.Message.Peer(from) else {
-                    return self.eventLoop.makeSucceededFuture(Response.addProvider(cid: cid, providerPeers: []))
-                }
+                let timestampKey = Self.providerRecordKey(kid, peerID: from.peer)
 
-                // Previous code had inverted-if semantics here that caused
-                // first-time ADD_PROVIDER calls to no-op and duplicate
-                // calls to append the provider twice. Now: if we already
-                // have this (key, peer) pair, refresh its addedAt
-                // timestamp so the renewal arrives fresh; otherwise
-                // append it. Either way, return the canonical ack
-                // response carrying the stored provider.
-                return self.providerStore.getValue(forKey: kid, default: []).flatMap { existingProviders in
-                    let timestampKey = Self.providerRecordKey(kid, peerID: from.peer)
-                    if existingProviders.contains(provider) {
+                return self.providerStore.getValue(forKey: kid).flatMap { existingProviders in
+                    let existingProviders = existingProviders ?? []
+                    /// - Note: This condition used to be inverted, so a provider we'd never seen was
+                    ///   reported as "already a provider" and dropped, while a provider we already had was
+                    ///   appended a second time. Since the store always started empty, nothing was ever
+                    ///   recorded and GET_PROVIDERS could never return anybody.
+                    guard !existingProviders.contains(provider) else {
+                        /// Refresh the record's `addedAt` so the re-publish we just received keeps the entry
+                        /// alive past `providerRecordTTL` — otherwise a provider that faithfully renews every
+                        /// republish interval would still be expired by `_pruneProviders`.
                         self.providerRecordAddedAt[timestampKey] = Date()
                         request.logger.notice(
-                            "Query::AddProvider::\(from.peer) refreshed for cid: \(CID.multihash.b58String)"
+                            "Query::AddProvider::\(from.peer) refreshed as a provider for key: \(KadDHT.keyToHumanReadableString(key))"
                         )
                         return self.eventLoop.makeSucceededFuture(
-                            Response.addProvider(cid: cid, providerPeers: [provider])
+                            Response.addProvider(cid: key, providerPeers: [provider])
                         )
-                    } else {
-                        return self.providerStore.updateValue(existingProviders + [provider], forKey: kid).map { _ in
-                            self.providerRecordAddedAt[timestampKey] = Date()
-                            request.logger.notice(
-                                "Query::AddProvider::Added \(from.peer) as a provider for cid: \(CID.multihash.b58String)"
-                            )
-                            return Response.addProvider(cid: cid, providerPeers: [provider])
-                        }
+                    }
+                    return self.providerStore.updateValue(existingProviders + [provider], forKey: kid).map { _ in
+                        self.providerRecordAddedAt[timestampKey] = Date()
+                        request.logger.notice(
+                            "Query::AddProvider::Added \(from.peer) as a provider for key: \(KadDHT.keyToHumanReadableString(key))"
+                        )
+                        return Response.addProvider(cid: key, providerPeers: [provider])
                     }
                 }
             }
@@ -1128,74 +1173,74 @@ public enum KadDHT {
                     "storeNew: stored locally key=\(KadDHT.keyToHumanReadableString(key))"
                 )
                 return self._nearest(self.routingTable.bucketSize, peersToKey: targetID).flatMap {
-                seeds -> EventLoopFuture<Bool> in
-                let lookup = KeyLookup(
-                    host: self,
-                    target: targetID,
-                    concurrentRequests: self.maxConcurrentRequest,
-                    seeds: seeds,
-                    groupProvider: self.network!.eventLoopGroupProvider
-                )
-                /// Jump back onto our main event loop to ensure that we're not piggy backing on the lookup's eventloop that's trying to shutdown...
-                return lookup.proceedForPeers().hop(to: self.eventLoop).flatMap {
-                    nearestPeers -> EventLoopFuture<Bool> in
-                    let closestPeers = nearestPeers.compactMap { $0.peer == self.peerID ? nil : $0 }
-                    /// We have the closest peers to this key that the network knows of...
-                    /// Take this opportunity to process / store these new peers
-                    return self.addPeersIfSpaceOrCloser(closestPeers).flatMapAlways { _ -> EventLoopFuture<Bool> in
-                        /// Lets ask each one to store the value and hope at least one returns true
-                        self.logger.warning(
-                            "Asking the closest \(closestPeers.count) peers to store our value \(value)"
-                        )
-                        /// TODO: We need to limit concurrent queries here as well..
-                        //guard let externalAddys = self.network?.externalListeningAddresses, !externalAddys.isEmpty else {
-                        //    return self.eventLoop.makeFailedFuture(Errors.cantPutValueWithoutExternallyDialableAddress)
-                        //}
-                        //let providerInfo = Peer.PeerInfo(id: self.peerID, addresses: externalAddys)
-                        var record = DHT.Record()
-                        record.key = value.key  //Data(targetID.bytes)
-                        record.value = value.value
-                        //record.timeReceived = value.timeReceived
-                        return closestPeers.prefix(4).compactMap { peer in
-                            self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop)
-                                .flatMapAlways { res -> EventLoopFuture<Bool> in
-                                    switch res {
-                                    case .success(let response):
-                                        self.logger.info("PutValue Response -> \(response)")
-                                        guard case .putValue(let k, let rec) = response else {
+                    seeds -> EventLoopFuture<Bool> in
+                    let lookup = KeyLookup(
+                        host: self,
+                        target: targetID,
+                        concurrentRequests: self.maxConcurrentRequest,
+                        seeds: seeds,
+                        groupProvider: self.network!.eventLoopGroupProvider
+                    )
+                    /// Jump back onto our main event loop to ensure that we're not piggy backing on the lookup's eventloop that's trying to shutdown...
+                    return lookup.proceedForPeers().hop(to: self.eventLoop).flatMap {
+                        nearestPeers -> EventLoopFuture<Bool> in
+                        let closestPeers = nearestPeers.compactMap { $0.peer == self.peerID ? nil : $0 }
+                        /// We have the closest peers to this key that the network knows of...
+                        /// Take this opportunity to process / store these new peers
+                        return self.addPeersIfSpaceOrCloser(closestPeers).flatMapAlways { _ -> EventLoopFuture<Bool> in
+                            /// Lets ask each one to store the value and hope at least one returns true
+                            self.logger.warning(
+                                "Asking the closest \(closestPeers.count) peers to store our value \(value)"
+                            )
+                            /// TODO: We need to limit concurrent queries here as well..
+                            //guard let externalAddys = self.network?.externalListeningAddresses, !externalAddys.isEmpty else {
+                            //    return self.eventLoop.makeFailedFuture(Errors.cantPutValueWithoutExternallyDialableAddress)
+                            //}
+                            //let providerInfo = Peer.PeerInfo(id: self.peerID, addresses: externalAddys)
+                            var record = DHT.Record()
+                            record.key = value.key  //Data(targetID.bytes)
+                            record.value = value.value
+                            //record.timeReceived = value.timeReceived
+                            return closestPeers.prefix(4).compactMap { peer in
+                                self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop)
+                                    .flatMapAlways { res -> EventLoopFuture<Bool> in
+                                        switch res {
+                                        case .success(let response):
+                                            self.logger.info("PutValue Response -> \(response)")
+                                            guard case .putValue(let k, let rec) = response else {
+                                                return self.eventLoop.makeSucceededFuture(false)
+                                            }
+                                            self.logger.info("PutValue Response from...")
+                                            self.logger.info("Peer: \(peer.peer.b58String)")
+                                            self.logger.info("Addresses: \(peer.addresses)")
+                                            self.logger.info("Query Key: \(key)")
+                                            self.logger.info("Response Key: \(k)")
+                                            self.logger.info("Query Rec: \(value)")
+                                            if let rec = rec {
+                                                self.logger.info("Response Rec: \(rec)")
+                                            } else {
+                                                self.logger.info("Response Rec: NIL")
+                                            }
+
+                                            return self.eventLoop.makeSucceededFuture(rec != nil && k == key)
+                                        case .failure(let error):
+                                            self.logger.info("PutValue Error -> \(error)")
                                             return self.eventLoop.makeSucceededFuture(false)
                                         }
-                                        self.logger.info("PutValue Response from...")
-                                        self.logger.info("Peer: \(peer.peer.b58String)")
-                                        self.logger.info("Addresses: \(peer.addresses)")
-                                        self.logger.info("Query Key: \(key)")
-                                        self.logger.info("Response Key: \(k)")
-                                        self.logger.info("Query Rec: \(value)")
-                                        if let rec = rec {
-                                            self.logger.info("Response Rec: \(rec)")
-                                        } else {
-                                            self.logger.info("Response Rec: NIL")
-                                        }
-
-                                        return self.eventLoop.makeSucceededFuture(rec != nil && k == key)
-                                    case .failure(let error):
-                                        self.logger.info("PutValue Error -> \(error)")
-                                        return self.eventLoop.makeSucceededFuture(false)
                                     }
-                                }
-                        }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
-                            self.logger.notice(
-                                "storeNew: \(results.filter({ $0 }).count)/\(results.count) peers accepted the value (local copy stored regardless)"
-                            )
-                            /// Local-first semantics: the value is
-                            /// already stored locally — return true.
-                            /// Remote acceptance is advisory; the
-                            /// heartbeat's ``_shareDHTKVs`` will
-                            /// continue propagating the value.
-                            return self.eventLoop.makeSucceededFuture(true)
+                            }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
+                                self.logger.notice(
+                                    "storeNew: \(results.filter({ $0 }).count)/\(results.count) peers accepted the value (local copy stored regardless)"
+                                )
+                                /// Local-first semantics: the value is
+                                /// already stored locally — return true.
+                                /// Remote acceptance is advisory; the
+                                /// heartbeat's ``_shareDHTKVs`` will
+                                /// continue propagating the value.
+                                return self.eventLoop.makeSucceededFuture(true)
+                            }
                         }
                     }
-                }
                 }
             }
         }
@@ -1584,17 +1629,15 @@ public enum KadDHT {
             }
         }
 
-        /// Returns up to the specified number of closest peers to the provided multiaddress, excluding ourselves
-        private func nearest(_ num: Int, toPeer peer: PeerID) -> EventLoopFuture<Response> {
-            //guard let peer = self.multiaddressToPeerID(ma) else { return self.eventLoop.makeFailedFuture(Errors.unknownPeer) }
-
-            self.routingTable.nearest(num, peersTo: peer).flatMap { peerInfos in
-                peerInfos.filter { $0.id.id != self.peerID.id }.compactMap {
-                    //self.peerstore[$0.id.b58String]
-                    self.peerstore.getPeerInfo(byID: $0.id.b58String)
-                }.flatten(on: self.eventLoop).map { ps in
-                    Response.findNode(closerPeers: ps.compactMap { try? DHT.Message.Peer($0) })
-                }
+        /// Returns a `findNode` response containing up to `num` of the closest peers we know of to `key`,
+        /// excluding ourselves and (optionally) the peer that asked.
+        private func nearest(
+            _ num: Int,
+            toKey key: KadDHT.Key,
+            excluding requester: PeerID? = nil
+        ) -> EventLoopFuture<Response> {
+            self._nearest(num, peersToKey: key, excluding: requester).map { ps in
+                Response.findNode(closerPeers: ps.compactMap { try? DHT.Message.Peer($0) })
             }
         }
 
@@ -1613,12 +1656,35 @@ public enum KadDHT {
             }
         }
 
-        /// Returns up to the specified number of closest peers to the provided multiaddress, excluding ourselves
-        private func _nearest(_ num: Int, peersToKey keyID: KadDHT.Key) -> EventLoopFuture<[PeerInfo]> {
+        /// Returns up to the specified number of closest peers to the provided key, excluding ourselves and
+        /// (optionally) the peer that asked us.
+        ///
+        /// - Parameter requester: When answering a query, pass the requesting peer. go's
+        ///   `betterPeersToQuery` never tells a peer about itself, and echoing the requester back wastes a
+        ///   `closerPeers` slot and makes them re-query themselves.
+        private func _nearest(
+            _ num: Int,
+            peersToKey keyID: KadDHT.Key,
+            excluding requester: PeerID? = nil
+        ) -> EventLoopFuture<[PeerInfo]> {
             self.routingTable.nearest(num, peersToKey: keyID).flatMap { peerInfos in
-                peerInfos.filter { $0.id.id != self.peerID.id }.compactMap {
+                peerInfos.filter { peer in
+                    peer.id != self.peerID && peer.id != requester
+                }.compactMap {
                     self.peerstore.getPeerInfo(byID: $0.id.b58String)
                 }.flatten(on: self.eventLoop)
+            }
+        }
+
+        /// Our own dialable addresses, each guaranteed to carry our PeerID.
+        ///
+        /// Used when answering a FIND_NODE for our own ID.
+        private func ourAddresses() -> [Multiaddr] {
+            let candidates = self.network?.listenAddresses ?? []
+            let addresses = candidates.isEmpty ? [self.address].compactMap { $0 } : candidates
+            return addresses.compactMap { addy in
+                addy.getPeerIDString() != nil
+                    ? addy : try? addy.encapsulate(proto: .p2p, address: self.peerID.b58String)
             }
         }
     }
