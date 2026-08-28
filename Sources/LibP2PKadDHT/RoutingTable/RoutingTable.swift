@@ -163,7 +163,7 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         replacementStrategy: ReplacementStrategy? = nil
     ) throws -> Bool {
 
-        let bucketID = self._bucketIDFor(peer: peer)
+        var bucketID = self._bucketIDFor(peer: peer)
 
         let now = Date().timeIntervalSince1970
         var lastUsefulAt: TimeInterval?
@@ -218,7 +218,8 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         if bucketID == self.buckets.count - 1 {
             self._nextBucket()
 
-            let bucketID = self._bucketIDFor(peer: peer)
+            /// The split may have moved this peer into a different bucket
+            bucketID = self._bucketIDFor(peer: peer)
 
             /// If there's room for the peer after splitting, add the peer to the bucket...
             if self.buckets[bucketID].count < self.bucketSize {
@@ -244,6 +245,8 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
             /// We don't really need a stable sort here as it doesn't matter which peer we evict as long as it's a replaceable peer
             if let replaceablePeer = self.buckets[bucketID].shuffled().last(where: { $0.replaceable }) {
                 if self._removePeer(replaceablePeer) {
+                    /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
+                    bucketID = self._bucketIDFor(peer: peer)
                     self.buckets[bucketID].pushFront(
                         DHTPeerInfo(
                             id: peer,
@@ -272,6 +275,8 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
                     "Found the furthest replaceable peer in bucket[\(bucketID)], attempting to replace it with this peer"
                 )
                 if self._removePeer(replaceablePeer) {
+                    /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
+                    bucketID = self._bucketIDFor(peer: peer)
                     self.buckets[bucketID].pushFront(
                         DHTPeerInfo(
                             id: peer,
@@ -295,6 +300,8 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
             /// We don't really need a stable sort here as it doesn't matter which peer we evict as long as it's a replaceable peer
             if let replaceablePeer = self.buckets[bucketID].last(where: { $0.replaceable }) {
                 if self._removePeer(replaceablePeer) {
+                    /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
+                    bucketID = self._bucketIDFor(peer: peer)
                     self.buckets[bucketID].pushFront(
                         DHTPeerInfo(
                             id: peer,
@@ -323,6 +330,8 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
                     "Found a peer in bucket[\(bucketID)] that's replaceable and further away from us than the new peer, attempting to replace it with this peer"
                 )
                 if self._removePeer(replaceablePeer) {
+                    /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
+                    bucketID = self._bucketIDFor(peer: peer)
                     self.buckets[bucketID].pushFront(
                         DHTPeerInfo(
                             id: peer,
@@ -367,7 +376,7 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         replacementStrategy: ReplacementStrategy? = nil
     ) throws -> EventLoopFuture<Bool> {
         self.eventLoop.submit {
-            let bucketID = self._bucketIDFor(peer: peer)
+            var bucketID = self._bucketIDFor(peer: peer)
             self.logger.debug("Attempting to add peer to bucket[\(bucketID)]")
 
             let now = Date().timeIntervalSince1970
@@ -426,7 +435,8 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
                 self.logger.debug("Attempting to unfold the last wildcard bucket")
                 self._nextBucket()
 
-                let bucketID = self._bucketIDFor(peer: peer)
+                /// The split may have moved this peer into a different bucket
+                bucketID = self._bucketIDFor(peer: peer)
                 self.logger.debug("Now attempting to add peer to bucket[\(bucketID)] after split")
 
                 /// If there's room for the peer after splitting, add the peer to the bucket...
@@ -458,6 +468,8 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
                         "Found a peer in bucket[\(bucketID)] that's replaceable, attempting to replace it with this peer"
                     )
                     if self._removePeer(replaceablePeer) {
+                        /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
+                        bucketID = self._bucketIDFor(peer: peer)
                         self.buckets[bucketID].pushFront(
                             DHTPeerInfo(
                                 id: peer.id,
@@ -486,6 +498,8 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
                         "Found the furthest reaplaceable peer in bucket[\(bucketID)], attempting to replace it with this peer"
                     )
                     if self._removePeer(replaceablePeer) {
+                        /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
+                        bucketID = self._bucketIDFor(peer: peer)
                         self.buckets[bucketID].pushFront(
                             DHTPeerInfo(
                                 id: peer.id,
@@ -512,6 +526,8 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
                         "Found a peer in bucket[\(bucketID)] that's replaceable, attempting to replace it with this peer"
                     )
                     if self._removePeer(replaceablePeer) {
+                        /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
+                        bucketID = self._bucketIDFor(peer: peer)
                         self.buckets[bucketID].pushFront(
                             DHTPeerInfo(
                                 id: peer.id,
@@ -542,6 +558,8 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
                         "Found a peer in bucket[\(bucketID)] that's replaceable and further away from us than the new peer, attempting to replace it with this peer"
                     )
                     if self._removePeer(replaceablePeer) {
+                        /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
+                        bucketID = self._bucketIDFor(peer: peer)
                         self.buckets[bucketID].pushFront(
                             DHTPeerInfo(
                                 id: peer.id,
