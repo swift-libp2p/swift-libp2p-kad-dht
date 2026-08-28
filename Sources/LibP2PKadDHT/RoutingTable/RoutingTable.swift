@@ -606,20 +606,14 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
             //    df.remove(peer)
             //}
 
-            /// Compact the buckets array, making sure we don't have empty buckets laying around...
-            while !self.buckets.isEmpty {
-                let lastBucketIndex = self.buckets.count - 1
-                if self.buckets.count > 1, self.buckets[lastBucketIndex].isEmpty {
-                    // If the last bucket is empty remove it...
-                    self.buckets.remove(at: lastBucketIndex)
-                } else if self.buckets.count >= 2 && self.buckets[lastBucketIndex - 1].isEmpty {
-                    // If the second to last bucket became empty, remove it...
-                    self.buckets.remove(at: lastBucketIndex - 1)
-                } else {
-                    break
-                }
+            /// Compact the buckets array by trimming any empty buckets off of the tail...
+            /// - Note: We only trim the tail. A bucket's index is the common prefix length of the
+            ///   peers it holds, so removing an interior bucket would shift every higher bucket down and
+            ///   permanently break the CPL
+            /// - Note: We always keep at least one bucket around.
+            while self.buckets.count > 1, self.buckets[self.buckets.count - 1].isEmpty {
+                self.buckets.removeLast()
             }
-            if self.buckets.isEmpty { self.buckets.append(Bucket()) }
 
             /// Invoke the peerRemovedHandler if one is set...
             self.peerRemovedHandler?(peer)
@@ -647,20 +641,14 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
             //    df.remove(peer)
             //}
 
-            /// Compact the buckets array, making sure we don't have empty buckets laying around...
-            while !self.buckets.isEmpty {
-                let lastBucketIndex = self.buckets.count - 1
-                if self.buckets.count > 1, self.buckets[lastBucketIndex].isEmpty {
-                    // If the last bucket is empty remove it...
-                    self.buckets.remove(at: lastBucketIndex)
-                } else if self.buckets.count >= 2 && self.buckets[lastBucketIndex - 1].isEmpty {
-                    // If the second to last bucket became empty, remove it...
-                    self.buckets.remove(at: lastBucketIndex - 1)
-                } else {
-                    break
-                }
+            /// Compact the buckets array by trimming any empty buckets off of the tail...
+            /// - Note: We only trim the tail. A bucket's index is the common prefix length of the
+            ///   peers it holds, so removing an interior bucket would shift every higher bucket down and
+            ///   permanently break the CPL
+            /// - Note: We always keep at least one bucket around.
+            while self.buckets.count > 1, self.buckets[self.buckets.count - 1].isEmpty {
+                self.buckets.removeLast()
             }
-            if self.buckets.isEmpty { self.buckets.append(Bucket()) }
 
             /// Invoke the peerRemovedHandler if one is set...
             self.peerRemovedHandler?(peer.id)
