@@ -244,6 +244,7 @@ extension LibP2PKadDHTTests {
                     options: dhtParams,
                     bootstrapPeers: [],
                     autoHeartbeat: false,
+                    logLevel: .critical,
                     usingGroup: .shared(group)
                 )
             ]
@@ -254,6 +255,7 @@ extension LibP2PKadDHTTests {
                         options: dhtParams,
                         bootstrapPeers: [nodes[i - 1].peerInfo],
                         autoHeartbeat: false,
+                        logLevel: .critical,
                         usingGroup: .shared(group)
                     )
                 )
@@ -265,12 +267,16 @@ extension LibP2PKadDHTTests {
             // Add the last nodes info to the first node
             try nodes[0].peers.add(peerInfo: nodes.last!.peerInfo).wait()
 
-            for _ in 0..<5 {
+            for round in 0..<5 {
                 for node in nodes {
                     try node.dht.kadDHT.heartbeat().wait()
                 }
 
-                printNetwork(nodes.map { $0.dht.kadDHT })
+                /// Kademlia guarantees a local invariant, not a global ordering: each node should
+                /// know the k peers nearest itself. Grade that directly — it converges toward 100%
+                /// as the heartbeats progress.
+                print("--- after heartbeat \(round + 1) ---")
+                printKClosestCompleteness(nodes.map { $0.dht.kadDHT })
             }
 
             for i in 0..<numberOfNodes {
@@ -397,10 +403,11 @@ extension LibP2PKadDHTTests {
             options: KadDHT.NodeOptions = .default,
             bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
             autoHeartbeat: Bool = false,
+            logLevel: Logger.Level = .notice,
             usingGroup: Application.EventLoopGroupProvider = .singleton
         ) throws -> Application {
             let lib = try Application(.testing, peerID: PeerID(.Ed25519), eventLoopGroupProvider: usingGroup)
-            lib.logger.logLevel = .notice
+            lib.logger.logLevel = logLevel
             lib.security.use(.noise)
             lib.muxers.use(.yamux)
             lib.dht.use(
