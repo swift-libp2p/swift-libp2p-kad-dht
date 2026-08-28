@@ -244,6 +244,7 @@ extension LibP2PKadDHTTests {
                     options: dhtParams,
                     bootstrapPeers: [],
                     autoHeartbeat: false,
+                    logLevel: .critical,
                     usingGroup: .shared(group)
                 )
             ]
@@ -254,6 +255,7 @@ extension LibP2PKadDHTTests {
                         options: dhtParams,
                         bootstrapPeers: [nodes[i - 1].peerInfo],
                         autoHeartbeat: false,
+                        logLevel: .critical,
                         usingGroup: .shared(group)
                     )
                 )
@@ -401,10 +403,11 @@ extension LibP2PKadDHTTests {
             options: KadDHT.NodeOptions = .default,
             bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
             autoHeartbeat: Bool = false,
+            logLevel: Logger.Level = .notice,
             usingGroup: Application.EventLoopGroupProvider = .singleton
         ) throws -> Application {
             let lib = try Application(.testing, peerID: PeerID(.Ed25519), eventLoopGroupProvider: usingGroup)
-            lib.logger.logLevel = .notice
+            lib.logger.logLevel = logLevel
             lib.security.use(.noise)
             lib.muxers.use(.yamux)
             lib.dht.use(
