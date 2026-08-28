@@ -397,9 +397,12 @@ extension LibP2PKadDHTTests {
             #expect(try routingTable.getPeerInfos().wait().count == 2)
             print(routingTable)
 
-            /// Remove a peer from the second to last bucket (the first bucket in this case) and ensure it collapses as expected
+            /// Remove a peer from the second to last bucket (the first bucket in this case) and ensure it
+            /// does *not* collapse. A bucket's index is the common prefix length of the peers it holds,
+            /// so dropping bucket[0] here would shift bucket[1] down to index 0 and strand peer1 in a
+            /// bucket that `_bucketIDFor` would never look in. Only trailing empty buckets get trimmed.
             #expect(try routingTable.removePeer(peer0).wait())
-            #expect(try routingTable.bucketCount.wait() == 1)
+            #expect(try routingTable.bucketCount.wait() == 2)
             #expect(try routingTable.getPeerInfos().wait().count == 1)
             #expect(try routingTable.getPeerInfos().wait().contains(where: { $0.id == peer1.id }))
             print(routingTable)
@@ -445,16 +448,19 @@ extension LibP2PKadDHTTests {
             /// b[2] = [2]
             /// b[3] = [3]
             /// ---------------------------------------
-            /// removing peer2 next causes a cascading collapse that ends up 'removing' bucket 1 and 2
+            /// removing peer2 leaves a second empty interior bucket, still without triggering a collapse
             #expect(try routingTable.removePeer(peer2).wait())
             /// 📒 --------------------------------- 📒
             /// Routing Table [<peer.ID dJwpME>]
-            /// Bucket Count: 2 buckets of size: 1
+            /// Bucket Count: 4 buckets of size: 1
             /// Total Peers: 2
             /// b[0] = [0]
-            /// b[1] = [3]
+            /// b[1] = []
+            /// b[2] = []
+            /// b[3] = [3]
             /// ---------------------------------------
-            /// removing peer3 from the last bucket also deletes it resulting in a single peer0 in bucket[0]
+            /// removing peer3 empties the last bucket, so the whole empty tail (b[3], b[2], b[1]) is
+            /// trimmed in one pass, leaving a single peer0 in bucket[0]
             #expect(try routingTable.removePeer(peer3).wait())
             /// 📒 --------------------------------- 📒
             /// Routing Table [<peer.ID dJwpME>]
