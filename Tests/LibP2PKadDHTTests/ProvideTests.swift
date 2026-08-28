@@ -38,8 +38,7 @@ extension LibP2PKadDHTTests {
     @Suite("Provide Tests", .serialized)
     final class ProvideTests {
 
-        @Test
-        func testProvideStoresLocallyWithoutAnnounce() throws {
+        @Test func testProvideStoresLocallyWithoutAnnounce() throws {
             let app = try makeApplication()
             defer { app.shutdown() }
             try app.start()
@@ -66,8 +65,7 @@ extension LibP2PKadDHTTests {
             #expect(node.providerRecordAddedAt[composite] != nil, "addedAt should be tracked")
         }
 
-        @Test
-        func testProvideExpiryPruning() throws {
+        @Test func testProvideExpiryPruning() throws {
             let app = try makeApplication()
             defer { app.shutdown() }
             try app.start()
@@ -96,8 +94,7 @@ extension LibP2PKadDHTTests {
             #expect(node.providerRecordAddedAt[composite] == nil, "stale timestamp entry should be removed")
         }
 
-        @Test
-        func testProvideRenewalEligibility() throws {
+        @Test func testProvideRenewalEligibility() throws {
             let app = try makeApplication()
             defer { app.shutdown() }
             try app.start()
@@ -125,8 +122,7 @@ extension LibP2PKadDHTTests {
             #expect(refreshed > staleTime, "renewal job should refresh addedAt past the stale time")
         }
 
-        @Test
-        func testProvideBeforeBootstrap() throws {
+        @Test func testProvideBeforeBootstrap() throws {
             let app = try makeApplication()
             defer { app.shutdown() }
             try app.start()
@@ -146,7 +142,7 @@ extension LibP2PKadDHTTests {
             #expect(stored.count == 1, "local provider entry should exist")
         }
 
-        func testProvideThenFindRoundTrip() throws {
+        @Test func testProvideThenFindRoundTrip() throws {
             let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
             defer { try! group.syncShutdownGracefully() }
             let dhtParams = KadDHT.NodeOptions(
@@ -186,7 +182,7 @@ extension LibP2PKadDHTTests {
             #expect(!providers.isEmpty, "node B should have found at least one provider for the CID")
         }
 
-        func testProvideMultipleKeys() throws {
+        @Test func testProvideMultipleKeys() throws {
             let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
             defer { try! group.syncShutdownGracefully() }
             let dhtParams = KadDHT.NodeOptions(
