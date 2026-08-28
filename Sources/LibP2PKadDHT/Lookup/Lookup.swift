@@ -61,10 +61,10 @@ final class Lookup: @unchecked Sendable {
         self.completionPromise = self.eventLoop.makePromise(of: Void.self)
     }
 
-    deinit { print("Lookup::deinit") }
+    deinit { self.logger.debug("Lookup::deinit") }
 
     private func tearDownSelf() {
-        print("Lookup::tearDownSelf")
+        self.logger.debug("Lookup::tearDownSelf")
         if !self.sharedELG {
             try? self.eventLoop.close()
             self.group.shutdownGracefully(queue: .global()) { _ in print("Lookup::ELG shutdown") }
@@ -129,7 +129,7 @@ final class Lookup: @unchecked Sendable {
         self.eventLoop.flatSubmit {
             if decrementingRequests { self.requestsInProgress -= 1 }
             guard !self.canceled else {
-                self.logger.warning("Lookup Cancelled, Worker Terminating")
+                self.logger.debug("Lookup Cancelled, Worker Terminating")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
             guard let next = self.list.next() else {
@@ -139,10 +139,10 @@ final class Lookup: @unchecked Sendable {
                         self._recursivelyQueryForTarget(on: on)
                     }.futureResult
                 }
-                self.logger.warning("Worker Terminating - No More Work")
+                self.logger.debug("Worker Terminating - No More Work")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
-            self.logger.info("Querying \(next.peer.b58String) for id: \(self.target.b58String)")
+            self.logger.debug("Querying \(next.peer.b58String) for id: \(self.target.b58String)")
             self.requestsInProgress += 1
             return on.flatSubmit {
                 self.host._sendQuery(.findNode(key: self.target.id), to: next, on: on).flatMapAlways { result in
@@ -228,10 +228,10 @@ final class KeyLookup: @unchecked Sendable {
         )
     }
 
-    deinit { print("KeyLookup::deinit") }
+    deinit { self.logger.debug("KeyLookup::deinit") }
 
     func tearDownSelf() {
-        print("KeyLookup::tearDownSelf")
+        self.logger.debug("KeyLookup::tearDownSelf")
         if !self.sharedELG {
             try? self.eventLoop.close()
             self.group.shutdownGracefully(queue: .global()) { _ in print("KeyLookup::ELG shutdown") }
