@@ -265,12 +265,16 @@ extension LibP2PKadDHTTests {
             // Add the last nodes info to the first node
             try nodes[0].peers.add(peerInfo: nodes.last!.peerInfo).wait()
 
-            for _ in 0..<5 {
+            for round in 0..<5 {
                 for node in nodes {
                     try node.dht.kadDHT.heartbeat().wait()
                 }
 
-                printNetwork(nodes.map { $0.dht.kadDHT })
+                /// Kademlia guarantees a local invariant, not a global ordering: each node should
+                /// know the k peers nearest itself. Grade that directly — it converges toward 100%
+                /// as the heartbeats progress.
+                print("--- after heartbeat \(round + 1) ---")
+                printKClosestCompleteness(nodes.map { $0.dht.kadDHT })
             }
 
             for i in 0..<numberOfNodes {
