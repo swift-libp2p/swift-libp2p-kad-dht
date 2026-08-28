@@ -758,14 +758,25 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
             self.buckets.append(Bucket())
             return
         }
-        let newBucket = self.buckets[self.buckets.count - 1].split(
-            commonPrefixLength: self.buckets.count - 1,
-            targetID: self.localDHTID.bytes
-        )
-        self.buckets.append(newBucket)
 
-        if newBucket.count > self.bucketSize {
-            self._nextBucket()
+        /// Keep unfolding until the tail bucket actually has room for a new peer.
+        ///
+        /// A bucket never holds more than `bucketSize` peers, so `newBucket.count >= self.bucketSize`
+        /// means the split moved every peer out of the old tail, leaving the new tail just as full as
+        /// the bucket we started with. Stopping there would send `_addPeer` down the eviction path even
+        /// though another unfold would have made room for free.
+        /// - Note: see `testUnfoldsUntilTailBucketHasRoom` for more info
+        /// - Note: Each pass splits at a common prefix length one greater than the last, so this
+        ///   terminates once the split CPL exceeds the highest CPL in the bucket, at which point the
+        ///   new bucket comes back empty.
+        while true {
+            let newBucket = self.buckets[self.buckets.count - 1].split(
+                commonPrefixLength: self.buckets.count - 1,
+                targetID: self.localDHTID.bytes
+            )
+            self.buckets.append(newBucket)
+
+            if newBucket.count < self.bucketSize { return }
         }
     }
 
