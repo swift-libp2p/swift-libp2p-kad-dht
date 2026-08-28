@@ -397,9 +397,12 @@ extension LibP2PKadDHTTests {
             #expect(try routingTable.getPeerInfos().wait().count == 2)
             print(routingTable)
 
-            /// Remove a peer from the second to last bucket (the first bucket in this case) and ensure it collapses as expected
+            /// Remove a peer from the second to last bucket (the first bucket in this case) and ensure it
+            /// does not collapse. A bucket's index is the common prefix length of the peers it holds,
+            /// so dropping bucket[0] here would shift bucket[1] down to index 0 and strand peer1 in a
+            /// bucket that `_bucketIDFor` would never look in. Only trailing empty buckets get trimmed.
             #expect(try routingTable.removePeer(peer0).wait())
-            #expect(try routingTable.bucketCount.wait() == 1)
+            #expect(try routingTable.bucketCount.wait() == 2)
             #expect(try routingTable.getPeerInfos().wait().count == 1)
             #expect(try routingTable.getPeerInfos().wait().contains(where: { $0.id == peer1.id }))
             print(routingTable)
@@ -445,16 +448,19 @@ extension LibP2PKadDHTTests {
             /// b[2] = [2]
             /// b[3] = [3]
             /// ---------------------------------------
-            /// removing peer2 next causes a cascading collapse that ends up 'removing' bucket 1 and 2
+            /// removing peer2 leaves a second empty interior bucket, still without triggering a collapse
             #expect(try routingTable.removePeer(peer2).wait())
             /// 📒 --------------------------------- 📒
             /// Routing Table [<peer.ID dJwpME>]
-            /// Bucket Count: 2 buckets of size: 1
+            /// Bucket Count: 4 buckets of size: 1
             /// Total Peers: 2
             /// b[0] = [0]
-            /// b[1] = [3]
+            /// b[1] = []
+            /// b[2] = []
+            /// b[3] = [3]
             /// ---------------------------------------
-            /// removing peer3 from the last bucket also deletes it resulting in a single peer0 in bucket[0]
+            /// removing peer3 empties the last bucket, so the whole empty tail (b[3], b[2], b[1]) is
+            /// trimmed in one pass, leaving a single peer0 in bucket[0]
             #expect(try routingTable.removePeer(peer3).wait())
             /// 📒 --------------------------------- 📒
             /// Routing Table [<peer.ID dJwpME>]
@@ -1144,6 +1150,64 @@ extension LibP2PKadDHTTests {
             /// And the inverse still works
             #expect(try routingTable.markPeerReplaceable(dhtPeer).wait())
             #expect(try routingTable.find(id: peer).wait()?.replaceable == true)
+        }
+
+        /// `_nextBucket` stopped unfolding on `newBucket.count > bucketSize`, which can never be true
+        /// (a bucket never exceeds `bucketSize` and a split returns a subset of what it split). So when a
+        /// split moved *every* peer into the new tail bucket, we'd stop with the tail still full and fall
+        /// through to eviction instead of unfolding again. Verify we now keep unfolding until there's room.
+        @Test func testUnfoldsUntilTailBucketHasRoom() throws {
+            let local = RandomDHTPeer()
+
+            let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+            defer { try! elg.syncShutdownGracefully() }
+
+            let routingTable = RoutingTable(
+                eventloop: elg.next(),
+                bucketSize: 2,
+                localPeerID: local.id,
+                latency: .hours(1),
+                peerstoreMetrics: [:],
+                usefulnessGracePeriod: .hours(1)
+            )
+
+            /// Two peers that are close to us, but not to each other, fill the lone wildcard bucket.
+            /// Both have a CPL > 0, so splitting bucket[0] moves *both* of them into the new bucket.
+            let peerCPL5 = RandomDHTPeer(withCPL: 5, wrt: local.dhtID, isReplaceable: false)
+            let peerCPL6 = RandomDHTPeer(withCPL: 6, wrt: local.dhtID, isReplaceable: false)
+            #expect(try routingTable.addPeer(peerCPL5, isQueryPeer: true).wait())
+            #expect(try routingTable.addPeer(peerCPL6, isQueryPeer: true).wait())
+            #expect(try routingTable.bucketCount.wait() == 1)
+            print(routingTable)
+
+            /// bucket[0] is now full. Every peer in it is irreplaceable, so if we stop unfolding early
+            /// the eviction path has nothing to evict and this add fails.
+            let peerCPL7 = RandomDHTPeer(withCPL: 7, wrt: local.dhtID, isReplaceable: false)
+            #expect(try routingTable.addPeer(peerCPL7, isQueryPeer: true).wait())
+            print(routingTable)
+
+            /// Nobody got evicted along the way
+            #expect(try routingTable.totalPeers().wait() == 3)
+            #expect(try routingTable.find(id: peerCPL5).wait()?.id == peerCPL5.id)
+            #expect(try routingTable.find(id: peerCPL6).wait()?.id == peerCPL6.id)
+            #expect(try routingTable.find(id: peerCPL7).wait()?.id == peerCPL7.id)
+
+            /// We unfolded far enough to separate the CPL 5 peer from the CPL 6/7 peers, which needs
+            /// buckets all the way out to index 6. Each peer now sits in the bucket matching its CPL.
+            #expect(try routingTable.bucketCount.wait() == 7)
+            #expect(try routingTable.numberOfPeers(withCommonPrefixLength: 5).wait() == 1)
+            #expect(try routingTable.numberOfPeers(withCommonPrefixLength: 6).wait() == 1)
+            #expect(try routingTable.numberOfPeers(withCommonPrefixLength: 7).wait() == 1)
+
+            /// The unfold left empty interior buckets behind. That's expected - a bucket's index is the
+            /// CPL of the peers it holds, so those slots have to stay to keep the higher buckets addressable.
+            for cpl in 0..<5 {
+                #expect(try routingTable.numberOfPeers(withCommonPrefixLength: cpl).wait() == 0)
+            }
+
+            /// And the table still answers lookups correctly across those gaps
+            #expect(try routingTable.nearest(3, peersTo: peerCPL7).wait().count == 3)
+            #expect(try routingTable.nearestPeer(to: peerCPL5).wait()?.id == peerCPL5.id)
         }
 
     }
