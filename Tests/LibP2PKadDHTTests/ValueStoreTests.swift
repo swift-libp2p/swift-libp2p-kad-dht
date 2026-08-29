@@ -17,6 +17,7 @@ import LibP2P
 import LibP2PNoise
 import LibP2PYAMUX
 import Multihash
+import LibP2PTesting
 import Testing
 
 @testable import LibP2PKadDHT
@@ -40,11 +41,7 @@ extension LibP2PKadDHTTests {
     @Suite("Value Store Tests", .serialized)
     final class ValueStoreTests {
 
-        @Test
-        func testStoreNewWithEmptyRoutingTableReturnsTrue() throws {
-            let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-            defer { try! group.syncShutdownGracefully() }
-
+        @Test func testStoreNewWithEmptyRoutingTableReturnsTrue() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(150),
                 maxConcurrentConnections: 3,
@@ -53,37 +50,26 @@ extension LibP2PKadDHTTests {
                 maxKeyValueStoreEntries: 10,
                 supportLocalNetwork: true
             )
-
-            let node = try makeHost(
-                mode: .server,
-                options: dhtParams,
-                bootstrapPeers: [],
-                usingGroup: .shared(group)
-            )
-            try node.start()
-            defer { node.shutdown() }
-
-            let key = try syntheticCID("local-first-empty-rt")
-            let record = TestRecord(
-                key: Data(key),
-                value: Data("hello-local-first".utf8)
-            )
-            let accepted = try node.dht.kadDHT.storeNew(key, value: record).wait()
-            #expect(accepted, "storeNew should accept even with empty routing table")
-
-            // Publisher's own get must succeed without any remote
-            // hop — local-first means the value is sitting in our
-            // own kv store.
-            let fetched = try node.dht.kadDHT.getUsingLookupList(key).wait()
-            #expect(fetched != nil, "publisher's own getUsingLookupList should hit the local kv")
-            #expect(fetched?.value == Data("hello-local-first".utf8))
+            
+            try await withApp(configure: dhtHost(mode: .server, options: dhtParams)) { node in
+                let key = try syntheticCID("local-first-empty-rt")
+                let record = TestRecord(
+                    key: Data(key),
+                    value: Data("hello-local-first".utf8)
+                )
+                let accepted = try await node.dht.kadDHT.storeNew(key, value: record).get()
+                #expect(accepted, "storeNew should accept even with empty routing table")
+                
+                // Publisher's own get must succeed without any remote
+                // hop — local-first means the value is sitting in our
+                // own kv store.
+                let fetched = try await node.dht.kadDHT.getUsingLookupList(key).get()
+                #expect(fetched != nil, "publisher's own getUsingLookupList should hit the local kv")
+                #expect(fetched?.value == Data("hello-local-first".utf8))
+            }
         }
 
-        @Test(.internalIntegrationTestsEnabled)
-        func testStoreNewCrossNodeRoundTrip() throws {
-            let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-            defer { try! group.syncShutdownGracefully() }
-
+        @Test func testStoreNewCrossNodeRoundTrip() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(500),
                 maxConcurrentConnections: 3,
@@ -93,41 +79,21 @@ extension LibP2PKadDHTTests {
                 supportLocalNetwork: true
             )
 
-            let publisher = try makeHost(
-                mode: .server,
-                options: dhtParams,
-                bootstrapPeers: [],
-                usingGroup: .shared(group)
-            )
-            try publisher.start()
+            try await withApp(configure: dhtHost(mode: .server, options: dhtParams)) { publisher in
+                try await withApp(configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [publisher.peerInfo])) { consumer in
+                    let key = try syntheticCID("local-first-cross-node")
+                    let record = TestRecord(
+                        key: Data(key),
+                        value: Data("hello-cross-node".utf8)
+                    )
+                    let stored = try await publisher.dht.kadDHT.storeNew(key, value: record).get()
+                    #expect(stored, "storeNew should accept (local-first semantics)")
 
-            let consumer = try makeHost(
-                mode: .server,
-                options: dhtParams,
-                bootstrapPeers: [publisher.peerInfo],
-                usingGroup: .shared(group)
-            )
-            try consumer.start()
-            defer {
-                publisher.shutdown()
-                consumer.shutdown()
+                    let fetched = try await consumer.dht.kadDHT.getUsingLookupList(key).get()
+                    #expect(fetched != nil, "consumer should fetch publisher's value via iterative lookup")
+                    #expect(fetched?.value == Data("hello-cross-node".utf8))
+                }
             }
-
-            let key = try syntheticCID("local-first-cross-node")
-            let record = TestRecord(
-                key: Data(key),
-                value: Data("hello-cross-node".utf8)
-            )
-            let stored = try publisher.dht.kadDHT.storeNew(key, value: record).wait()
-            #expect(stored, "storeNew should accept (local-first semantics)")
-
-            // Give a moment for the consumer's iterative lookup to
-            // discover the publisher.
-            Thread.sleep(forTimeInterval: 0.5)
-
-            let fetched = try consumer.dht.kadDHT.getUsingLookupList(key).wait()
-            #expect(fetched != nil, "consumer should fetch publisher's value via iterative lookup")
-            #expect(fetched?.value == Data("hello-cross-node".utf8))
         }
 
         // MARK: - Helpers
@@ -140,22 +106,19 @@ extension LibP2PKadDHTTests {
             ).rawBuffer
         }
 
-        private var nextPort: Int = Int.random(in: 13000..<14000)
-
-        private func makeHost(
+        private func dhtHost(
             mode: KadDHT.Mode = .client,
             options: KadDHT.NodeOptions = .default,
             bootstrapPeers: [PeerInfo] = [],
-            usingGroup: Application.EventLoopGroupProvider = .singleton
-        ) throws -> Application {
-            let lib = try Application(.testing, peerID: PeerID(.Ed25519), eventLoopGroupProvider: usingGroup)
-            lib.logger.logLevel = .warning
-            lib.security.use(.noise)
-            lib.muxers.use(.yamux)
-            lib.dht.use(.kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: false))
-            lib.servers.use(.tcp(host: "127.0.0.1", port: self.nextPort))
-            self.nextPort += 1
-            return lib
+            logLevel: Logger.Level = .warning
+        ) -> ((Application) async throws -> Void) {
+            { app in
+                app.logger.logLevel = logLevel
+                app.security.use(.noise)
+                app.muxers.use(.yamux)
+                app.dht.use(.kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: false))
+                app.servers.use(.tcp(host: "127.0.0.1", port: 0))
+            }
         }
     }
 
