@@ -203,14 +203,6 @@ extension LibP2PKadDHTTests {
 
         // MARK: - Helpers
 
-        private func syntheticCID(_ tag: String) throws -> [UInt8] {
-            try CID(
-                version: .v1,
-                codec: .raw,
-                multihash: try Multihash(raw: tag.bytes, hashedWith: .sha2_256)
-            ).rawBuffer
-        }
-
         /// The routing-table key a provider record for `cid` is stored under.
         ///
         /// Provider records are keyed by the CID's *multihash*, not by the raw CID bytes, so that every
@@ -242,21 +234,6 @@ extension LibP2PKadDHTTests {
                 )
             )
             app.servers.use(.tcp(host: "127.0.0.1", port: 0))
-        }
-
-        /// Helper method for configuring a DHT Node for the above tests
-        private func dhtHost(
-            mode: KadDHT.Mode = .client,
-            options: KadDHT.NodeOptions = .default,
-            bootstrapPeers: [PeerInfo] = []
-        ) -> ((Application) async throws -> Void) {
-            { app in
-                app.logger.logLevel = .warning
-                app.security.use(.noise)
-                app.muxers.use(.yamux)
-                app.dht.use(.kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: false))
-                app.servers.use(.tcp(host: "127.0.0.1", port: 0))
-            }
         }
     }
 }

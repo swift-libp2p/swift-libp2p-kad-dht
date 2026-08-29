@@ -95,31 +95,6 @@ extension LibP2PKadDHTTests {
                 }
             }
         }
-
-        // MARK: - Helpers
-
-        private func syntheticCID(_ tag: String) throws -> [UInt8] {
-            try CID(
-                version: .v1,
-                codec: .raw,
-                multihash: try Multihash(raw: tag.bytes, hashedWith: .sha2_256)
-            ).rawBuffer
-        }
-
-        private func dhtHost(
-            mode: KadDHT.Mode = .client,
-            options: KadDHT.NodeOptions = .default,
-            bootstrapPeers: [PeerInfo] = [],
-            logLevel: Logger.Level = .warning
-        ) -> ((Application) async throws -> Void) {
-            { app in
-                app.logger.logLevel = logLevel
-                app.security.use(.noise)
-                app.muxers.use(.yamux)
-                app.dht.use(.kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: false))
-                app.servers.use(.tcp(host: "127.0.0.1", port: 0))
-            }
-        }
     }
 
     private struct TestRecord: DHTRecord {
@@ -130,4 +105,30 @@ extension LibP2PKadDHTTests {
         let timeReceived: String = ""
     }
 
+}
+
+extension LibP2PKadDHTTests {
+    static func syntheticCID(_ tag: String) throws -> [UInt8] {
+        try CID(
+            version: .v1,
+            codec: .raw,
+            multihash: try Multihash(raw: tag.bytes, hashedWith: .sha2_256)
+        ).rawBuffer
+    }
+    
+    /// Helper method for configuring a DHT Node for the above tests
+    static func dhtHost(
+        mode: KadDHT.Mode = .client,
+        options: KadDHT.NodeOptions = .default,
+        bootstrapPeers: [PeerInfo] = [],
+        logLevel: Logger.Level = .warning
+    ) -> ((Application) async throws -> Void) {
+        { app in
+            app.logger.logLevel = logLevel
+            app.security.use(.noise)
+            app.muxers.use(.yamux)
+            app.dht.use(.kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: false))
+            app.servers.use(.tcp(host: "127.0.0.1", port: 0))
+        }
+    }
 }
