@@ -122,36 +122,16 @@ extension KadDHT {
             let _ = try PeerID(marshaledPublicKey: Data(record.value))
         }
 
+        /// Every valid value for a `/pk/` key is byte-identical, so there is nothing to choose
+        /// between: `validate` binds the key to the hash of the public key it carries, which means
+        /// any value that passes validation is a good value.
+        ///
+        /// - Note: This mirrors go-libp2p-record's `PublicKeyValidator.Select`
         func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
-            print("🔎 PubKeyValidator::Selecting key `\(key.toHexString())` from \(values.count) values")
-            let records = values.map { try? DHT.Record(serializedBytes: $0) }
-            guard !records.compactMap({ $0 }).isEmpty else {
+            guard !values.isEmpty else {
                 throw NSError(domain: "Validator::No Records to select", code: 0)
             }
-            guard records.count > 1 && records[0] != nil else { return 0 }
-
-            var bestValueIndex: Int = 0
-            var bestValue: DHT.Record?
-            for (index, record) in records.enumerated() {
-                guard let record = record else { continue }
-                guard let newRecord = try? RFC3339Date(string: record.timeReceived) else { continue }
-
-                if let currentBest = bestValue {
-                    guard let currentRecord = try? RFC3339Date(string: currentBest.timeReceived) else { continue }
-                    // If this record is more recent then our currentBest, update our current best!
-                    if newRecord > currentRecord {
-                        bestValue = record
-                        bestValueIndex = index
-                    }
-                } else {
-                    // If we don't have a current best, set it!
-                    bestValue = record
-                    bestValueIndex = index
-                }
-            }
-
-            guard bestValue != nil else { throw NSError(domain: "Validator::Failed to select a valid record", code: 0) }
-            return bestValueIndex
+            return 0
         }
     }
 
@@ -165,36 +145,61 @@ extension KadDHT {
             let _ = try IpnsEntry(serializedBytes: record.value)
         }
 
+        /// Picks the best of several IPNS records: **highest sequence number, then latest validity**.
+        ///
+        /// - Note: The validity tie-break matters in practice: a publisher whose republish interval is
+        /// shorter than its record lifetime re-emits the same sequence number with an updated EOL,
+        /// so on equal sequence the longer-lived record has to win.
         func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
-            print("🔎 IPNSValidator::Selecting key `\(key.toHexString())` from \(values.count) values")
-            let records = values.map { try? DHT.Record(serializedBytes: $0) }
-            guard !records.compactMap({ $0 }).isEmpty else {
-                throw NSError(domain: "Validator::No Records to select", code: 0)
+            let entries = values.map { value -> IpnsEntry? in
+                guard let record = try? DHT.Record(serializedBytes: value),
+                    let entry = try? IpnsEntry(serializedBytes: record.value)
+                else { return nil }
+                return entry
             }
-            guard records.count > 1 && records[0] != nil else { return 0 }
 
-            var bestValueIndex: Int = 0
-            var bestValue: DHT.Record?
-            for (index, record) in records.enumerated() {
-                guard let record = record else { continue }
-                guard let newRecord = try? RFC3339Date(string: record.timeReceived) else { continue }
-
-                if let currentBest = bestValue {
-                    guard let currentRecord = try? RFC3339Date(string: currentBest.timeReceived) else { continue }
-                    // If this record is more recent then our currentBest, update our current best!
-                    if newRecord > currentRecord {
-                        bestValue = record
-                        bestValueIndex = index
-                    }
-                } else {
-                    // If we don't have a current best, set it!
-                    bestValue = record
-                    bestValueIndex = index
+            var bestIndex: Int? = nil
+            for (index, entry) in entries.enumerated() {
+                guard let entry else { continue }
+                guard let currentBest = bestIndex, let best = entries[currentBest] else {
+                    bestIndex = index
+                    continue
+                }
+                /// compare the current best to the next record
+                if Self.isPreferred(entry, over: best) {
+                    /// update the best index if it's prefered
+                    bestIndex = index
                 }
             }
 
-            guard bestValue != nil else { throw NSError(domain: "Validator::Failed to select a valid record", code: 0) }
-            return bestValueIndex
+            guard let bestIndex else {
+                throw NSError(domain: "Validator::No Records to select", code: 0)
+            }
+            return bestIndex
+        }
+
+        /// `true` when `candidate` should win over `current`.
+        private static func isPreferred(_ candidate: IpnsEntry, over current: IpnsEntry) -> Bool {
+            /// Highest sequence numbers wins
+            guard candidate.sequence == current.sequence else {
+                return candidate.sequence > current.sequence
+            }
+
+            /// If they have the same sequence number, prefer the later EOL.
+            /// If the candidate doesn't have an EOL, we prefer the current Record
+            guard let candidateEOL = Self.endOfLife(candidate) else { return false }
+            /// If the candidate does have an EOL and the current record doesn't, we prefer the candidate
+            guard let currentEOL = Self.endOfLife(current) else { return true }
+            /// If they both have EOLs keep the longest living record
+            return candidateEOL > currentEOL
+        }
+
+        /// Parses the `validity` field as an `RFC3339Date` EOL timestamp, or `nil` otherwise
+        private static func endOfLife(_ entry: IpnsEntry) -> RFC3339Date? {
+            guard entry.hasValidity, entry.validityType == .eol,
+                let string = String(data: entry.validity, encoding: .utf8)
+            else { return nil }
+            return try? RFC3339Date(string: string)
         }
     }
 }

@@ -18,6 +18,7 @@ import Foundation
 import LibP2P
 import LibP2PCrypto
 import LibP2PNoise
+import LibP2PTesting
 import LibP2PYAMUX
 import Multihash
 import Testing
@@ -27,7 +28,7 @@ import Testing
 extension LibP2PKadDHTTests {
 
     /// Tests for ``KadDHT.Node/provide(cid:announce:)`` and the related
-    /// provider-record renewal + expiry machinery introduced in Phase 3.0.
+    /// provider-record renewal + expiry machinery
     ///
     /// - Unit-style tests (single-node, no real networking) verify the
     ///   state-machine behaviour: local storage, renewal eligibility,
@@ -38,113 +39,112 @@ extension LibP2PKadDHTTests {
     @Suite("Provide Tests", .serialized)
     final class ProvideTests {
 
-        @Test func testProvideStoresLocallyWithoutAnnounce() throws {
-            let app = try makeApplication()
-            defer { app.shutdown() }
-            try app.start()
-            let node = app.dht.kadDHT
+        @Test func testProvideStoresLocallyWithoutAnnounce() async throws {
+            try await withApp(configure: defaultDHTClientConfig) { app in
+                let node = app.dht.kadDHT
 
-            // Use a deterministic CID derived from short content.
-            let cid = try CID(
-                version: .v1,
-                codec: .raw,
-                multihash: try Multihash(raw: "phase-3.0-test".bytes, hashedWith: .sha2_256)
-            ).rawBuffer
+                // Use a deterministic CID derived from short content.
+                let cid = try CID(
+                    version: .v1,
+                    codec: .raw,
+                    multihash: try Multihash(raw: "phase-3.0-test".bytes, hashedWith: .sha2_256)
+                ).rawBuffer
 
-            // Provide with announce:false so no network RPCs are sent.
-            try node.provide(cid: cid, announce: false).wait()
+                // Provide with announce:false so no network RPCs are sent.
+                try await node.provide(cid: cid, announce: false).get()
 
-            let kid = try providerRoutingKey(cid)
-            let stored = try node.providerStore.getValue(forKey: kid, default: []).wait()
-            #expect(node.localProviderKeys.contains(kid), "localProviderKeys must record the CID")
-            #expect(node.localProviderCIDs[kid] == cid, "localProviderCIDs must preserve the original CID bytes")
-            #expect(stored.count == 1, "providerStore should have exactly our entry; got \(stored.count)")
-            #expect(stored.first?.id == Data(node.peerID.id), "stored provider should be us")
+                let kid = try providerRoutingKey(cid)
+                let stored = try await node.providerStore.getValue(forKey: kid, default: []).get()
+                #expect(node.localProviderKeys.contains(kid), "localProviderKeys must record the CID")
+                #expect(node.localProviderCIDs[kid] == cid, "localProviderCIDs must preserve the original CID bytes")
+                #expect(stored.count == 1, "providerStore should have exactly our entry; got \(stored.count)")
+                #expect(stored.first?.id == Data(node.peerID.id), "stored provider should be us")
 
-            let composite = KadDHT.Node.providerRecordKey(kid, peerID: node.peerID)
-            #expect(node.providerRecordAddedAt[composite] != nil, "addedAt should be tracked")
-        }
-
-        @Test func testProvideExpiryPruning() throws {
-            let app = try makeApplication()
-            defer { app.shutdown() }
-            try app.start()
-            let node = app.dht.kadDHT
-
-            // Stage: insert a synthetic provider record for a *foreign*
-            // peer with an obviously-stale addedAt timestamp.
-            let foreignPeerID = try PeerID(.Ed25519)
-            let cid = try syntheticCID("expiry-test")
-            let kid = try providerRoutingKey(cid)
-            let foreignInfo = PeerInfo(peer: foreignPeerID, addresses: [])
-            guard let foreignProvider = try? DHT.Message.Peer(foreignInfo) else {
-                Issue.record("could not encode foreign peer")
-                return
+                let composite = KadDHT.Node.providerRecordKey(kid, peerID: node.peerID)
+                #expect(node.providerRecordAddedAt[composite] != nil, "addedAt should be tracked")
             }
-            try node.providerStore.updateValue([foreignProvider], forKey: kid).wait()
-            let composite = KadDHT.Node.providerRecordKey(kid, peerID: foreignPeerID)
-            node.providerRecordAddedAt[composite] = Date().addingTimeInterval(-25 * 60 * 60)  // 25h ago — past 24h TTL
-
-            // Run expiry; cutoff = now - 24h.
-            let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
-            try node._expireOldProviderRecords(before: cutoff).wait()
-
-            let afterPrune = try node.providerStore.getValue(forKey: kid, default: []).wait()
-            #expect(afterPrune.isEmpty, "expired foreign provider record should be pruned")
-            #expect(node.providerRecordAddedAt[composite] == nil, "stale timestamp entry should be removed")
         }
 
-        @Test func testProvideRenewalEligibility() throws {
-            let app = try makeApplication()
-            defer { app.shutdown() }
-            try app.start()
-            let node = app.dht.kadDHT
+        @Test func testProvideExpiryPruning() async throws {
+            try await withApp(configure: defaultDHTClientConfig) { app in
+                let node = app.dht.kadDHT
 
-            let cid = try syntheticCID("renewal-test")
-            let kid = try providerRoutingKey(cid)
-            // Set up the local record manually so we can manipulate the
-            // addedAt timestamp before kicking the renewal job.
-            try node.provide(cid: cid, announce: false).wait()
-            let composite = KadDHT.Node.providerRecordKey(kid, peerID: node.peerID)
+                // Stage: insert a synthetic provider record for a *foreign*
+                // peer with an obviously-stale addedAt timestamp.
+                let foreignPeerID = try PeerID(.Ed25519)
+                let cid = try syntheticCID("expiry-test")
+                let kid = try providerRoutingKey(cid)
+                let foreignInfo = PeerInfo(peer: foreignPeerID, addresses: [])
+                guard let foreignProvider = try? DHT.Message.Peer(foreignInfo) else {
+                    Issue.record("could not encode foreign peer")
+                    return
+                }
+                let _ = try await node.providerStore.updateValue([foreignProvider], forKey: kid).get()
+                let composite = KadDHT.Node.providerRecordKey(kid, peerID: foreignPeerID)
+                // 25h ago — past 24h TTL
+                node.providerRecordAddedAt[composite] = Date().addingTimeInterval(-25 * 60 * 60)
 
-            // Backdate beyond the republish interval (12h).
-            let staleTime = Date().addingTimeInterval(-13 * 60 * 60)
-            node.providerRecordAddedAt[composite] = staleTime
+                // Run expiry; cutoff = now - 24h.
+                let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+                try await node._expireOldProviderRecords(before: cutoff).get()
 
-            // Run the renewal job. With an empty routing table, the
-            // announce path inside the job has no peers to send to, but
-            // the job MUST still refresh our local addedAt timestamp on
-            // completion — otherwise we'd retry on every heartbeat
-            // forever.
-            try node._republishProviderRecords().wait()
-
-            let refreshed = try #require(node.providerRecordAddedAt[composite])
-            #expect(refreshed > staleTime, "renewal job should refresh addedAt past the stale time")
+                let afterPrune = try await node.providerStore.getValue(forKey: kid, default: []).get()
+                #expect(afterPrune.isEmpty, "expired foreign provider record should be pruned")
+                #expect(node.providerRecordAddedAt[composite] == nil, "stale timestamp entry should be removed")
+            }
         }
 
-        @Test func testProvideBeforeBootstrap() throws {
-            let app = try makeApplication()
-            defer { app.shutdown() }
-            try app.start()
-            let node = app.dht.kadDHT
+        @Test func testProvideRenewalEligibility() async throws {
+            try await withApp(configure: defaultDHTClientConfig) { app in
+                let node = app.dht.kadDHT
 
-            let cid = try syntheticCID("before-bootstrap")
-            let kid = try providerRoutingKey(cid)
+                let cid = try syntheticCID("renewal-test")
+                let kid = try providerRoutingKey(cid)
+                // Set up the local record manually so we can manipulate the
+                // addedAt timestamp before kicking the renewal job.
+                try await node.provide(cid: cid, announce: false).get()
+                let composite = KadDHT.Node.providerRecordKey(kid, peerID: node.peerID)
 
-            // Routing table starts empty. provide(announce:true) should
-            // not crash. The iterative lookup finds zero peers; we send
-            // ADD_PROVIDER to zero peers; locally we still record the
-            // CID so a future heartbeat can re-attempt.
-            try node.provide(cid: cid, announce: true).wait()
+                // Backdate past the republish interval so the record is due.
+                //
+                // Derived from the node's own interval rather than hard-coded: this was `-13 * 60 * 60`
+                // against a 12h interval, and silently stopped exercising the renewal path when the
+                // interval moved to go's 22h (`amino.DefaultReprovideInterval`).
+                let staleTime = Date().addingTimeInterval(-(node.providerRecordRepublishInterval + 3600))
+                node.providerRecordAddedAt[composite] = staleTime
 
-            #expect(node.localProviderKeys.contains(kid), "local record should be present even without peers")
-            let stored = try node.providerStore.getValue(forKey: kid, default: []).wait()
-            #expect(stored.count == 1, "local provider entry should exist")
+                // Run the renewal job. With an empty routing table, the
+                // announce path inside the job has no peers to send to, but
+                // the job MUST still refresh our local addedAt timestamp on
+                // completion — otherwise we'd retry on every heartbeat
+                // forever.
+                try await node._republishProviderRecords().get()
+
+                let refreshed = try #require(node.providerRecordAddedAt[composite])
+                #expect(refreshed > staleTime, "renewal job should refresh addedAt past the stale time")
+            }
         }
 
-        @Test func testProvideThenFindRoundTrip() throws {
-            let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-            defer { try! group.syncShutdownGracefully() }
+        @Test func testProvideBeforeBootstrap() async throws {
+            try await withApp(configure: defaultDHTClientConfig) { app in
+                let node = app.dht.kadDHT
+
+                let cid = try syntheticCID("before-bootstrap")
+                let kid = try providerRoutingKey(cid)
+
+                // Routing table starts empty. provide(announce:true) should
+                // not crash. The iterative lookup finds zero peers; we send
+                // ADD_PROVIDER to zero peers; locally we still record the
+                // CID so a future heartbeat can re-attempt.
+                try await node.provide(cid: cid, announce: true).get()
+
+                #expect(node.localProviderKeys.contains(kid), "local record should be present even without peers")
+                let stored = try await node.providerStore.getValue(forKey: kid, default: []).get()
+                #expect(stored.count == 1, "local provider entry should exist")
+            }
+        }
+
+        @Test func testProvideThenFindRoundTrip() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(500),
                 maxConcurrentConnections: 3,
@@ -153,38 +153,25 @@ extension LibP2PKadDHTTests {
                 maxKeyValueStoreEntries: 10,
                 supportLocalNetwork: true
             )
-            let nodeA = try makeHost(
-                mode: .server,
-                options: dhtParams,
-                bootstrapPeers: [],
-                usingGroup: .shared(group)
-            )
-            let nodeB = try makeHost(
-                mode: .server,
-                options: dhtParams,
-                bootstrapPeers: [nodeA.peerInfo],
-                usingGroup: .shared(group)
-            )
-            try nodeA.start()
-            try nodeB.start()
-            defer {
-                nodeA.shutdown()
-                nodeB.shutdown()
+            try await withApp(configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [])) { nodeA in
+                try await withApp(
+                    configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [nodeA.peerInfo])
+                ) { nodeB in
+                    // NodeA creates and provides a CID
+                    let cid = try syntheticCID("integration-round-trip")
+                    try await nodeA.dht.kadDHT.provide(cid: cid, announce: true).get()
+
+                    // Give the network a moment to settle.
+                    try await Task.sleep(for: .milliseconds(25))
+
+                    // NodeB should be able to find providers for the given CID
+                    let providers = try await nodeB.dht.kadDHT.findProviders(cid: cid, count: 4).get()
+                    #expect(!providers.isEmpty, "node B should have found at least one provider for the CID")
+                }
             }
-
-            let cid = try syntheticCID("integration-round-trip")
-            try nodeA.dht.kadDHT.provide(cid: cid, announce: true).wait()
-
-            // Give the network a moment to settle.
-            Thread.sleep(forTimeInterval: 0.5)
-
-            let providers = try nodeB.dht.kadDHT.findProviders(cid: cid, count: 4).wait()
-            #expect(!providers.isEmpty, "node B should have found at least one provider for the CID")
         }
 
-        @Test func testProvideMultipleKeys() throws {
-            let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
-            defer { try! group.syncShutdownGracefully() }
+        @Test func testProvideMultipleKeys() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(500),
                 maxConcurrentConnections: 3,
@@ -193,46 +180,29 @@ extension LibP2PKadDHTTests {
                 maxKeyValueStoreEntries: 10,
                 supportLocalNetwork: true
             )
-            let nodeA = try makeHost(
-                mode: .server,
-                options: dhtParams,
-                bootstrapPeers: [],
-                usingGroup: .shared(group)
-            )
-            let nodeB = try makeHost(
-                mode: .server,
-                options: dhtParams,
-                bootstrapPeers: [nodeA.peerInfo],
-                usingGroup: .shared(group)
-            )
-            try nodeA.start()
-            try nodeB.start()
-            defer {
-                nodeA.shutdown()
-                nodeB.shutdown()
-            }
+            try await withApp(configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [])) { nodeA in
+                try await withApp(
+                    configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [nodeA.peerInfo])
+                ) { nodeB in
+                    // NodeA creates and provides multiple CIDs
+                    let cids = try ["key-one", "key-two", "key-three"].map { try syntheticCID($0) }
+                    for cid in cids {
+                        try await nodeA.dht.kadDHT.provide(cid: cid, announce: true).get()
+                    }
 
-            let cids = try ["key-one", "key-two", "key-three"].map { try syntheticCID($0) }
-            for cid in cids {
-                try nodeA.dht.kadDHT.provide(cid: cid, announce: true).wait()
-            }
-            Thread.sleep(forTimeInterval: 0.5)
+                    // Give the network a moment to settle.
+                    try await Task.sleep(for: .milliseconds(25))
 
-            for cid in cids {
-                let providers = try nodeB.dht.kadDHT.findProviders(cid: cid, count: 4).wait()
-                #expect(!providers.isEmpty, "node B should have found a provider for one of the CIDs")
+                    // NodeB should be able to find providers for each of the given CIDs
+                    for cid in cids {
+                        let providers = try await nodeB.dht.kadDHT.findProviders(cid: cid, count: 4).get()
+                        #expect(!providers.isEmpty, "node B should have found a provider for cid \(cid)")
+                    }
+                }
             }
         }
 
         // MARK: - Helpers
-
-        private func syntheticCID(_ tag: String) throws -> [UInt8] {
-            try CID(
-                version: .v1,
-                codec: .raw,
-                multihash: try Multihash(raw: tag.bytes, hashedWith: .sha2_256)
-            ).rawBuffer
-        }
 
         /// The routing-table key a provider record for `cid` is stored under.
         ///
@@ -244,12 +214,12 @@ extension LibP2PKadDHTTests {
             KadDHT.Key(try CID(cid).multihash.value, keySpace: .xor)
         }
 
-        private func makeApplication() throws -> Application {
-            let lib = try Application(.testing, peerID: PeerID(.Ed25519), eventLoopGroupProvider: .singleton)
-            lib.logger.logLevel = .warning
-            lib.security.use(.noise)
-            lib.muxers.use(.yamux)
-            lib.dht.use(
+        /// Default app configuration for a DHT Client suitable for the above tests
+        var defaultDHTClientConfig: ((Application) async throws -> Void) = { app in
+            app.logger.logLevel = .warning
+            app.security.use(.noise)
+            app.muxers.use(.yamux)
+            app.dht.use(
                 .kadDHT(
                     mode: .client,
                     options: KadDHT.NodeOptions(
@@ -264,28 +234,7 @@ extension LibP2PKadDHTTests {
                     autoUpdate: false
                 )
             )
-            lib.servers.use(.tcp(host: "127.0.0.1", port: self.nextPort))
-            self.nextPort += 1
-            return lib
-        }
-
-        private var nextPort: Int = 11000
-
-        private func makeHost(
-            mode: KadDHT.Mode = .client,
-            options: KadDHT.NodeOptions = .default,
-            bootstrapPeers: [PeerInfo] = [],
-            usingGroup: Application.EventLoopGroupProvider = .singleton
-        ) throws -> Application {
-            let lib = try Application(.testing, peerID: PeerID(.Ed25519), eventLoopGroupProvider: usingGroup)
-            lib.logger.logLevel = .warning
-            lib.security.use(.noise)
-            lib.muxers.use(.yamux)
-            lib.dht.use(.kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: false))
-            lib.servers.use(.tcp(host: "127.0.0.1", port: self.nextPort))
-            self.nextPort += 1
-            return lib
+            app.servers.use(.tcp(host: "127.0.0.1", port: 0))
         }
     }
-
 }
