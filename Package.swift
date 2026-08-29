@@ -54,6 +54,7 @@ let package = Package(
             name: "LibP2PKadDHTTests",
             dependencies: [
                 "LibP2PKadDHT",
+                .product(name: "LibP2PTesting", package: "swift-libp2p"),
                 .product(name: "LibP2PNoise", package: "swift-libp2p-noise"),
                 .product(name: "LibP2PYAMUX", package: "swift-libp2p-yamux"),
                 .product(name: "LibP2PCrypto", package: "swift-libp2p-crypto"),
