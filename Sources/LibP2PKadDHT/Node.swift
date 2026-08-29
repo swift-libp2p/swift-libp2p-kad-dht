@@ -1169,7 +1169,9 @@ public enum KadDHT {
             let targetID = KadDHT.Key(key)
             let value = value.toProtobuf()
 
-            return self.dht.updateValue(value, forKey: targetID).flatMap {
+            /// Stamp the local copy only, the outbound `putValue` below is built separately and
+            /// deliberately leaves `timeReceived` empty, matching go's `MakePutRecord`.
+            return self.dht.updateValue(KadDHT.timeStamped(value), forKey: targetID).flatMap {
                 _ -> EventLoopFuture<Bool> in
                 self.logger.notice(
                     "storeNew: stored locally key=\(KadDHT.keyToHumanReadableString(key))"
@@ -1194,15 +1196,12 @@ public enum KadDHT {
                             self.logger.warning(
                                 "Asking the closest \(closestPeers.count) peers to store our value \(value)"
                             )
-                            /// TODO: We need to limit concurrent queries here as well..
-                            //guard let externalAddys = self.network?.externalListeningAddresses, !externalAddys.isEmpty else {
-                            //    return self.eventLoop.makeFailedFuture(Errors.cantPutValueWithoutExternallyDialableAddress)
-                            //}
-                            //let providerInfo = Peer.PeerInfo(id: self.peerID, addresses: externalAddys)
+                            
+                            // Don't set timeReceived on the way out...
                             var record = DHT.Record()
-                            record.key = value.key  //Data(targetID.bytes)
+                            record.key = value.key
                             record.value = value.value
-                            //record.timeReceived = value.timeReceived
+                            
                             return closestPeers.prefix(4).compactMap { peer in
                                 self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop)
                                     .flatMapAlways { res -> EventLoopFuture<Bool> in
@@ -1299,7 +1298,6 @@ public enum KadDHT {
         }
 
         /// TODO: We should update this logic to use providers...
-        /// -
         public func getUsingLookupList(_ key: [UInt8]) -> EventLoopFuture<DHTRecord?> {
             self.eventLoop.flatSubmit {
                 let kid = KadDHT.Key(key, keySpace: .xor)
@@ -1579,7 +1577,7 @@ public enum KadDHT {
             let kid = KadDHT.Key(key, keySpace: .xor)
             return self.dht.addKeyIfSpaceOrCloser(
                 key: kid,
-                value: value,
+                value: KadDHT.timeStamped(value),
                 usingValidator: validator,
                 maxStoreSize: self.dhtSize,
                 targetKey: KadDHT.Key(self.peerID, keySpace: .xor)
@@ -1709,15 +1707,25 @@ extension KadDHT.Node {
 }
 
 extension KadDHT {
-    static public func createPubKeyRecord(peerID: PeerID) throws -> DHTRecord {
-        let df = ISO8601DateFormatter()
-        df.formatOptions.insert(.withFractionalSeconds)
+    /// Returns `record` with `timeReceived` set to now.
+    ///
+    /// `timeReceived` is the receiver's note of when it took delivery, not a publisher-supplied
+    /// field. go's `record.MakePutRecord` builds outbound records with only `Key` and `Value` set and
+    /// deliberately leaves `TimeReceived` empty. The field exists so whoever holds a record can age it
+    /// out against `MaxRecordAge`. So it gets stamped whenever a record enters our store and left blank on
+    /// the way out.
+    static func timeStamped(_ record: DHT.Record) -> DHT.Record {
+        var stamped = record
+        stamped.timeReceived = RFC3339Date().string
+        return stamped
+    }
 
+    static public func createPubKeyRecord(peerID: PeerID) throws -> DHTRecord {
         let key = "/pk/".bytes + peerID.id
         let record = try DHT.Record.with { rec in
             rec.key = Data(key)
             rec.value = try Data(peerID.marshalPublicKey())
-            rec.timeReceived = df.string(from: Date())
+            rec.timeReceived = RFC3339Date().string
         }
 
         return record
