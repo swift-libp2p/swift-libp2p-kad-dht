@@ -1196,12 +1196,12 @@ public enum KadDHT {
                             self.logger.warning(
                                 "Asking the closest \(closestPeers.count) peers to store our value \(value)"
                             )
-                            
+
                             // Don't set timeReceived on the way out...
                             var record = DHT.Record()
                             record.key = value.key
                             record.value = value.value
-                            
+
                             return closestPeers.prefix(4).compactMap { peer in
                                 self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop)
                                     .flatMapAlways { res -> EventLoopFuture<Bool> in

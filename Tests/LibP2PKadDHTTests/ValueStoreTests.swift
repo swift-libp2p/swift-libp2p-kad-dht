@@ -15,9 +15,9 @@
 import CID
 import LibP2P
 import LibP2PNoise
+import LibP2PTesting
 import LibP2PYAMUX
 import Multihash
-import LibP2PTesting
 import Testing
 
 @testable import LibP2PKadDHT
@@ -50,7 +50,7 @@ extension LibP2PKadDHTTests {
                 maxKeyValueStoreEntries: 10,
                 supportLocalNetwork: true
             )
-            
+
             try await withApp(configure: dhtHost(mode: .server, options: dhtParams)) { node in
                 let key = try syntheticCID("local-first-empty-rt")
                 let record = TestRecord(
@@ -59,7 +59,7 @@ extension LibP2PKadDHTTests {
                 )
                 let accepted = try await node.dht.kadDHT.storeNew(key, value: record).get()
                 #expect(accepted, "storeNew should accept even with empty routing table")
-                
+
                 // Publisher's own get must succeed without any remote
                 // hop — local-first means the value is sitting in our
                 // own kv store.
@@ -80,7 +80,9 @@ extension LibP2PKadDHTTests {
             )
 
             try await withApp(configure: dhtHost(mode: .server, options: dhtParams)) { publisher in
-                try await withApp(configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [publisher.peerInfo])) { consumer in
+                try await withApp(
+                    configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [publisher.peerInfo])
+                ) { consumer in
                     let key = try syntheticCID("local-first-cross-node")
                     let record = TestRecord(
                         key: Data(key),
@@ -115,7 +117,7 @@ extension LibP2PKadDHTTests {
             multihash: try Multihash(raw: tag.bytes, hashedWith: .sha2_256)
         ).rawBuffer
     }
-    
+
     /// Helper method for configuring a DHT Node for the above tests
     static func dhtHost(
         mode: KadDHT.Mode = .client,

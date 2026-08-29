@@ -287,7 +287,7 @@ extension LibP2PKadDHTTests {
             /// The republish cadence must leave slack before expiry, or a single missed renewal drops
             /// us out of remote stores.
             #expect(node.providerRecordRepublishInterval < node.providerRecordTTL)
-            
+
             try await app.asyncShutdown()
         }
     }
