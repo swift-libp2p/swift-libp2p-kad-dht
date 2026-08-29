@@ -92,16 +92,18 @@ public enum KadDHT {
         /// payload.
         var localProviderCIDs: [KadDHT.Key: [UInt8]] = [:]
 
-        /// Provider records older than this are pruned on heartbeat,
-        /// matching the libp2p Kad DHT spec default. Records we
-        /// published ourselves are re-issued at
-        /// ``providerRecordRepublishInterval`` to stay fresh.
-        let providerRecordTTL: TimeInterval = 24 * 60 * 60
+        /// Provider records older than this are pruned on heartbeat.
+        ///
+        /// 48 hours, matching the spec ("In the IPFS DHT the Expiration Interval is set to 48 hours")
+        /// and go's `DefaultProvideValidity = 48 * time.Hour`.
+        let providerRecordTTL: TimeInterval = 48 * 60 * 60
 
         /// Cadence at which we re-publish our own provider records.
-        /// Half the TTL by libp2p convention — gives a one-round-trip
-        /// margin if a re-publish fails.
-        let providerRecordRepublishInterval: TimeInterval = 12 * 60 * 60
+        ///
+        /// 22 hours, matching the spec ("For the IPFS network it is currently set to 22 hours") and
+        /// go's `DefaultReprovideInterval = 22 * time.Hour`. Comfortably inside the 48-hour
+        /// expiry above, so a single missed republish doesn't drop us from other peers' stores.
+        let providerRecordRepublishInterval: TimeInterval = 22 * 60 * 60
 
         /// The event loop that we're operating on...
         public let eventLoop: EventLoop
