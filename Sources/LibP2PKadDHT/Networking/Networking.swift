@@ -78,6 +78,19 @@ extension KadDHT {
         public let maxProviderStoreSize: Int
         public let supportLocalNetwork: Bool
 
+        /// The longest we'll hold a value record, measured from the `timeReceived` we stamped on it.
+        ///
+        /// A record that outlives this is dropped on read and swept by the value GC pass, so a
+        /// publisher has to re-put more often than this for the value to stay resolvable.
+        ///
+        /// 48 hours, matching go's `DefaultMaxRecordAge = 48 * time.Hour`.
+        public let maxRecordAge: TimeAmount
+
+        /// How often the value store is swept for aged-out records.
+        ///
+        /// 24 hours, matching go's `DefaultValueGCInterval = 24 * time.Hour`.
+        public let valueGCInterval: TimeAmount
+
         public init(
             connectionTimeout: TimeAmount = .seconds(4),
             maxConcurrentConnections: Int = 4,
@@ -85,7 +98,9 @@ extension KadDHT {
             maxPeers: Int = 100,
             maxKeyValueStoreEntries: Int = 100,
             maxProviderStoreSize: Int = 10_000,
-            supportLocalNetwork: Bool = false
+            supportLocalNetwork: Bool = false,
+            maxRecordAge: TimeAmount = .hours(48),
+            valueGCInterval: TimeAmount = .hours(24)
         ) {
             self.connectionTimeout = connectionTimeout
             self.maxConcurrentConnections = maxConcurrentConnections
@@ -94,6 +109,8 @@ extension KadDHT {
             self.maxKeyValueStoreSize = maxKeyValueStoreEntries
             self.maxProviderStoreSize = maxProviderStoreSize
             self.supportLocalNetwork = supportLocalNetwork
+            self.maxRecordAge = maxRecordAge
+            self.valueGCInterval = valueGCInterval
         }
 
         public static var `default`: NodeOptions {
