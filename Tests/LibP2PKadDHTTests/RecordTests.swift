@@ -83,7 +83,7 @@ extension LibP2PKadDHTTests {
             #expect(fifth < nextSecond)
 
             /// `.1` and `.100000000` are the same instant written two ways.
-            #expect(tenth == (try RFC3339Date(string: "2022-09-12T14:46:52.100000000Z")))
+            #expect(tenth == (try? RFC3339Date(string: "2022-09-12T14:46:52.100000000Z")))
         }
 
         /// Nanosecond-resolution ordering must survive; `Date` is a `Double` and can't resolve this
@@ -95,7 +95,7 @@ extension LibP2PKadDHTTests {
 
             #expect(lower < middle)
             #expect(middle < upper)
-            #expect(middle == (try RFC3339Date(string: "2022-09-12T14:46:52.892973042Z")))
+            #expect(middle == (try? RFC3339Date(string: "2022-09-12T14:46:52.892973042Z")))
         }
 
         /// Our encoder must produce something go would produce — and that we can read back.
@@ -110,7 +110,7 @@ extension LibP2PKadDHTTests {
 
             /// Anything we emit, we can parse.
             for emitted in [whole, half] {
-                #expect(try RFC3339Date(string: emitted.string) == emitted)
+                #expect((try? RFC3339Date(string: emitted.string)) == emitted)
             }
         }
 
@@ -215,7 +215,7 @@ extension LibP2PKadDHTTests {
                 $0.key = Data("/pk/test".bytes)
                 $0.value = Data("original".utf8)
             }
-            try store.updateValue(existing, forKey: kid).wait()
+            let _ = try store.updateValue(existing, forKey: kid).wait()
 
             let incoming = DHT.Record.with {
                 $0.key = Data("/pk/test".bytes)
