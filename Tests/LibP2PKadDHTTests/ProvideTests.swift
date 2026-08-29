@@ -81,7 +81,8 @@ extension LibP2PKadDHTTests {
                 }
                 let _ = try await node.providerStore.updateValue([foreignProvider], forKey: kid).get()
                 let composite = KadDHT.Node.providerRecordKey(kid, peerID: foreignPeerID)
-                node.providerRecordAddedAt[composite] = Date().addingTimeInterval(-25 * 60 * 60)  // 25h ago — past 24h TTL
+                // 25h ago — past 24h TTL
+                node.providerRecordAddedAt[composite] = Date().addingTimeInterval(-25 * 60 * 60)
 
                 // Run expiry; cutoff = now - 24h.
                 let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
