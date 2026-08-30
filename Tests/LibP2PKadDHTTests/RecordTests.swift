@@ -115,7 +115,8 @@ extension LibP2PKadDHTTests {
         }
 
         @Test func pubKeyRecordTimestampIsSelfParseable() throws {
-            let record = try KadDHT.createPubKeyRecord(peerID: PeerID(.Ed25519)).toProtobuf()
+            let rec = try KadDHT.createPubKeyRecord(peerID: PeerID(.Ed25519)).toProtobuf()
+            let record = KadDHT.timeStamped(rec)
             #expect(!record.timeReceived.isEmpty)
             #expect(throws: Never.self) { try RFC3339Date(string: record.timeReceived) }
         }
