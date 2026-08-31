@@ -69,9 +69,15 @@ extension KadDHT {
         case notSupported
     }
 
-    public struct NodeOptions {
+    public struct NodeOptions: Sendable {
         public let connectionTimeout: TimeAmount
-        public let maxConcurrentConnections: Int
+
+        /// Lookup concurrency (`α`) — how many requests a query path keeps in flight.
+        public let concurrency: Int
+
+        @available(*, deprecated, renamed: "concurrency")
+        public var maxConcurrentConnections: Int { self.concurrency }
+
         public let bucketSize: Int
         public let maxPeers: Int
         public let maxKeyValueStoreSize: Int
@@ -93,17 +99,17 @@ extension KadDHT {
 
         public init(
             connectionTimeout: TimeAmount = .seconds(4),
-            maxConcurrentConnections: Int = 4,
-            bucketSize: Int = 20,
+            concurrency: Int = KadDHT.Defaults.concurrency,
+            bucketSize: Int = KadDHT.Defaults.bucketSize,
             maxPeers: Int = 100,
             maxKeyValueStoreEntries: Int = 100,
             maxProviderStoreSize: Int = 10_000,
             supportLocalNetwork: Bool = false,
-            maxRecordAge: TimeAmount = .hours(48),
-            valueGCInterval: TimeAmount = .hours(24)
+            maxRecordAge: TimeAmount = KadDHT.Defaults.maxRecordAge,
+            valueGCInterval: TimeAmount = KadDHT.Defaults.valueGCInterval
         ) {
             self.connectionTimeout = connectionTimeout
-            self.maxConcurrentConnections = maxConcurrentConnections
+            self.concurrency = concurrency
             self.bucketSize = bucketSize
             self.maxPeers = maxPeers
             self.maxKeyValueStoreSize = maxKeyValueStoreEntries
@@ -111,6 +117,31 @@ extension KadDHT {
             self.supportLocalNetwork = supportLocalNetwork
             self.maxRecordAge = maxRecordAge
             self.valueGCInterval = valueGCInterval
+        }
+
+        @available(*, deprecated, message: "`maxConcurrentConnections` is the Kademlia α parameter — use `concurrency:`")
+        public init(
+            connectionTimeout: TimeAmount = .seconds(4),
+            maxConcurrentConnections: Int,
+            bucketSize: Int = KadDHT.Defaults.bucketSize,
+            maxPeers: Int = 100,
+            maxKeyValueStoreEntries: Int = 100,
+            maxProviderStoreSize: Int = 10_000,
+            supportLocalNetwork: Bool = false,
+            maxRecordAge: TimeAmount = KadDHT.Defaults.maxRecordAge,
+            valueGCInterval: TimeAmount = KadDHT.Defaults.valueGCInterval
+        ) {
+            self.init(
+                connectionTimeout: connectionTimeout,
+                concurrency: maxConcurrentConnections,
+                bucketSize: bucketSize,
+                maxPeers: maxPeers,
+                maxKeyValueStoreEntries: maxKeyValueStoreEntries,
+                maxProviderStoreSize: maxProviderStoreSize,
+                supportLocalNetwork: supportLocalNetwork,
+                maxRecordAge: maxRecordAge,
+                valueGCInterval: valueGCInterval
+            )
         }
 
         public static var `default`: NodeOptions {
