@@ -203,12 +203,24 @@ extension EventLoopDictionary where Key == KadDHT.Key, Value == DHT.Record {
 }
 
 extension EventLoopDictionary where Key == KadDHT.Key, Value == [DHT.Message.Peer] {
-    /// Randomly prunes entries until the store is at the count specified
-    func prune(toAmount: Int) -> EventLoopFuture<Void> {
+    /// Prunes entries until the store is at the count specified, dropping the stalest first.
+    ///
+    /// Keys in `protecting` are never dropped, so the store can stay above `toAmount` when it's full
+    /// of protected entries. Keys missing from `freshness` sort as stalest, and are the first to go.
+    func prune(
+        toAmount: Int,
+        protecting protected: Set<KadDHT.Key> = [],
+        freshness: [KadDHT.Key: Date] = [:]
+    ) -> EventLoopFuture<Void> {
         self.eventLoop.submit {
             let amount = max(0, toAmount)
-            while self.store.count > amount {
-                let _ = self.store.popFirst()
+            guard self.store.count > amount else { return }
+            let evictable = self.store.keys
+                .filter { !protected.contains($0) }
+                .sorted { (freshness[$0] ?? .distantPast) < (freshness[$1] ?? .distantPast) }
+            for key in evictable {
+                guard self.store.count > amount else { break }
+                self.store.removeValue(forKey: key)
             }
         }
     }
