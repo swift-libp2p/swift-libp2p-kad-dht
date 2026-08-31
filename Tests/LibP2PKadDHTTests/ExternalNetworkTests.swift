@@ -264,7 +264,6 @@ extension LibP2PKadDHTTests {
             print("\(peerID) => \(try PeerID(cid: peerID).id)")
 
             let val = try lib.dht.kadDHT.get(key).wait()
-            //let _ = try lib.identify.ping(peer: PeerID(cid: "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ")).wait()
 
             #expect(val != nil)
             if let val = val {
@@ -280,14 +279,43 @@ extension LibP2PKadDHTTests {
 
             sleep(2)
 
-            lib.peers.dumpAll()
-
-            sleep(2)
-
             /// Stop the node
             lib.shutdown()
 
             print("All Done!")
+        }
+        
+        /// ******************************************************
+        ///    Testing External KadDHT - Single Query - FindNode
+        /// ******************************************************
+        ///
+        /// let val = try lib.dht.kadDHT.findPeer(peer: PeerID(cid: "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN")).wait()
+        @Test(.disabled(), .serialized, arguments: [
+            "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+            "QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+            "QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+            "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
+            "QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb"
+        ])
+        func testLibP2PKadDHT_FindNode(_ peerID: String) throws {
+            /// Init the libp2p node
+            let lib = try makeHost()
+
+            /// Start the node
+            try lib.start()
+
+            /// Do your test stuff ...
+            #expect(lib.dht.kadDHT.state == .started)
+
+            #expect(throws: Never.self) {
+                let val = try lib.dht.kadDHT.findPeer(peer: PeerID(cid: peerID)).wait()
+                #expect(val.peer.b58String == peerID)
+                #expect(val.peer.type == .idOnly)
+                #expect(val.addresses.count > 1)
+            }
+
+            /// Stop the node
+            lib.shutdown()
         }
 
         /// **********************************************************
