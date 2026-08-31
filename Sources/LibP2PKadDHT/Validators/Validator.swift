@@ -410,7 +410,6 @@ extension KadDHT {
         case notNamespaced
         case wrongNamespace(expected: String, found: String)
         case emptyKeyBody
-        case keyMismatch(expected: [UInt8], found: [UInt8])
         case keyIsNotAMultihash
         case publicKeyDoesNotMatchKey(key: String, publicKey: String)
         case noRecordsToSelect
@@ -433,9 +432,6 @@ extension KadDHT {
                 return "Validator: expected namespace '\(expected)', found '\(found)'"
             case .emptyKeyBody:
                 return "Validator: key carries a namespace but no body"
-            case .keyMismatch(let expected, let found):
-                return
-                    "Validator: key mismatch, expected \(expected.toHexString()) got \(found.toHexString())"
             case .keyIsNotAMultihash:
                 return "Validator: key body is not a valid multihash"
             case .publicKeyDoesNotMatchKey(let key, let publicKey):
