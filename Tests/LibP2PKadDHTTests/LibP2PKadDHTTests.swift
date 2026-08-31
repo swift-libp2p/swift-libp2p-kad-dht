@@ -120,7 +120,7 @@ struct LibP2PKadDHTTests {
 
         let pubKeyRecordValidator = KadDHT.PubKeyValidator()
         #expect(throws: Never.self) {
-            try pubKeyRecordValidator.validate(key: dhtRecord.key.byteArray, value: dhtRecordData.byteArray)
+            try pubKeyRecordValidator.validate(key: dhtRecord.key.byteArray, value: dhtRecord.value.byteArray)
         }
     }
 
