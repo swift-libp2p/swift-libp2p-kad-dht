@@ -24,7 +24,7 @@ import Testing
 
 extension LibP2PKadDHTTests {
     /// Regression coverage for the value-store path
-    /// (`storeNew` + `getUsingLookupList`).
+    /// (`storeNew` + `get`).
     ///
     /// Before this fix, `storeNew` returned `false` whenever the
     /// publisher's routing table was empty at call time — for
@@ -63,8 +63,8 @@ extension LibP2PKadDHTTests {
                 // Publisher's own get must succeed without any remote
                 // hop — local-first means the value is sitting in our
                 // own kv store.
-                let fetched = try await node.dht.kadDHT.getUsingLookupList(key).get()
-                #expect(fetched != nil, "publisher's own getUsingLookupList should hit the local kv")
+                let fetched = try await node.dht.kadDHT.get(key).get()
+                #expect(fetched != nil, "publisher's own get should hit the local kv")
                 #expect(fetched?.value == Data("hello-local-first".utf8))
             }
         }
@@ -127,7 +127,7 @@ extension LibP2PKadDHTTests {
                     let stored = try await publisher.dht.kadDHT.storeNew(key, value: record).get()
                     #expect(stored, "storeNew should accept (local-first semantics)")
 
-                    let fetched = try await consumer.dht.kadDHT.getUsingLookupList(key).get()
+                    let fetched = try await consumer.dht.kadDHT.get(key).get()
                     #expect(fetched != nil, "consumer should fetch publisher's value via iterative lookup")
                     #expect(fetched?.value == Data("hello-cross-node".utf8))
                 }
