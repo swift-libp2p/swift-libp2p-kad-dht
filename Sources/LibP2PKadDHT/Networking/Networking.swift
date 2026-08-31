@@ -58,8 +58,6 @@ extension KadDHT {
         case encodingError
         case noNetwork
         case invalidCID
-        case maxLookupDepthExceeded
-        case lookupPeersExhausted
         case alreadyPerformingLookup
         case cannotCallHeartbeatWhileNodeIsInAutoUpdateMode
         case noDialableAddressesForPeer
