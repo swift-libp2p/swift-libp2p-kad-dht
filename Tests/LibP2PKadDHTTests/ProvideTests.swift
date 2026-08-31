@@ -183,7 +183,7 @@ extension LibP2PKadDHTTests {
         @Test func testProvideThenFindRoundTrip() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(500),
-                maxConcurrentConnections: 3,
+                concurrency: 3,
                 bucketSize: 5,
                 maxPeers: 15,
                 maxKeyValueStoreEntries: 10,
@@ -210,7 +210,7 @@ extension LibP2PKadDHTTests {
         @Test func testProvideMultipleKeys() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(500),
-                maxConcurrentConnections: 3,
+                concurrency: 3,
                 bucketSize: 5,
                 maxPeers: 15,
                 maxKeyValueStoreEntries: 10,
@@ -276,7 +276,7 @@ extension LibP2PKadDHTTests {
                     mode: .client,
                     options: KadDHT.NodeOptions(
                         connectionTimeout: .milliseconds(150),
-                        maxConcurrentConnections: 3,
+                        concurrency: 3,
                         bucketSize: 5,
                         maxPeers: 15,
                         maxKeyValueStoreEntries: 10,
