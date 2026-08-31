@@ -31,7 +31,7 @@ extension LibP2PKadDHTTests {
         func testInternalNetwork_PeerRouting() throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(150),
-                maxConcurrentConnections: 3,
+                concurrency: 3,
                 bucketSize: 5,
                 maxPeers: 15,
                 maxKeyValueStoreEntries: 10,
@@ -91,7 +91,7 @@ extension LibP2PKadDHTTests {
 
         //    @Test(.internalIntegrationTestsEnabled)
         //    func testInternalNetwork_ContentRouting() throws {
-        //        let dhtParams = KadDHT.NodeOptions(connectionTimeout: .seconds(5), maxConcurrentConnections: 3, bucketSize: 5, maxPeers: 15, maxKeyValueStoreEntries: 10)
+        //        let dhtParams = KadDHT.NodeOptions(connectionTimeout: .seconds(5), concurrency: 3, bucketSize: 5, maxPeers: 15, maxKeyValueStoreEntries: 10)
         //
         //        let node1 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [], autoHeartbeat: false)
         //        let node2 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [PeerInfo(peer: node1.peerID, addresses: node1.listenAddresses)], autoHeartbeat: false)
@@ -123,7 +123,7 @@ extension LibP2PKadDHTTests {
             let numberOfNodes = 4
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(150),
-                maxConcurrentConnections: 3,
+                concurrency: 3,
                 bucketSize: 3,
                 maxPeers: 8,
                 maxKeyValueStoreEntries: 10,
@@ -232,7 +232,7 @@ extension LibP2PKadDHTTests {
             let numberOfNodes = 20
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(150),
-                maxConcurrentConnections: 3,
+                concurrency: 3,
                 bucketSize: 8,
                 maxPeers: 20,
                 maxKeyValueStoreEntries: 10,
@@ -273,7 +273,7 @@ extension LibP2PKadDHTTests {
                 }
 
                 /// Kademlia guarantees a local invariant, not a global ordering: each node should
-                /// know the k peers nearest itself. Grade that directly — it converges toward 100%
+                /// know the k peers nearest itself. This should converge towards 100%
                 /// as the heartbeats progress.
                 print("--- after heartbeat \(round + 1) ---")
                 printKClosestCompleteness(nodes.map { $0.dht.kadDHT })
@@ -297,7 +297,7 @@ extension LibP2PKadDHTTests {
             let numberOfNodes = 4
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(150),
-                maxConcurrentConnections: 3,
+                concurrency: 3,
                 bucketSize: 3,
                 maxPeers: 8,
                 maxKeyValueStoreEntries: 10,
