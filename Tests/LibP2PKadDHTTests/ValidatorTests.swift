@@ -144,7 +144,7 @@ extension LibP2PKadDHTTests {
             #expect(throws: Never.self) {
                 try KadDHT.PubKeyValidator().validate(
                     key: record.key.byteArray,
-                    value: try record.serializedData().byteArray
+                    value: record.value.byteArray
                 )
             }
         }
@@ -155,16 +155,10 @@ extension LibP2PKadDHTTests {
             let bob = try PeerID(keyType)
 
             /// Alice's key, Bob's public key.
-            let forged = try DHT.Record.with {
-                $0.key = Data("/pk/".bytes + alice.id)
-                $0.value = try Data(bob.marshalPublicKey())
-                $0.timeReceived = RFC3339Date().string
-            }
-
             #expect(throws: (any Error).self) {
                 try KadDHT.PubKeyValidator().validate(
-                    key: forged.key.byteArray,
-                    value: try forged.serializedData().byteArray
+                    key: "/pk/".bytes + alice.id,
+                    value: try bob.marshalPublicKey()
                 )
             }
         }
@@ -172,27 +166,25 @@ extension LibP2PKadDHTTests {
         @Test(arguments: keyTypes)
         func rejectsAKeyOutsideThePkNamespace(_ keyType: LibP2PCrypto.Keys.KeyPairType) throws {
             let peer = try PeerID(keyType)
-            let mislabelled = try DHT.Record.with {
-                $0.key = Data("/ipns/".bytes + peer.id)
-                $0.value = try Data(peer.marshalPublicKey())
-            }
 
             #expect(throws: (any Error).self) {
                 try KadDHT.PubKeyValidator().validate(
-                    key: mislabelled.key.byteArray,
-                    value: try mislabelled.serializedData().byteArray
+                    key: "/ipns/".bytes + peer.id,
+                    value: try peer.marshalPublicKey()
                 )
             }
         }
 
+        /// The validator sees record values, so a value that's a serialized `DHT.Record` rather than
+        /// a marshaled public key has to be refused.
         @Test(arguments: keyTypes)
-        func rejectsARecordWhoseKeyDisagreesWithTheQuery(_ keyType: LibP2PCrypto.Keys.KeyPairType) throws {
+        func rejectsASerializedRecordAsItsValue(_ keyType: LibP2PCrypto.Keys.KeyPairType) throws {
             let peer = try PeerID(keyType)
             let record = try KadDHT.createPubKeyRecord(peerID: peer).toProtobuf()
 
             #expect(throws: (any Error).self) {
                 try KadDHT.PubKeyValidator().validate(
-                    key: "/pk/".bytes + (try PeerID(.Ed25519)).id,
+                    key: record.key.byteArray,
                     value: try record.serializedData().byteArray
                 )
             }
@@ -208,13 +200,13 @@ extension LibP2PKadDHTTests {
             let peerED25519 = try PeerID(.Ed25519)
             let signed1 = try IPNSFixture(name: peerED25519, includePubKey: false)
             #expect(throws: Never.self) {
-                try KadDHT.IPNSValidator().validate(key: signed1.key, value: signed1.record)
+                try KadDHT.IPNSValidator().validate(key: signed1.key, value: signed1.value)
             }
 
             let peerSecP256k1 = try PeerID(.Secp256k1)
             let signed2 = try IPNSFixture(name: peerSecP256k1, includePubKey: false)
             #expect(throws: Never.self) {
-                try KadDHT.IPNSValidator().validate(key: signed2.key, value: signed2.record)
+                try KadDHT.IPNSValidator().validate(key: signed2.key, value: signed2.value)
             }
 
             // RSA doesn't support inlined pubkeys, so when we don't include the pubkey in
@@ -223,7 +215,7 @@ extension LibP2PKadDHTTests {
             let signed3 = try IPNSFixture(name: peerRSA, includePubKey: false)
 
             #expect(throws: KadDHT.ValidationError.self) {
-                try KadDHT.IPNSValidator().validate(key: signed3.key, value: signed3.record)
+                try KadDHT.IPNSValidator().validate(key: signed3.key, value: signed3.value)
             }
         }
 
@@ -233,7 +225,7 @@ extension LibP2PKadDHTTests {
             let signed = try IPNSFixture(name: peer, includePubKey: true)
 
             #expect(throws: Never.self) {
-                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.record)
+                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.value)
             }
         }
 
@@ -243,7 +235,7 @@ extension LibP2PKadDHTTests {
             let signed = try IPNSFixture(name: peer, tamperSignature: true)
 
             #expect(throws: (any Error).self) {
-                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.record)
+                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.value)
             }
         }
 
@@ -255,7 +247,7 @@ extension LibP2PKadDHTTests {
             let signed = try IPNSFixture(name: alice, signer: bob)
 
             #expect(throws: (any Error).self) {
-                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.record)
+                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.value)
             }
         }
 
@@ -268,7 +260,7 @@ extension LibP2PKadDHTTests {
             let signed = try IPNSFixture(name: alice, signer: bob, includePubKey: true)
 
             #expect(throws: (any Error).self) {
-                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.record)
+                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.value)
             }
         }
 
@@ -278,7 +270,7 @@ extension LibP2PKadDHTTests {
             let signed = try IPNSFixture(name: peer, validity: "2020-01-01T00:00:00Z")
 
             #expect(throws: (any Error).self) {
-                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.record)
+                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.value)
             }
         }
 
@@ -291,7 +283,7 @@ extension LibP2PKadDHTTests {
             }
 
             #expect(throws: (any Error).self) {
-                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.record)
+                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.value)
             }
         }
 
@@ -306,7 +298,7 @@ extension LibP2PKadDHTTests {
             }
 
             #expect(throws: (any Error).self) {
-                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.record)
+                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.value)
             }
         }
 
@@ -320,7 +312,7 @@ extension LibP2PKadDHTTests {
             )
 
             #expect(throws: (any Error).self) {
-                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.record)
+                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.value)
             }
         }
 
@@ -336,7 +328,7 @@ extension LibP2PKadDHTTests {
             )
 
             #expect(throws: (any Error).self) {
-                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.record)
+                try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.value)
             }
         }
 
@@ -349,8 +341,8 @@ extension LibP2PKadDHTTests {
             let high = try IPNSFixture(name: peer, sequence: 8, includeLegacyFields: false)
 
             let validator = KadDHT.IPNSValidator()
-            #expect(try validator.select(key: low.key, values: [low.record, high.record]) == 1)
-            #expect(try validator.select(key: low.key, values: [high.record, low.record]) == 0)
+            #expect(try validator.select(key: low.key, values: [low.value, high.value]) == 1)
+            #expect(try validator.select(key: low.key, values: [high.value, low.value]) == 0)
         }
     }
 }
@@ -363,7 +355,9 @@ extension LibP2PKadDHTTests {
     struct IPNSFixture {
         /// `/ipns/<multihash-of-name>`
         let key: [UInt8]
-        /// The serialized `DHT.Record` wrapping the `IpnsEntry`.
+        /// The serialized `IpnsEntry` — the record's `value`, which is what validators see.
+        let value: [UInt8]
+        /// The serialized `DHT.Record` wrapping the `IpnsEntry`, i.e. what goes on the wire.
         let record: [UInt8]
 
         /// - Parameters:
@@ -426,10 +420,12 @@ extension LibP2PKadDHTTests {
             mutate?(&entry)
 
             let key = "/ipns/".bytes + name.id
+            let serializedEntry = try entry.serializedData()
             self.key = key
+            self.value = serializedEntry.byteArray
             self.record = try DHT.Record.with { record in
                 record.key = Data(key)
-                record.value = try entry.serializedData()
+                record.value = serializedEntry
                 record.timeReceived = RFC3339Date().string
             }.serializedData().byteArray
         }

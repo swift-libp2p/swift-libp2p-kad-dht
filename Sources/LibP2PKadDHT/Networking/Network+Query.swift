@@ -77,7 +77,11 @@ extension KadDHT {
                 /// In the request `record` is set to the record to be stored and `key` on Message is set to equal `key` of the Record.
                 guard req.key == record.key else { throw Errors.encodingError }
 
-                req.record = try record.serializedData()
+                let serializedRecord = try record.serializedData()
+                guard serializedRecord.count <= KadDHT.Defaults.maxRecordSize else {
+                    throw Errors.recordTooLarge(bytes: serializedRecord.count, limit: KadDHT.Defaults.maxRecordSize)
+                }
+                req.record = serializedRecord
             //req.providerPeers = try providers.map { try DHT.Message.Peer($0) }
 
             case let .getProviders(key):
@@ -129,6 +133,9 @@ extension KadDHT {
             case .putValue:
                 /// .store
                 /// In the request, record is set to the record to be stored and key on Message is set to equal key of the Record.
+                guard dht.record.count <= KadDHT.Defaults.maxRecordSize else {
+                    throw Errors.recordTooLarge(bytes: dht.record.count, limit: KadDHT.Defaults.maxRecordSize)
+                }
                 let rec = try DHT.Record(serializedBytes: dht.record)
                 guard rec.hasValue, rec.hasKey, !rec.value.isEmpty, !rec.key.isEmpty, dht.key == rec.key else {
                     throw Errors.DecodingErrorInvalidType

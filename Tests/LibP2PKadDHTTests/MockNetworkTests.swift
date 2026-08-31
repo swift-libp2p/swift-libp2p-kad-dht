@@ -405,6 +405,55 @@ extension LibP2PKadDHTTests {
             #expect(recoveredInfo.addresses == me.addresses)
         }
 
+        // MARK: - Size bounds
+
+        /// An unbounded record is a store-filling primitive, so PUT_VALUE is bounded in both
+        /// directions: we never emit one and never accept one.
+        @Test func testDHTFauxNetworkQuery_PutValue_RejectsOversizedRecords() throws {
+            let key = "/pk/oversized".bytes
+            let oversized = DHT.Record.with {
+                $0.key = Data(key)
+                $0.value = Data(repeating: 0xAB, count: KadDHT.Defaults.maxRecordSize + 1)
+            }
+
+            #expect(throws: (any Error).self) {
+                try KadDHT.Query.putValue(key: key, record: oversized).encode()
+            }
+
+            /// A peer that doesn't play along still can't get one past the decoder.
+            var message = DHT.Message()
+            message.type = .putValue
+            message.key = Data(key)
+            message.record = try oversized.serializedData()
+            let payload = try message.serializedData()
+
+            #expect(throws: (any Error).self) { try KadDHT.Query.decode([UInt8](payload)) }
+        }
+
+        /// Responses carry "the k closest peers", so more than k never goes on the wire.
+        @Test func testDHTFauxNetworkResponse_BoundsPeerListsAtK() throws {
+            let many = try (0..<(KadDHT.Defaults.maxPeersPerMessage + 5)).map {
+                _ in try DHT.Message.Peer(try generateRandomPeerInfo())
+            }
+
+            let findNode = try KadDHT.Response.decode(try KadDHT.Response.findNode(closerPeers: many).encode())
+            guard case .findNode(let closer) = findNode else {
+                Issue.record("Response is not a findNode")
+                return
+            }
+            #expect(closer.count == KadDHT.Defaults.maxPeersPerMessage)
+
+            let getProviders = try KadDHT.Response.decode(
+                try KadDHT.Response.getProviders(cid: "key".bytes, providerPeers: many, closerPeers: many).encode()
+            )
+            guard case .getProviders(_, let providers, let providerCloser) = getProviders else {
+                Issue.record("Response is not a getProviders")
+                return
+            }
+            #expect(providers.count == KadDHT.Defaults.maxPeersPerMessage)
+            #expect(providerCloser.count == KadDHT.Defaults.maxPeersPerMessage)
+        }
+
         // MARK: - PING
 
         @Test func testDHTFauxNetworkQuery_Ping_CarriesNoKey() throws {

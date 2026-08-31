@@ -69,6 +69,42 @@ extension LibP2PKadDHTTests {
             }
         }
 
+        /// The receiving side of a PUT: namespace lookup, validation against the record's *value*,
+        /// then storage. `/pk/` is the namespace both nodes validate out of the box.
+        @Test func testCrossNodePutValueIsValidatedAndStored() async throws {
+            let dhtParams = KadDHT.NodeOptions(
+                connectionTimeout: .milliseconds(500),
+                concurrency: 3,
+                bucketSize: 5,
+                maxPeers: 15,
+                maxKeyValueStoreEntries: 10,
+                supportLocalNetwork: true
+            )
+
+            try await withApp(configure: dhtHost(mode: .server, options: dhtParams)) { receiver in
+                try await withApp(
+                    configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [receiver.peerInfo])
+                ) { publisher in
+                    let record = try KadDHT.createPubKeyRecord(peerID: publisher.peerID).toProtobuf()
+                    let stored = try await publisher.dht.kadDHT.storeNew(record.key.byteArray, value: record).get()
+                    #expect(stored)
+
+                    /// The PUT is best-effort and asynchronous, so poll rather than sleep.
+                    let kid = KadDHT.Key(record.key.byteArray, keySpace: .xor)
+                    var accepted: DHT.Record? = nil
+                    for _ in 0..<20 where accepted == nil {
+                        try await Task.sleep(for: .milliseconds(25))
+                        accepted = try await receiver.dht.kadDHT.dht.getValue(forKey: kid).get()
+                    }
+
+                    #expect(accepted != nil, "receiver should have validated and stored the /pk/ record")
+                    #expect(accepted?.value == record.value)
+                    /// Stamped on arrival rather than carried from the sender.
+                    #expect(accepted?.timeReceived.isEmpty == false)
+                }
+            }
+        }
+
         @Test func testStoreNewCrossNodeRoundTrip() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(500),

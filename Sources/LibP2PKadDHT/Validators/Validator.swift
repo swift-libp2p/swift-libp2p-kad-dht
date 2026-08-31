@@ -14,8 +14,27 @@
 
 import LibP2P
 
+/// Validates and orders the records stored under one DHT namespace.
+///
+/// Both methods take the record's `value` bytes
+/// - Note: `Query.decode` has already checked that the message key and the record key agree,
+///   and `timeReceived` is our own local stamp, which is why neither is a validator input.
 public protocol Validator: Sendable {
+    /// Whether `value` is an acceptable record value for `key`.
+    ///
+    /// - Parameters:
+    ///   - key: The full DHT key, including its `/<namespace>/` prefix.
+    ///   - value: The record's `value` bytes.
+    /// - Throws: If the value is invalid for this key.
     func validate(key: [UInt8], value: [UInt8]) throws
+
+    /// The index of the best value in `values`.
+    ///
+    /// - Parameters:
+    ///   - key: The full DHT key, including its `/<namespace>/` prefix.
+    ///   - values: Candidate record `value` bytes.
+    /// - Returns: An index into `values`.
+    /// - Throws: If none of the candidates can be ordered.
     func select(key: [UInt8], values: [[UInt8]]) throws -> Int
 }
 
@@ -98,36 +117,29 @@ extension KadDHT {
             try self.selectFunction(key, values)
         }
 
+        /// Accepts anything and always picks the first value.
         struct AllowAll: Validator {
             init() {}
 
-            func validate(key: [UInt8], value: [UInt8]) throws {
-                print("🔎 AllowAllValidator::Validating key `\(key.toHexString())`")
-            }
+            func validate(key: [UInt8], value: [UInt8]) throws {}
 
-            func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
-                print("🔎 AllowAllValidator::Selecting key `\(key.toHexString())` from \(values.count) values")
-                return 0
-            }
+            func select(key: [UInt8], values: [[UInt8]]) throws -> Int { 0 }
         }
     }
 
     struct PubKeyValidator: Validator {
-        /// A `/pk/` value is valid only for the key whose multihash is the hash of the public key it
+        /// A `/pk/` value is valid only under the key whose multihash names the public key it
         /// carries.
+        ///
+        /// - Parameter value: A marshaled public key protobuf.
         func validate(key: [UInt8], value: [UInt8]) throws {
-            let record = try DHT.Record(serializedBytes: value)
-            guard Data(key) == record.key else {
-                throw KadDHT.ValidationError.keyMismatch(expected: key, found: record.key.byteArray)
-            }
-
             let peerIDBytes = try KadDHT.namespacedKeyBody(key, expecting: "pk")
             // init a PeerID from the raw mh bytes
             guard let claimed = try? PeerID(fromBytesID: peerIDBytes) else {
                 throw KadDHT.ValidationError.keyIsNotAMultihash
             }
-            // init a PeerID from the marshaled body
-            let carried = try PeerID(marshaledPublicKey: Data(record.value))
+            // init a PeerID from the marshaled value
+            let carried = try PeerID(marshaledPublicKey: Data(value))
             // make sure they match
             guard carried == claimed else {
                 throw KadDHT.ValidationError.publicKeyDoesNotMatchKey(
@@ -161,14 +173,11 @@ extension KadDHT {
         /// `69706e732d7369676e61747572653a`) with raw CBOR bytes from `IpnsEntry.data`".
         static let signaturePrefix: [UInt8] = Array("ipns-signature:".utf8)
 
+        /// - Parameter value: A serialized `IpnsEntry`.
         func validate(key: [UInt8], value: [UInt8]) throws {
-            let record = try DHT.Record(serializedBytes: value)
-            guard Data(key) == record.key else {
-                throw KadDHT.ValidationError.keyMismatch(expected: key, found: record.key.byteArray)
-            }
             /// The IPNS Name is the multihash that follows `/ipns/` in the routing key.
             let name = try KadDHT.namespacedKeyBody(key, expecting: "ipns")
-            try Self.verify(serializedEntry: record.value, forName: name)
+            try Self.verify(serializedEntry: Data(value), forName: name)
         }
 
         /// Runs the spec's ordered record-verification steps over a serialized `IpnsEntry`.
@@ -287,9 +296,9 @@ extension KadDHT {
             }
         }
 
-        /// Picks the best of several IPNS records: highest sequence number, then latest validity.
+        /// Picks the best of several IPNS entries: highest sequence number, then latest validity.
         func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
-            let candidates = values.map { Candidate(serializedRecord: $0) }
+            let candidates = values.map { Candidate(serializedEntry: $0) }
 
             var bestIndex: Int? = nil
             for (index, candidate) in candidates.enumerated() {
@@ -321,10 +330,8 @@ extension KadDHT {
             let sequence: UInt64
             let endOfLife: RFC3339Date?
 
-            init?(serializedRecord: [UInt8]) {
-                guard let record = try? DHT.Record(serializedBytes: serializedRecord),
-                    let entry = try? IpnsEntry(serializedBytes: record.value)
-                else { return nil }
+            init?(serializedEntry: [UInt8]) {
+                guard let entry = try? IpnsEntry(serializedBytes: serializedEntry) else { return nil }
 
                 let data = entry.hasData ? try? KadDHT.IPNSData.decode(dagCBOR: entry.data.byteArray) : nil
 
@@ -403,7 +410,6 @@ extension KadDHT {
         case notNamespaced
         case wrongNamespace(expected: String, found: String)
         case emptyKeyBody
-        case keyMismatch(expected: [UInt8], found: [UInt8])
         case keyIsNotAMultihash
         case publicKeyDoesNotMatchKey(key: String, publicKey: String)
         case noRecordsToSelect
@@ -426,9 +432,6 @@ extension KadDHT {
                 return "Validator: expected namespace '\(expected)', found '\(found)'"
             case .emptyKeyBody:
                 return "Validator: key carries a namespace but no body"
-            case .keyMismatch(let expected, let found):
-                return
-                    "Validator: key mismatch, expected \(expected.toHexString()) got \(found.toHexString())"
             case .keyIsNotAMultihash:
                 return "Validator: key body is not a valid multihash"
             case .publicKeyDoesNotMatchKey(let key, let publicKey):

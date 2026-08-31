@@ -152,9 +152,10 @@ public enum KadDHT {
 
         private var isRunningHeartbeat: Bool = false
 
-        private var defaultValidator: Validator = KadDHT.BaseValidator.AllowAll()
-
         /// [Namespace:Validator]
+        ///
+        /// - Note: There's deliberately no fallback validator: a PUT for a namespace we don't have a
+        ///   validator for is rejected rather than stored unchecked.
         private var validators: [[UInt8]: Validator] = [:]
 
         /// This is why there is a "ipfs/lan/kad/1.0.0" protocol...
@@ -880,7 +881,8 @@ public enum KadDHT {
                     return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil))
                 }
 
-                guard (try? validator.validate(key: key, value: value.serializedData().byteArray)) != nil else {
+                /// Validators see the record's value bytes
+                guard (try? validator.validate(key: key, value: value.value.byteArray)) != nil else {
                     request.logger.warning(
                         "Query::PutValue::KeyVal failed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'"
                     )

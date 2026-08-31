@@ -68,5 +68,21 @@ extension KadDHT {
         /// Per-query timeout for refresh lookups.
         /// go: `DefaultRoutingTableRefreshQueryTimeout`.
         public static let refreshQueryTimeout: TimeAmount = .seconds(10)
+
+        /// The largest inbound message we'll reassemble.
+        ///
+        /// A length prefix is remote input: without a ceiling, a peer can announce a multi-gigabyte
+        /// frame and we'll buffer toward it.
+        public static let maxMessageSize: Int = 1 << 20
+
+        /// The largest `DHT.Record` we'll accept or emit.
+        ///
+        /// IPNS caps entries at 10 KiB and `/pk/` records are a few hundred bytes
+        public static let maxRecordSize: Int = 10 * 1024
+
+        /// The most `closerPeers` / `providerPeers` we'll put in one response.
+        ///
+        /// The spec says "the k closest peers"
+        public static let maxPeersPerMessage: Int = KadDHT.Defaults.bucketSize
     }
 }
