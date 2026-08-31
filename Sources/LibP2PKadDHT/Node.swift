@@ -317,16 +317,12 @@ public enum KadDHT {
         }
 
         public func findPeer(peer: PeerID) -> EventLoopFuture<PeerInfo> {
-            print("Attempting to find peer \(peer)")
-            return self._searchForPeersLookupStyle(peer).flatMap { closestPeers -> EventLoopFuture<PeerInfo> in
-                print("ClosestPeers: \(closestPeers)")
-                if let match = closestPeers.first(where: { $0.peer == peer }) {
-                    print("Got Match!")
-                    return self.eventLoop.makeSucceededFuture(match)
-                } else {
-                    self.logger.notice("Post Lookup: Querying Peer Store for PeerID \(peer)")
-                    return self.peerstore.getPeerInfo(byID: peer.b58String, on: self.eventLoop)
+            self.lookupPeer(peer).flatMap { found -> EventLoopFuture<PeerInfo> in
+                if let found {
+                    return self.eventLoop.makeSucceededFuture(found)
                 }
+                self.logger.debug("Lookup didn't turn up \(peer), falling back to our peerstore")
+                return self.peerstore.getPeerInfo(byID: peer.b58String, on: self.eventLoop)
             }
         }
 
@@ -408,39 +404,21 @@ public enum KadDHT {
                 return self.eventLoop.makeFailedFuture(Errors.encodingError)
             }
 
-            return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap {
-                seeds -> EventLoopFuture<Void> in
-                let lookup = KeyLookup(
-                    host: self,
-                    target: kid,
-                    concurrentRequests: self.concurrency,
-                    seeds: seeds,
-                    groupProvider: self.network!.eventLoopGroupProvider
-                )
-                return lookup.proceedForPeers().hop(to: self.eventLoop).flatMap {
-                    nearestPeers -> EventLoopFuture<Void> in
-                    let closestPeers = nearestPeers.compactMap { $0.peer == self.peerID ? nil : $0 }
-                    return self.addPeersIfSpaceOrCloser(closestPeers).flatMapAlways {
-                        _ -> EventLoopFuture<Void> in
-                        self.logger.notice(
-                            "Announcing provider for cid to \(closestPeers.count) nearest peers"
-                        )
-                        return closestPeers.prefix(self.routingTable.bucketSize).map { peer in
-                            self._sendQuery(
-                                .addProvider(key: providerKey, providerPeers: [myProviderPeer]),
-                                to: peer,
-                                on: self.eventLoop
-                            )
-                            .flatMapAlways { _ -> EventLoopFuture<Void> in
-                                // Best-effort: per-peer failures are
-                                // expected; the spec only requires
-                                // some-of-K to succeed for the
-                                // record to remain discoverable.
-                                self.eventLoop.makeSucceededVoidFuture()
-                            }
-                        }.flatten(on: self.eventLoop).map { _ in () }
+            return self.lookupClosestPeers(to: kid).flatMap { nearestPeers -> EventLoopFuture<Void> in
+                let closestPeers = nearestPeers.prefix(self.routingTable.bucketSize)
+                self.logger.notice("Announcing provider for cid to \(closestPeers.count) nearest peers")
+                return closestPeers.map { peer in
+                    self._sendQuery(
+                        .addProvider(key: providerKey, providerPeers: [myProviderPeer]),
+                        to: peer,
+                        on: self.eventLoop
+                    )
+                    .flatMapAlways { _ -> EventLoopFuture<Void> in
+                        // Best-effort: per-peer failures are expected.
+                        // The spec only requires some-of-K to succeed for the record to remain discoverable.
+                        self.eventLoop.makeSucceededVoidFuture()
                     }
-                }
+                }.flatten(on: self.eventLoop).map { _ in () }
             }
         }
 
@@ -453,11 +431,18 @@ public enum KadDHT {
             return combined
         }
 
+        
+        
+        /// Find providers for the content keyed by the given `CID`
+        /// - Parameters:
+        ///   - cid: The `CID` you're interested in finding providers for
+        ///   - count: The number of providers to stop at. Pass `0` to search to convergence.
+        /// - Returns: An array of `Multiaddr`'s that are providing the content keyed by the `CID`
         public func findProviders(cid: [UInt8], count: Int) -> EventLoopFuture<[Multiaddr]> {
             guard let cid = try? CID(cid) else { return self.eventLoop.makeFailedFuture(Errors.invalidCID) }
             /// Provider records are keyed by *multihash*, not by CID, so that every CID encoding of the same
             /// content converges on one key. `rawBuffer` would include the v1 version/codec prefix.
-            return self.getProvidersUsingLookupList(cid.multihash.value).map { peers in
+            return self.lookupProviders(cid.multihash.value, count: count).map { peers in
                 peers.reduce(
                     into: [],
                     { partialResult, pInfo in
@@ -1244,188 +1229,79 @@ public enum KadDHT {
                 self.logger.notice(
                     "storeNew: stored locally key=\(KadDHT.keyToHumanReadableString(key))"
                 )
-                return self._nearest(self.routingTable.bucketSize, peersToKey: targetID).flatMap {
-                    seeds -> EventLoopFuture<Bool> in
-                    let lookup = KeyLookup(
-                        host: self,
-                        target: targetID,
-                        concurrentRequests: self.concurrency,
-                        seeds: seeds,
-                        groupProvider: self.network!.eventLoopGroupProvider
-                    )
-                    /// Jump back onto our main event loop to ensure that we're not piggy backing on the lookup's eventloop that's trying to shutdown...
-                    return lookup.proceedForPeers().hop(to: self.eventLoop).flatMap {
-                        nearestPeers -> EventLoopFuture<Bool> in
-                        let closestPeers = nearestPeers.compactMap { $0.peer == self.peerID ? nil : $0 }
-                        /// We have the closest peers to this key that the network knows of...
-                        /// Take this opportunity to process / store these new peers
-                        return self.addPeersIfSpaceOrCloser(closestPeers).flatMapAlways { _ -> EventLoopFuture<Bool> in
-                            /// Lets ask each one to store the value and hope at least one returns true
-                            self.logger.warning(
-                                "Asking the closest \(closestPeers.count) peers to store our value \(value)"
-                            )
+                return self.lookupClosestPeers(to: targetID).flatMap {
+                    nearestPeers -> EventLoopFuture<Bool> in
+                    /// We have the closest peers to this key that the network knows of, so ask each
+                    /// of the k closest to store the value.
+                    let closestPeers = nearestPeers.prefix(self.routingTable.bucketSize)
+                    self.logger.notice("Asking the closest \(closestPeers.count) peers to store our value")
 
-                            // Don't set timeReceived on the way out...
-                            var record = DHT.Record()
-                            record.key = value.key
-                            record.value = value.value
+                    // Don't set timeReceived on the way out...
+                    var record = DHT.Record()
+                    record.key = value.key
+                    record.value = value.value
 
-                            return closestPeers.prefix(4).compactMap { peer in
-                                self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop)
-                                    .flatMapAlways { res -> EventLoopFuture<Bool> in
-                                        switch res {
-                                        case .success(let response):
-                                            self.logger.info("PutValue Response -> \(response)")
-                                            guard case .putValue(let k, let rec) = response else {
-                                                return self.eventLoop.makeSucceededFuture(false)
-                                            }
-                                            self.logger.info("PutValue Response from...")
-                                            self.logger.info("Peer: \(peer.peer.b58String)")
-                                            self.logger.info("Addresses: \(peer.addresses)")
-                                            self.logger.info("Query Key: \(key)")
-                                            self.logger.info("Response Key: \(k)")
-                                            self.logger.info("Query Rec: \(value)")
-                                            if let rec = rec {
-                                                self.logger.info("Response Rec: \(rec)")
-                                            } else {
-                                                self.logger.info("Response Rec: NIL")
-                                            }
-
-                                            return self.eventLoop.makeSucceededFuture(rec != nil && k == key)
-                                        case .failure(let error):
-                                            self.logger.info("PutValue Error -> \(error)")
-                                            return self.eventLoop.makeSucceededFuture(false)
-                                        }
+                    return closestPeers.map { peer in
+                        self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop)
+                            .flatMapAlways { res -> EventLoopFuture<Bool> in
+                                switch res {
+                                case .success(let response):
+                                    guard case .putValue(let k, let rec) = response else {
+                                        return self.eventLoop.makeSucceededFuture(false)
                                     }
-                            }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
-                                self.logger.notice(
-                                    "storeNew: \(results.filter({ $0 }).count)/\(results.count) peers accepted the value (local copy stored regardless)"
-                                )
-                                /// Local-first semantics: the value is
-                                /// already stored locally — return true.
-                                /// Remote acceptance is advisory; the
-                                /// heartbeat's ``_shareDHTKVs`` will
-                                /// continue propagating the value.
-                                return self.eventLoop.makeSucceededFuture(true)
+                                    return self.eventLoop.makeSucceededFuture(rec != nil && k == key)
+                                case .failure(let error):
+                                    self.logger.debug("PutValue to \(peer.peer) failed: \(error)")
+                                    return self.eventLoop.makeSucceededFuture(false)
+                                }
                             }
-                        }
+                    }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
+                        self.logger.notice(
+                            "storeNew: \(results.filter({ $0 }).count)/\(results.count) peers accepted the value (local copy stored regardless)"
+                        )
+                        /// Local-first semantics: the value is already stored locally, return true.
+                        /// Remote acceptance is optional, the heartbeat's ``_shareDHTKVs`` will continue propagating the value.
+                        return self.eventLoop.makeSucceededFuture(true)
                     }
                 }
             }
         }
 
+        /// The value stored under `key`, ours if we hold it, otherwise the best the network has.
         public func get(_ key: [UInt8]) -> EventLoopFuture<DHTRecord?> {
-            self.eventLoop.flatSubmit {
-                let kid = KadDHT.Key(key, keySpace: .xor)
-                return self.dht.getUnexpiredValue(forKey: kid, maxAge: self.maxRecordAge).flatMap { value in
-                    if let val = value {
-                        return self.eventLoop.makeSucceededFuture(val)
-                    } else {
-                        return self._nearestPeerTo(kid).flatMap { peer in
-                            self._lookup(key: key, from: peer, depth: 0)
-                        }.flatMap { res -> EventLoopFuture<DHTRecord?> in
-                            guard case .getValue(_, let record, let closerPeers) = res else {
-                                return self.eventLoop.makeSucceededFuture(nil)
-                            }
-                            if record == nil {
-                                self.logger.info(
-                                    "Failed to find value for key `\(key)`. Lookup terminated without key:val pair and closer peers of [\(closerPeers.map { $0.description }.joined(separator: ", "))]"
-                                )
-                            }
-                            return self.eventLoop.makeSucceededFuture(record)
-                        }
-                    }
-                }
-            }
+            self.getLocalOrLookup(key).map { $0 }
         }
 
+        /// ``get(_:)`` with a record of every peer the lookup asked and what they answered.
         public func getWithTrace(_ key: [UInt8]) -> EventLoopFuture<(DHTRecord?, LookupTrace)> {
-            self.eventLoop.flatSubmit {
-                let kid = KadDHT.Key(key, keySpace: .xor)
-                let trace = LookupTrace()
-                return self.dht.getUnexpiredValue(forKey: kid, maxAge: self.maxRecordAge).flatMap { value in
-                    if let val = value {
-                        return self.eventLoop.makeSucceededFuture((val, trace))
-                    } else {
-                        return self._nearestPeerTo(kid).flatMap { peer in
-                            self._lookupWithTrace(key: key, from: peer, trace: trace)
-                        }.flatMap { res -> EventLoopFuture<(DHTRecord?, LookupTrace)> in
-                            guard case .getValue(_, let record, let closerPeers) = res.0 else {
-                                return self.eventLoop.makeSucceededFuture((nil, res.1))
-                            }
-                            if record == nil {
-                                self.logger.info(
-                                    "Failed to find value for key `\(key)`. Lookup terminated without key:val pair and closer peers of [\(closerPeers.map { $0.description }.joined(separator: ", "))]"
-                                )
-                            }
-                            return self.eventLoop.makeSucceededFuture((record, res.1))
-                        }
-                    }
-                }
-            }
+            let trace = LookupTrace()
+            return self.getLocalOrLookup(key, trace: trace).map { ($0, trace) }
         }
 
-        /// TODO: We should update this logic to use providers...
+        @available(*, deprecated, renamed: "get(_:)")
         public func getUsingLookupList(_ key: [UInt8]) -> EventLoopFuture<DHTRecord?> {
+            self.get(key)
+        }
+
+        @available(*, deprecated, message: "Use findProviders(cid:count:), or lookupProviders(_:count:)")
+        public func getProvidersUsingLookupList(_ key: [UInt8]) -> EventLoopFuture<[PeerInfo]> {
+            self.lookupProviders(key, count: 0)
+        }
+
+        /// Local-first read: our own store, then an iterative GET_VALUE across the network.
+        private func getLocalOrLookup(_ key: [UInt8], trace: LookupTrace? = nil) -> EventLoopFuture<DHT.Record?> {
             self.eventLoop.flatSubmit {
                 let kid = KadDHT.Key(key, keySpace: .xor)
                 return self.dht.getUnexpiredValue(forKey: kid, maxAge: self.maxRecordAge).flatMap { value in
-                    if let val = value {
-                        return self.eventLoop.makeSucceededFuture(val)
-                    } else {
-                        return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap {
-                            seeds -> EventLoopFuture<DHTRecord?> in
-                            let lookupList = KeyLookup(
-                                host: self,
-                                target: kid,
-                                concurrentRequests: self.concurrency,
-                                seeds: seeds,
-                                groupProvider: self.network!.eventLoopGroupProvider
-                            )
-                            return lookupList.proceedForValue().map({ $0 }).hop(to: self.eventLoop)
-                        }
+                    if let value {
+                        return self.eventLoop.makeSucceededFuture(value)
                     }
+                    return self.lookupValue(key, quorum: self.quorum, trace: trace)
                 }
             }
         }
 
-        public func getProvidersUsingLookupList(_ key: [UInt8]) -> EventLoopFuture<[PeerInfo]> {
-            self.eventLoop.flatSubmit {
-                let kid = KadDHT.Key(key, keySpace: .xor)
-
-                return self._nearest(self.routingTable.bucketSize, peersToKey: kid).flatMap {
-                    seeds -> EventLoopFuture<[PeerInfo]> in
-                    let lookupList = KeyLookup(
-                        host: self,
-                        target: kid,
-                        concurrentRequests: self.concurrency,
-                        seeds: seeds,
-                        groupProvider: self.network!.eventLoopGroupProvider
-                    )
-                    return lookupList.proceedForProvider().map({ $0 }).hop(to: self.eventLoop)
-                }
-            }
-        }
-
-        private func _lookup(key: [UInt8], from peer: PeerInfo, depth: Int) -> EventLoopFuture<Response> {
-            guard depth < self.maxLookupDepth else {
-                self.logger.error("Max Lookup Trace Depth Exceeded")
-                return self.eventLoop.makeFailedFuture(Errors.maxLookupDepthExceeded)
-            }
-            return self._sendQuery(.getValue(key: key), to: peer).flatMap { res in
-                guard case .getValue(_, let record, let closerPeers) = res else {
-                    return self.eventLoop.makeFailedFuture(Errors.DecodingErrorInvalidType)
-                }
-                if record != nil {
-                    return self.eventLoop.makeSucceededFuture(res)
-                } else if let nextPeer = closerPeers.first, let pInfo = try? nextPeer.toPeerInfo() {
-                    return self._lookup(key: key, from: pInfo, depth: depth + 1)
-                } else {
-                    return self.eventLoop.makeFailedFuture(Errors.lookupPeersExhausted)
-                }
-            }
-        }
-
+        /// Every response a lookup collected, in arrival order.
         public final class LookupTrace: CustomStringConvertible, Sendable {
             struct Event: Sendable {
                 let time: TimeInterval
@@ -1495,33 +1371,6 @@ public enum KadDHT {
             }
         }
 
-        private func _lookupWithTrace(
-            key: [UInt8],
-            from peer: PeerInfo,
-            trace: LookupTrace
-        ) -> EventLoopFuture<(Response, LookupTrace)> {
-            guard trace.depth < self.maxLookupDepth else {
-                return self.eventLoop.makeFailedFuture(Errors.maxLookupDepthExceeded)
-            }
-            return self._sendQuery(.getValue(key: key), to: peer).flatMap { res in
-                trace.add(res, from: peer)
-                trace.incrementDepth()
-                guard case .getValue(let key, let record, let closerPeers) = res else {
-                    return self.eventLoop.makeFailedFuture(Errors.DecodingErrorInvalidType)
-                }
-                if record != nil {
-                    return self.eventLoop.makeSucceededFuture((res, trace))
-                } else if let nextPeer = closerPeers.first, let pInfo = try? nextPeer.toPeerInfo() {
-                    guard !trace.containsPeer(pInfo) else {
-                        return self.eventLoop.makeFailedFuture(Errors.lookupPeersExhausted)
-                    }
-                    return self._lookupWithTrace(key: key, from: pInfo, trace: trace)
-                } else {
-                    return self.eventLoop.makeFailedFuture(Errors.lookupPeersExhausted)
-                }
-            }
-        }
-
         private var numberOfSearches: Int = 0
         /// Performs a node lookup on our the specified address, or a randomly generated one, to try and find the peers closest to it in the current network
         /// - Note: we can fudge the CPL if we're trying to discover peers for a certain k bucket
@@ -1532,7 +1381,7 @@ public enum KadDHT {
                 addressToSearchFor = specified
             } else if self.firstSearch || self.numberOfSearches % 3 == 0 {
                 /// If it's our first search, search for our own address...
-                self.logger.warning("Searching for our own address")
+                self.logger.debug("Searching for our own address")
                 self.firstSearch = false
                 addressToSearchFor = self.peerID
             } else {
@@ -1542,29 +1391,11 @@ public enum KadDHT {
                 addressToSearchFor = randomPeer
             }
             self.numberOfSearches += 1
-            return self.routingTable.getPeerInfos().flatMap { peers -> EventLoopFuture<[PeerInfo]> in
-                self.dhtPeerToPeerInfo(peers).flatMap { seeds in
-                    let lookup = Lookup(
-                        host: self,
-                        target: addressToSearchFor,
-                        concurrentRequests: self.concurrency,
-                        seeds: seeds,
-                        groupProvider: self.network!.eventLoopGroupProvider
-                    )
-                    return lookup.proceed().hop(to: self.eventLoop).flatMap { closestPeers in
-                        closestPeers.compactMap { p in
-                            self.logger.info("\(p.peer)")
-                            return self.addPeerIfSpaceOrCloser(p)
-                        }.flatten(on: self.eventLoop).map { closestPeers }
-                    }
-                }
-            }
-        }
-
-        private func dhtPeerToPeerInfo(_ dhtPeers: [DHTPeerInfo]) -> EventLoopFuture<[PeerInfo]> {
-            dhtPeers.compactMap {
-                self.peerstore.getPeerInfo(byID: $0.id.b58String)
-            }.flatten(on: self.eventLoop)
+            /// Discovery runs on a clock, so it's bounded rather than allowed to hold up a heartbeat.
+            return self.lookupClosestPeers(
+                to: KadDHT.Key(addressToSearchFor, keySpace: .xor),
+                timeout: KadDHT.Defaults.refreshQueryTimeout
+            )
         }
 
         /// This method adds a peer to our routingTable and peerstore if we either have excess capacity or if the peer is closer to us than the furthest current peer
@@ -1630,8 +1461,8 @@ public enum KadDHT {
             }.transform(to: ())
         }
 
-        /// Itterates over a collection of peers and attempts to store each one if space or distance permits
-        private func addPeersIfSpaceOrCloser(_ peers: [PeerInfo]) -> EventLoopFuture<Void> {
+        /// Iterates over a collection of peers and attempts to store each one if space or distance permits
+        func addPeersIfSpaceOrCloser(_ peers: [PeerInfo]) -> EventLoopFuture<Void> {
             peers.map { self.addPeerIfSpaceOrCloser($0) }.flatten(on: self.eventLoop)
         }
 
@@ -1730,7 +1561,7 @@ public enum KadDHT {
         /// - Parameter requester: When answering a query, pass the requesting peer. go's
         ///   `betterPeersToQuery` never tells a peer about itself, and echoing the requester back wastes a
         ///   `closerPeers` slot and makes them re-query themselves.
-        private func _nearest(
+        func _nearest(
             _ num: Int,
             peersToKey keyID: KadDHT.Key,
             excluding requester: PeerID? = nil
