@@ -284,7 +284,7 @@ extension LibP2PKadDHTTests {
             }
         }
 
-        /// A timeout returns whatever responded in time rather than hanging the caller.
+        /// A timeout returns whatever responded in time rather than stalling the caller.
         @Test func timeoutReturnsWhatItHas() async throws {
             try await withApp(configure: engineHost(concurrency: 2, resiliency: 3)) { app in
                 let node = app.dht.kadDHT
