@@ -25,10 +25,10 @@ extension LibP2PKadDHTTests {
 
     /// Value retrieval across peers that disagree.
     ///
-    /// A lookup used to cancel on the first record it saw, so whichever peer answered first won —
+    /// A lookup used to cancel on the first record it saw, so whichever peer answered first won,
     /// including a peer holding a record the rest of the network had long since superseded. The
     /// engine now collects every answer, resolves them with the namespace's validator, and pushes
-    /// the winner back to the peers that were behind.
+    /// the winning record back to the peers that were behind.
     @Suite("Value Lookup Tests", .serialized)
     final class ValueLookupTests {
 
@@ -91,7 +91,7 @@ extension LibP2PKadDHTTests {
         /// misbehaving holder can't answer for a key it has no valid record for.
         @Test func ignoresRecordsThatFailValidation() async throws {
             let name = try PeerID(.Ed25519)
-            /// Signed by someone else entirely — the signature verifies against the wrong key.
+            /// Signed by someone else entirely, the signature verifies against the wrong key.
             let forged = try IPNSFixture(name: name, signer: try PeerID(.Ed25519), sequence: 9)
             let kid = KadDHT.Key(forged.key, keySpace: .xor)
 
