@@ -157,19 +157,11 @@ extension EventLoopDictionary where Key == KadDHT.Key, Value == DHT.Record {
         self.eventLoop.submit {
             if let existingRecord = self.store[kid] {
                 /// We have an existing record for this key, lets make sure we keep the best one...
-                let values = [existingRecord, value].compactMap { try? $0.serializedData().byteArray }
-
-                let best: DHT.Record
-                if values.isEmpty {
-                    best = existingRecord
-                } else {
-                    /// ask the validator for the index of the best record
-                    let selected = (try? validator.select(key: kid.original, values: values)) ?? 0
-                    /// ensure the index is valid for our values
-                    let bestIndex = values.indices.contains(selected) ? selected : 0
-                    /// set the best record
-                    best = (try? DHT.Record(serializedBytes: values[bestIndex])) ?? existingRecord
-                }
+                let candidates = [existingRecord, value]
+                let selected = (try? validator.select(key: kid.original, values: candidates.map { $0.value.byteArray }))
+                /// ensure the index is valid for our candidates
+                let bestIndex = candidates.indices.contains(selected ?? 0) ? (selected ?? 0) : 0
+                let best = candidates[bestIndex]
 
                 /// Update the store with the best record...
                 self.store[kid] = best
