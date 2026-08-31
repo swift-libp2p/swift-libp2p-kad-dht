@@ -19,7 +19,7 @@ import NIOConcurrencyHelpers
 
 public enum KadDHT {
     public static let multicodec: String = "/ipfs/kad/1.0.0"
-    public static let multicodecLAN: String = "ipfs/lan/kad/1.0.0"
+    public static let multicodecLAN: String = "/ipfs/lan/kad/1.0.0"
 
     static let CPL_BITS_NOT_BYTES: Bool = true
 
