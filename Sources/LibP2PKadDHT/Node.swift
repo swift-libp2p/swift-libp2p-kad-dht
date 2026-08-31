@@ -53,8 +53,8 @@ public enum KadDHT {
         /// Fake Internet Connection Type
         //let connection:InternetType
 
-        /// Max number of concurrent requests we can have open at any moment
-        let maxConcurrentRequest: Int
+        /// Lookup concurrency (`α`) — the number of requests a query path keeps in flight
+        let concurrency: Int
 
         /// Max Connection Timeout
         let connectionTimeout: TimeAmount
@@ -93,17 +93,10 @@ public enum KadDHT {
         var localProviderCIDs: [KadDHT.Key: [UInt8]] = [:]
 
         /// Provider records older than this are pruned on heartbeat.
-        ///
-        /// 48 hours, matching the spec ("In the IPFS DHT the Expiration Interval is set to 48 hours")
-        /// and go's `DefaultProvideValidity = 48 * time.Hour`.
-        let providerRecordTTL: TimeInterval = 48 * 60 * 60
+        let providerRecordTTL: TimeInterval = Node.seconds(KadDHT.Defaults.provideValidity)
 
         /// Cadence at which we re-publish our own provider records.
-        ///
-        /// 22 hours, matching the spec ("For the IPFS network it is currently set to 22 hours") and
-        /// go's `DefaultReprovideInterval = 22 * time.Hour`. Comfortably inside the 48-hour
-        /// expiry above, so a single missed republish doesn't drop us from other peers' stores.
-        let providerRecordRepublishInterval: TimeInterval = 22 * 60 * 60
+        let providerRecordRepublishInterval: TimeInterval = Node.seconds(KadDHT.Defaults.reprovideInterval)
 
         /// The longest we hold a value record, measured from its `timeReceived` stamp.
         ///
@@ -181,8 +174,7 @@ public enum KadDHT {
             self.mode = mode
             self.peerID = peerID
             self.peerstore = peerstore ?? network.peers
-            //self.connection = options.connection
-            self.maxConcurrentRequest = options.maxConcurrentConnections
+            self.concurrency = options.concurrency
             self.connectionTimeout = options.connectionTimeout
             self.dht = EventLoopDictionary(on: eventLoop)
             self.dhtSize = options.maxKeyValueStoreSize
@@ -418,7 +410,7 @@ public enum KadDHT {
                 let lookup = KeyLookup(
                     host: self,
                     target: kid,
-                    concurrentRequests: self.maxConcurrentRequest,
+                    concurrentRequests: self.concurrency,
                     seeds: seeds,
                     groupProvider: self.network!.eventLoopGroupProvider
                 )
@@ -1224,7 +1216,7 @@ public enum KadDHT {
                     let lookup = KeyLookup(
                         host: self,
                         target: targetID,
-                        concurrentRequests: self.maxConcurrentRequest,
+                        concurrentRequests: self.concurrency,
                         seeds: seeds,
                         groupProvider: self.network!.eventLoopGroupProvider
                     )
@@ -1353,7 +1345,7 @@ public enum KadDHT {
                             let lookupList = KeyLookup(
                                 host: self,
                                 target: kid,
-                                concurrentRequests: self.maxConcurrentRequest,
+                                concurrentRequests: self.concurrency,
                                 seeds: seeds,
                                 groupProvider: self.network!.eventLoopGroupProvider
                             )
@@ -1373,7 +1365,7 @@ public enum KadDHT {
                     let lookupList = KeyLookup(
                         host: self,
                         target: kid,
-                        concurrentRequests: self.maxConcurrentRequest,
+                        concurrentRequests: self.concurrency,
                         seeds: seeds,
                         groupProvider: self.network!.eventLoopGroupProvider
                     )
@@ -1522,7 +1514,7 @@ public enum KadDHT {
                     let lookup = Lookup(
                         host: self,
                         target: addressToSearchFor,
-                        concurrentRequests: self.maxConcurrentRequest,
+                        concurrentRequests: self.concurrency,
                         seeds: seeds,
                         groupProvider: self.network!.eventLoopGroupProvider
                     )
