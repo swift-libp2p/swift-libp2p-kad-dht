@@ -30,6 +30,20 @@ extension KadDHT {
         /// Deprecated...
         case ping
 
+        /// Serializes `record`, refusing anything over ``KadDHT/maxRecordSize``.
+        private static func serialized(_ record: DHT.Record) throws -> Data {
+            let bytes = try record.serializedData()
+            guard bytes.count <= KadDHT.Defaults.maxRecordSize else {
+                throw Errors.recordTooLarge(bytes: bytes.count, limit: KadDHT.Defaults.maxRecordSize)
+            }
+            return bytes
+        }
+
+        /// The spec's responses carry "the k closest peers", so we never put more than k on the wire.
+        private static func bounded(_ peers: [DHT.Message.Peer]) -> [DHT.Message.Peer] {
+            Array(peers.prefix(KadDHT.Defaults.maxPeersPerMessage))
+        }
+
         func encode() throws -> [UInt8] {
             var dht = DHT.Message()
 
@@ -37,7 +51,7 @@ extension KadDHT {
             case let .findNode(closerPeers):
                 dht.type = .findNode
                 //dht.key = Data(id)
-                dht.closerPeers = closerPeers
+                dht.closerPeers = Self.bounded(closerPeers)
 
             case let .getValue(key, record, closerPeers):
                 dht.type = .getValue
@@ -46,7 +60,7 @@ extension KadDHT {
                     dht.record = try record.serializedData()
                 }
                 /// Should we only set this if record is nil? Do we set it even if closerPeers is empty?
-                dht.closerPeers = closerPeers
+                dht.closerPeers = Self.bounded(closerPeers)
 
             case let .putValue(key, record):
                 dht.type = .putValue
@@ -58,13 +72,13 @@ extension KadDHT {
             case let .getProviders(cid, providerPeers, closerPeers):
                 dht.type = .getProviders
                 dht.key = Data(cid)
-                dht.providerPeers = providerPeers
-                dht.closerPeers = closerPeers
+                dht.providerPeers = Self.bounded(providerPeers)
+                dht.closerPeers = Self.bounded(closerPeers)
 
             case let .addProvider(cid, providerPeers):
                 dht.type = .addProvider
                 dht.key = Data(cid)
-                dht.providerPeers = providerPeers
+                dht.providerPeers = Self.bounded(providerPeers)
 
             case .ping:
                 dht.type = .ping
