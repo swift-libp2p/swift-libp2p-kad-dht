@@ -284,19 +284,23 @@ extension LibP2PKadDHTTests {
 
             print("All Done!")
         }
-        
+
         /// ******************************************************
         ///    Testing External KadDHT - Single Query - FindNode
         /// ******************************************************
         ///
         /// let val = try lib.dht.kadDHT.findPeer(peer: PeerID(cid: "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN")).wait()
-        @Test(.disabled(), .serialized, arguments: [
-            "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
-            "QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
-            "QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
-            "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
-            "QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb"
-        ])
+        @Test(
+            .disabled(),
+            .serialized,
+            arguments: [
+                "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
+                "QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt",
+                "QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
+                "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
+                "QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb",
+            ]
+        )
         func testLibP2PKadDHT_FindNode(_ peerID: String) throws {
             /// Init the libp2p node
             let lib = try makeHost()
@@ -499,16 +503,9 @@ extension LibP2PKadDHTTests {
             )
             lib.servers.use(.tcp(host: "127.0.0.1", port: nextPort))
 
-            //lib.connectionManager.use(connectionType: BasicConnectionLight.self)
-
-            //try lib.peers.add(peerInfo: PeerInfo(
-            //    peer: PeerID(cid: "QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN"),
-            //    addresses: [Multiaddr("/ip4/139.178.91.71/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN")]
-            //))
-
             nextPort += 1
 
-            lib.logger.logLevel = .notice  //.trace
+            lib.logger.logLevel = .notice
 
             return lib
         }
