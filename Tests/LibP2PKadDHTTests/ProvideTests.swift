@@ -207,6 +207,67 @@ extension LibP2PKadDHTTests {
             }
         }
 
+        /// `count` was accepted and then ignored, so a caller asking for one provider paid for a walk
+        /// of the whole neighbourhood.
+        @Test func testFindProvidersHonoursCount() async throws {
+            /// One query in flight, so "stop at `count`" is observable rather than racing the second
+            /// response back.
+            let searcherParams = KadDHT.NodeOptions(
+                connectionTimeout: .milliseconds(500),
+                concurrency: 1,
+                bucketSize: 5,
+                maxPeers: 15,
+                maxKeyValueStoreEntries: 10,
+                supportLocalNetwork: true
+            )
+            let providerParams = KadDHT.NodeOptions(
+                connectionTimeout: .milliseconds(500),
+                concurrency: 3,
+                bucketSize: 5,
+                maxPeers: 15,
+                maxKeyValueStoreEntries: 10,
+                supportLocalNetwork: true
+            )
+
+            try await withApp(configure: dhtHost(mode: .server, options: providerParams, bootstrapPeers: [])) { first in
+                try await withApp(configure: dhtHost(mode: .server, options: providerParams, bootstrapPeers: [])) {
+                    second in
+                    try await withApp(
+                        configure: dhtHost(
+                            mode: .server,
+                            options: searcherParams,
+                            bootstrapPeers: [first.peerInfo, second.peerInfo]
+                        )
+                    ) { searcher in
+                        /// Both hold a provider record for the same CID, locally only.
+                        let cid = try syntheticCID("provider-count")
+                        try await first.dht.kadDHT.provide(cid: cid, announce: false).get()
+                        try await second.dht.kadDHT.provide(cid: cid, announce: false).get()
+
+                        let key = try CID(cid).multihash.value
+                        let one = try await searcher.dht.kadDHT.lookupProviders(key, count: 1).get()
+                        #expect(one.count == 1, "asking for one provider should stop at one")
+
+                        let all = try await searcher.dht.kadDHT.lookupProviders(key, count: 0).get()
+                        #expect(all.count == 2, "count 0 searches to convergence")
+                    }
+                }
+            }
+        }
+
+        /// Our own provider records answer a provider lookup without any network round trip.
+        @Test func testLookupProvidersSeedsFromTheLocalStore() async throws {
+            try await withApp(configure: defaultDHTClientConfig) { app in
+                let node = app.dht.kadDHT
+                let cid = try syntheticCID("local-provider-seed")
+                try await node.provide(cid: cid, announce: false).get()
+
+                let providers = try await node.lookupProviders(try CID(cid).multihash.value, count: 1).get()
+                #expect(providers.count == 1)
+                #expect(providers.first?.peer == node.peerID)
+            }
+        }
+
         @Test func testProvideMultipleKeys() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(500),
