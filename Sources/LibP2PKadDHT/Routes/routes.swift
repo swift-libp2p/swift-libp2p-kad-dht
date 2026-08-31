@@ -20,9 +20,10 @@ func registerDHTRoute(_ app: Application) throws {
 
         // Install a uvarint length-prefix frame decoder on the inbound
         // side of the `/ipfs/kad/1.0.0` stream. Canonical libp2p frames
-        // every kad message as `uvarint(len) + protobuf`; `VarintFrameDecoder`
+        // every kad message as `uvarint(len) + protobuf`; `KadDHT.FrameDecoder`
         // buffers across partial reads and emits exactly one complete,
-        // length-prefix-stripped frame per message as `req.payload`.
+        // length-prefix-stripped frame per message as `req.payload`, refusing
+        // any frame whose announced length exceeds `KadDHT.maxMessageSize`.
         //
         // Without it the route fired per raw read and `Query.decode` assumed
         // each read was exactly one whole frame — which only held when the
@@ -34,7 +35,7 @@ func registerDHTRoute(_ app: Application) throws {
         // Only the inbound decoder is installed; the outbound response keeps
         // its own manual length prefix (`Response.encode`), so it is framed
         // exactly once.
-        kad.on("1.0.0", handlers: [.varIntFrameDecoder]) { req -> EventLoopFuture<Response<ByteBuffer>> in
+        kad.on("1.0.0", handlers: [.kadFrameDecoder]) { req -> EventLoopFuture<Response<ByteBuffer>> in
 
             req.application.dht.kadDHT.processRequest(req)
 
