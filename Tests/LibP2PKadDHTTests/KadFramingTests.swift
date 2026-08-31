@@ -110,9 +110,9 @@ extension LibP2PKadDHTTests {
             }
             #expect(decodedKey == randomKey)
         }
-        
+
         // - MARK: Helpers
-        
+
         /// The on-the-wire bytes a sender produces: `uvarint(len) + protobuf`.
         private func wireBytes(for query: KadDHT.Query) throws -> [UInt8] {
             try query.encode()
