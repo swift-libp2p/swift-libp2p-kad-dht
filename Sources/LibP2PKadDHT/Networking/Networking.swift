@@ -119,7 +119,11 @@ extension KadDHT {
             self.valueGCInterval = valueGCInterval
         }
 
-        @available(*, deprecated, message: "`maxConcurrentConnections` is the Kademlia α parameter — use `concurrency:`")
+        @available(
+            *,
+            deprecated,
+            message: "`maxConcurrentConnections` is the Kademlia α parameter — use `concurrency:`"
+        )
         public init(
             connectionTimeout: TimeAmount = .seconds(4),
             maxConcurrentConnections: Int,

@@ -29,14 +29,14 @@ extension KadDHT {
         /// Lookup concurrency (`α`), requests a query path keeps in flight.
         /// go: `amino.DefaultConcurrency`.
         public static let concurrency: Int = { Self.alpha }()
-        
+
         /// Lookup concurrency (`α`), requests a query path keeps in flight.
         public static let alpha: Int = 10
-        
+
         /// Resiliency (`β`), how many of the closest peers must respond before a query path completes.
         /// go: `amino.DefaultResiliency`.
         public static let resiliency: Int = { Self.beta }()
-        
+
         /// Resiliency (`β`), how many of the closest peers must respond before a query path completes.
         public static let beta: Int = 3
 
