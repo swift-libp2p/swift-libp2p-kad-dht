@@ -68,7 +68,7 @@ extension KadDHT {
         /// Per-query timeout for refresh lookups.
         /// go: `DefaultRoutingTableRefreshQueryTimeout`.
         public static let refreshQueryTimeout: TimeAmount = .seconds(10)
-        
+
         /// The largest inbound message we'll reassemble.
         ///
         /// A length prefix is remote input: without a ceiling, a peer can announce a multi-gigabyte
