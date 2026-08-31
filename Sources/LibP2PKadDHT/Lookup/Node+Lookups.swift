@@ -85,10 +85,7 @@ extension KadDHT.Node {
         trace: LookupTrace? = nil
     ) -> EventLoopFuture<DHT.Record?> {
         let target = KadDHT.Key(key, keySpace: .xor)
-        let best = NIOLockedValueBox<DHT.Record?>(nil)
-        /// Peers that answered without the best record. They get a correcting PUT once we're done.
-        let outdated = NIOLockedValueBox<[PeerInfo]>([])
-        let recordsSeen = NIOLockedValueBox<Int>(0)
+        let answers = NIOLockedValueBox(ValueAnswers())
 
         return self._nearest(self.routingTable.bucketSize, peersToKey: target).flatMap { seeds in
             KadDHT.QueryEngine(host: self, target: target, seeds: seeds) { peer in
@@ -105,35 +102,64 @@ extension KadDHT.Node {
                         self.isValidRecord(record, for: key)
                     else {
                         /// No usable record from this peer, so it's behind whatever we do find.
-                        outdated.withLockedValue { $0.append(peer) }
+                        answers.withLockedValue { $0.outdated.append(peer) }
                         return KadDHT.QueryEngine.StepResult(closerPeers: peers)
                     }
 
-                    let total = recordsSeen.withLockedValue { count -> Int in
-                        count += 1
-                        return count
+                    let collected = answers.withLockedValue { state -> Int in
+                        state.add(record, from: peer) { self.prefers($0, over: $1, for: key) }
+                        return state.count
                     }
-                    let replaced = best.withLockedValue { current -> Bool in
-                        guard let existing = current else {
-                            current = record
-                            return true
-                        }
-                        guard self.prefers(record, over: existing, for: key) else { return false }
-                        current = record
-                        return true
-                    }
-                    if !replaced { outdated.withLockedValue { $0.append(peer) } }
-
-                    return KadDHT.QueryEngine.StepResult(closerPeers: peers, stop: quorum > 0 && total >= quorum)
+                    return KadDHT.QueryEngine.StepResult(
+                        closerPeers: peers,
+                        stop: quorum > 0 && collected >= quorum
+                    )
                 }
             }.run()
         }.flatMap { responders -> EventLoopFuture<DHT.Record?> in
             self.addPeersIfSpaceOrCloser(responders).flatMap { _ -> EventLoopFuture<DHT.Record?> in
-                guard let winner = best.withLockedValue({ $0 }) else {
-                    return self.eventLoop.makeSucceededFuture(nil)
-                }
-                let stale = outdated.withLockedValue { $0 }
+                let (winner, stale) = answers.withLockedValue { ($0.best, $0.outdated) }
+                guard let winner else { return self.eventLoop.makeSucceededFuture(nil) }
                 return self.correctEntries(key: key, to: winner, at: stale).map { winner }
+            }
+        }
+    }
+
+    /// What a value lookup has heard so far: the best record, who is holding it, and who is behind.
+    struct ValueAnswers {
+        /// The best record seen so far.
+        private(set) var best: DHT.Record?
+        /// The peers that answered with `best`.
+        private(set) var holders: [PeerInfo] = []
+        /// The peers that answered with something worse, or with nothing. They get the correcting PUT.
+        var outdated: [PeerInfo] = []
+        /// How many valid records we've collected, which is what a quorum counts.
+        private(set) var count: Int = 0
+
+        /// Folds one peer's record in, demoting whoever held the previous best when it's beaten.
+        mutating func add(
+            _ record: DHT.Record,
+            from peer: PeerInfo,
+            prefers isBetter: (DHT.Record, DHT.Record) -> Bool
+        ) {
+            self.count += 1
+
+            guard let existing = self.best else {
+                self.best = record
+                self.holders = [peer]
+                return
+            }
+            if isBetter(record, existing) {
+                /// Demote the current holders to outdated now that a better record showed up
+                self.outdated.append(contentsOf: self.holders)
+                self.best = record
+                self.holders = [peer]
+            } else if record.value == existing.value {
+                /// Same value, so this peer is up to date too.
+                self.holders.append(peer)
+            } else {
+                /// This peer has a worse record than our current best
+                self.outdated.append(peer)
             }
         }
     }
