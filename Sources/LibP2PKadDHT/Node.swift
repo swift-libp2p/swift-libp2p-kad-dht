@@ -1171,15 +1171,20 @@ public enum KadDHT {
             }
         }
 
-        // - TODO: Implement me
-        //        private func _shareProviderRecords() -> EventLoopFuture<Void> { ... }
+        /// The DHT protocols we treat as evidence that a peer is operating as a server.
+        private var dhtProtocols: [String] {
+            self.isRunningLocally ? [KadDHT.multicodec, KadDHT.multicodecLAN] : [KadDHT.multicodec]
+        }
 
         /// Checks if the peer specified has announced the "/ipfs/kad/1.0.0" protocol in their Indentify packet.
         /// - Parameter pid: The PeerID to check
-        /// - Returns: True if this peer is announcing the /ipfs/kad/1.0.0 protocol
+        /// - Returns: True if this peer is announcing the "/ipfs/kad/1.0.0" protocol (or lan version)
         /// - Note: Peers are only supposed to announce the protocol when in server mode.
         private func _isPeerOperatingAsServer(_ pid: PeerID) -> EventLoopFuture<Bool> {
-            self.peerstore.getProtocols(forPeer: pid).map { $0.contains { $0.stringValue.contains(KadDHT.multicodec) } }
+            let known = self.dhtProtocols
+            return self.peerstore.getProtocols(forPeer: pid).map { announced in
+                announced.contains { proto in known.contains { proto == $0 } }
+            }
         }
 
         public func stop() {
