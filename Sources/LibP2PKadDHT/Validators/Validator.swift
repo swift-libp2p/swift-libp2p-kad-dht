@@ -128,21 +128,18 @@ extension KadDHT {
     }
 
     struct PubKeyValidator: Validator {
-        /// A `/pk/` value is valid only for the key whose multihash is the hash of the public key it
+        /// A `/pk/` value is valid only under the key whose multihash names the public key it
         /// carries.
+        ///
+        /// - Parameter value: A marshaled public key protobuf.
         func validate(key: [UInt8], value: [UInt8]) throws {
-            let record = try DHT.Record(serializedBytes: value)
-            guard Data(key) == record.key else {
-                throw KadDHT.ValidationError.keyMismatch(expected: key, found: record.key.byteArray)
-            }
-
             let peerIDBytes = try KadDHT.namespacedKeyBody(key, expecting: "pk")
             // init a PeerID from the raw mh bytes
             guard let claimed = try? PeerID(fromBytesID: peerIDBytes) else {
                 throw KadDHT.ValidationError.keyIsNotAMultihash
             }
-            // init a PeerID from the marshaled body
-            let carried = try PeerID(marshaledPublicKey: Data(record.value))
+            // init a PeerID from the marshaled value
+            let carried = try PeerID(marshaledPublicKey: Data(value))
             // make sure they match
             guard carried == claimed else {
                 throw KadDHT.ValidationError.publicKeyDoesNotMatchKey(
@@ -176,14 +173,11 @@ extension KadDHT {
         /// `69706e732d7369676e61747572653a`) with raw CBOR bytes from `IpnsEntry.data`".
         static let signaturePrefix: [UInt8] = Array("ipns-signature:".utf8)
 
+        /// - Parameter value: A serialized `IpnsEntry`.
         func validate(key: [UInt8], value: [UInt8]) throws {
-            let record = try DHT.Record(serializedBytes: value)
-            guard Data(key) == record.key else {
-                throw KadDHT.ValidationError.keyMismatch(expected: key, found: record.key.byteArray)
-            }
             /// The IPNS Name is the multihash that follows `/ipns/` in the routing key.
             let name = try KadDHT.namespacedKeyBody(key, expecting: "ipns")
-            try Self.verify(serializedEntry: record.value, forName: name)
+            try Self.verify(serializedEntry: Data(value), forName: name)
         }
 
         /// Runs the spec's ordered record-verification steps over a serialized `IpnsEntry`.
@@ -302,9 +296,9 @@ extension KadDHT {
             }
         }
 
-        /// Picks the best of several IPNS records: highest sequence number, then latest validity.
+        /// Picks the best of several IPNS entries: highest sequence number, then latest validity.
         func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
-            let candidates = values.map { Candidate(serializedRecord: $0) }
+            let candidates = values.map { Candidate(serializedEntry: $0) }
 
             var bestIndex: Int? = nil
             for (index, candidate) in candidates.enumerated() {
@@ -336,10 +330,8 @@ extension KadDHT {
             let sequence: UInt64
             let endOfLife: RFC3339Date?
 
-            init?(serializedRecord: [UInt8]) {
-                guard let record = try? DHT.Record(serializedBytes: serializedRecord),
-                    let entry = try? IpnsEntry(serializedBytes: record.value)
-                else { return nil }
+            init?(serializedEntry: [UInt8]) {
+                guard let entry = try? IpnsEntry(serializedBytes: serializedEntry) else { return nil }
 
                 let data = entry.hasData ? try? KadDHT.IPNSData.decode(dagCBOR: entry.data.byteArray) : nil
 
