@@ -100,19 +100,20 @@ extension LibP2PKadDHTTests {
             print("All Done!")
         }
 
-        /// 20 heartbeats --> Time:  415 seconds,  Mem: 17.2,  CPU: 0-20%,  Peers: 170
+        /// 20 heartbeats --> Time:  77.6 seconds,  Mem: 18.8,  CPU: 0-20%,  Peers: 258
         /// 📒 --------------------------------- 📒
-        /// Routing Table [<peer.ID LFMPqX>]
-        /// Bucket Count: 8 buckets of size: 20
-        /// Total Peers: 99
+        /// Routing Table [<peer.ID AK2Ay9>]
+        /// Bucket Count: 9 buckets of size: 20
+        /// Total Peers: 97
         /// b[0] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         /// b[1] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-        /// b[2] = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
-        /// b[3] = []
-        /// b[4] = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
-        /// b[5] = [5, 5, 5, 5, 5, 5]
-        /// b[6] = [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6]
-        /// b[7] = [14, 9, 10, 9, 9, 9, 10, 10, 10, 10, 10, 10, 11, 11, 11, 12, 13]
+        /// b[2] = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
+        /// b[3] = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
+        /// b[4] = [4, 4, 4]
+        /// b[5] = []
+        /// b[6] = [6]
+        /// b[7] = [7, 7, 7, 7, 7, 7, 7]
+        /// b[8] = [8, 8, 8, 8, 8, 8, 8, 9, 11, 9, 9, 12, 13, 16]
         /// ---------------------------------------
         @Test(.disabled())
         func testLibP2PKadDHT_SingleHeartbeat_Async() async throws {
@@ -142,10 +143,6 @@ extension LibP2PKadDHTTests {
 
             print("*** After Lookup ***")
             print("(DHT Peerstore: \(try await lib.dht.kadDHT.peerstore.count().get()) - \(lib.dht.kadDHT.peerstore)")
-            print("")
-
-            print("")
-            lib.peers.dumpAll()
             print("")
 
             print("Connections: ")
@@ -227,7 +224,7 @@ extension LibP2PKadDHTTests {
 
             //let key = try "/pk/".bytes + CID(peerID).multihash.value
 
-            let val = try lib.dht.kadDHT.getUsingLookupList(key).wait()
+            let val = try lib.dht.kadDHT.get(key).wait()
             print(val ?? "NIL")
 
             sleep(2)
@@ -266,7 +263,7 @@ extension LibP2PKadDHTTests {
             print("/pk/ => \("/pk/".bytes)")
             print("\(peerID) => \(try PeerID(cid: peerID).id)")
 
-            let val = try lib.dht.kadDHT.getUsingLookupList(key).wait()
+            let val = try lib.dht.kadDHT.get(key).wait()
             //let _ = try lib.identify.ping(peer: PeerID(cid: "QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ")).wait()
 
             #expect(val != nil)
@@ -318,7 +315,7 @@ extension LibP2PKadDHTTests {
             //let key = try CID("QmdSn5nS2toXqj5jKGvpsoNJjk2rofY6ctk7RY86t6KeMS").multihash.value
             let key = try CID("QmdmQXB2mzChmMeKY47C43LxUdg1NDJ5MWcKMKxDu7RgQm").multihash.value  // XKCD Archives
             //let key = try CID("Qmdp4pcmePccsVHedMC4CsSnkEtXLXT2N3go7S8qeLg3RY").multihash.value  // 101 - Laser Scope
-            let val = try lib.dht.kadDHT.getProvidersUsingLookupList(key).wait()
+            let val = try lib.dht.kadDHT.lookupProviders(key, count: 0).wait()
             print("--- Providers For \(key.toBase64()) ---")
             print(val)
             print("----------------------------")
@@ -372,7 +369,7 @@ extension LibP2PKadDHTTests {
             sleep(5)
 
             /// Attempt to retrieve the Public Key Record from the DHT
-            let pubKeyRecord = try lib.dht.kadDHT.getUsingLookupList(key).wait()
+            let pubKeyRecord = try lib.dht.kadDHT.get(key).wait()
             print(pubKeyRecord ?? "NIL")
             /// peer.ID Ro5Hna
             /// peer.ID PxcrHK
