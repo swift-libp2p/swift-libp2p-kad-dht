@@ -407,6 +407,14 @@ extension LibP2PKadDHTTests {
 
         // MARK: - PING
 
+        @Test func testDHTFauxNetworkQuery_Ping_CarriesNoKey() throws {
+            let framed = try KadDHT.Query.ping.encode()
+            let message = try DHT.Message(serializedBytes: [UInt8](framed.dropFirst(uVarInt(framed).bytesRead)))
+
+            #expect(message.type == .ping)
+            #expect(message.hasKey == false)
+        }
+
         /// Decoding a PING response used to read 8 bytes out of `dht.key` regardless of how many the peer
         /// actually sent, which is an out-of-bounds read driven by remote input.
         @Test func testDHTFauxNetworkResponse_Ping_ToleratesArbitraryKeyLengths() throws {
