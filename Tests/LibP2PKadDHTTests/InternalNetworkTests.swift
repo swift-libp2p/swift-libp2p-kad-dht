@@ -200,7 +200,7 @@ extension LibP2PKadDHTTests {
             // Ensure the other nodes can retrieve the value
             var successes = 0
             for i in 0..<numberOfNodes {
-                let getAttempt2 = try nodes[i].dht.kadDHT.getUsingLookupList(item1Key).wait()
+                let getAttempt2 = try nodes[i].dht.kadDHT.get(item1Key).wait()
                 //print(getAttempt2 ?? "NIL")
                 if getAttempt2 != nil { successes += 1 }
                 #expect(getAttempt2 != nil)
@@ -363,7 +363,7 @@ extension LibP2PKadDHTTests {
             #expect(storeAttempt2)
 
             // Ensure the beacon node can retrieve the value
-            let getAttempt1 = try beaconNode.dht.kadDHT.getUsingLookupList(item1Key).wait()
+            let getAttempt1 = try beaconNode.dht.kadDHT.get(item1Key).wait()
             #expect(getAttempt1 != nil)
             #expect(getAttempt1?.key == Data(item1Key))
             #expect(getAttempt1?.value == Data("🍎".utf8))
@@ -371,7 +371,7 @@ extension LibP2PKadDHTTests {
             // Ensure the other nodes can retrieve the value
             var successes = getAttempt1 == nil ? 0 : 1
             for i in 1..<numberOfNodes {
-                let getAttempt2 = try nodes[i].dht.kadDHT.getUsingLookupList(item1Key).wait()
+                let getAttempt2 = try nodes[i].dht.kadDHT.get(item1Key).wait()
                 if getAttempt2 != nil { successes += 1 }
                 #expect(getAttempt2 != nil)
                 #expect(getAttempt2?.key == Data(item1Key))
