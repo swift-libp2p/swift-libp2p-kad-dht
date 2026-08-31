@@ -134,10 +134,8 @@ extension LibP2PKadDHTTests {
         /// the public key, every value that validates is the same value.
         @Test func pubKeySelectAlwaysReturnsZero() throws {
             let validator = KadDHT.PubKeyValidator()
-            let a = try KadDHT.createPubKeyRecord(peerID: PeerID(.Ed25519)).toProtobuf().serializedData()
-                .byteArray
-            let b = try KadDHT.createPubKeyRecord(peerID: PeerID(.Ed25519)).toProtobuf().serializedData()
-                .byteArray
+            let a = try KadDHT.createPubKeyRecord(peerID: PeerID(.Ed25519)).toProtobuf().value.byteArray
+            let b = try KadDHT.createPubKeyRecord(peerID: PeerID(.Ed25519)).toProtobuf().value.byteArray
 
             #expect(try validator.select(key: "/pk/".bytes, values: [a, b]) == 0)
             #expect(try validator.select(key: "/pk/".bytes, values: [b, a]) == 0)
@@ -172,22 +170,39 @@ extension LibP2PKadDHTTests {
             #expect(try validator.select(key: "/ipns/".bytes, values: [longLived, shortLived]) == 0)
         }
 
-        /// `timeReceived` is our own local timestamp, it should carry no weight in record sorting
-        @Test func ipnsSelectIgnoresTimeReceived() throws {
-            /// Lower sequence but stamped far in the future; the higher sequence must still win.
-            let lowSeqFreshStamp = try ipnsRecord(
-                sequence: 1,
-                validity: "2030-01-01T00:00:00Z",
-                timeReceived: "2035-01-01T00:00:00Z"
-            )
-            let highSeqOldStamp = try ipnsRecord(
-                sequence: 2,
-                validity: "2030-01-01T00:00:00Z",
-                timeReceived: "2020-01-01T00:00:00Z"
-            )
+        /// `timeReceived` is our own local stamp, so it must not sway which record we keep.
+        @Test func storeKeepsTheHigherSequenceRegardlessOfTimeReceived() throws {
+            let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+            defer { try! group.syncShutdownGracefully() }
 
-            let validator = KadDHT.IPNSValidator()
-            #expect(try validator.select(key: "/ipns/".bytes, values: [lowSeqFreshStamp, highSeqOldStamp]) == 1)
+            let store = EventLoopDictionary(key: KadDHT.Key.self, value: DHT.Record.self, on: group.next())
+            let kid = KadDHT.Key("/ipns/test".bytes, keySpace: .xor)
+
+            /// Held record: lower sequence, but stamped far in the future.
+            let held = DHT.Record.with {
+                $0.key = Data("/ipns/test".bytes)
+                $0.value = Data((try? ipnsEntry(sequence: 1, validity: "2030-01-01T00:00:00Z")) ?? [])
+                $0.timeReceived = "2035-01-01T00:00:00Z"
+            }
+            let _ = try store.updateValue(held, forKey: kid).wait()
+
+            /// Incoming record: higher sequence, older stamp.
+            let incoming = DHT.Record.with {
+                $0.key = Data("/ipns/test".bytes)
+                $0.value = Data((try? ipnsEntry(sequence: 2, validity: "2030-01-01T00:00:00Z")) ?? [])
+                $0.timeReceived = "2020-01-01T00:00:00Z"
+            }
+
+            let result = try store.addKeyIfSpaceOrCloser(
+                key: kid,
+                value: incoming,
+                usingValidator: KadDHT.IPNSValidator(),
+                maxStoreSize: 10,
+                targetKey: KadDHT.Key("self".bytes, keySpace: .xor)
+            ).wait()
+
+            #expect(result.wasAdded)
+            #expect(try store.getValue(forKey: kid).wait() == incoming)
         }
 
         @Test func ipnsSelectSkipsUnparseableLeadingValue() throws {
@@ -202,6 +217,47 @@ extension LibP2PKadDHTTests {
             #expect(throws: (any Error).self) {
                 try KadDHT.IPNSValidator().select(key: "/ipns/".bytes, values: [[0xff], [0xfe]])
             }
+        }
+
+        /// The store hands validators Record values, not the Record itself.
+        @Test func storePassesRecordValuesToTheValidator() throws {
+            let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+            defer { try! group.syncShutdownGracefully() }
+
+            let store = EventLoopDictionary(key: KadDHT.Key.self, value: DHT.Record.self, on: group.next())
+            let kid = KadDHT.Key("/pk/test".bytes, keySpace: .xor)
+
+            let existing = DHT.Record.with {
+                $0.key = Data("/pk/test".bytes)
+                $0.value = Data("original".utf8)
+                $0.timeReceived = "2024-01-01T00:00:00Z"
+            }
+            let incoming = DHT.Record.with {
+                $0.key = Data("/pk/test".bytes)
+                $0.value = Data("replacement".utf8)
+                $0.timeReceived = "2025-01-01T00:00:00Z"
+            }
+            let _ = try store.updateValue(existing, forKey: kid).wait()
+
+            let seen = NIOLockedValueBox<[[UInt8]]>([])
+            let spy = KadDHT.BaseValidator(
+                validationFunction: { _, _ in },
+                selectFunction: { _, values in
+                    seen.withLockedValue { $0 = values }
+                    return 1
+                }
+            )
+
+            let _ = try store.addKeyIfSpaceOrCloser(
+                key: kid,
+                value: incoming,
+                usingValidator: spy,
+                maxStoreSize: 10,
+                targetKey: KadDHT.Key("self".bytes, keySpace: .xor)
+            ).wait()
+
+            #expect(seen.withLockedValue { $0 } == [existing.value.byteArray, incoming.value.byteArray])
+            #expect(try store.getValue(forKey: kid).wait() == incoming)
         }
 
         @Test(arguments: [-1, 2, 99, Int.max])
