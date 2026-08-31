@@ -67,6 +67,8 @@ extension KadDHT {
         case cantPutValueWithoutExternallyDialableAddress
         case peerIDMultiaddrEncapsulationFailed
         case notSupported
+        case messageTooLarge(bytes: Int, limit: Int)
+        case recordTooLarge(bytes: Int, limit: Int)
     }
 
     public struct NodeOptions: Sendable {
