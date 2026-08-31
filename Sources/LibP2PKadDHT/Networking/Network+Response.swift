@@ -57,7 +57,7 @@ extension KadDHT {
                 dht.type = .getValue
                 dht.key = Data(key)
                 if let record = record {
-                    dht.record = try record.serializedData()
+                    dht.record = try Self.serialized(record)
                 }
                 /// Should we only set this if record is nil? Do we set it even if closerPeers is empty?
                 dht.closerPeers = Self.bounded(closerPeers)
@@ -66,7 +66,7 @@ extension KadDHT {
                 dht.type = .putValue
                 dht.key = Data(key)
                 if let record = record {
-                    dht.record = try record.serializedData()
+                    dht.record = try Self.serialized(record)
                 }
 
             case let .getProviders(cid, providerPeers, closerPeers):
@@ -89,6 +89,15 @@ extension KadDHT {
 
             /// add the uVarInt length prefix
             return putUVarInt(UInt64(payload.count)) + payload
+        }
+
+        /// The record carried by `dht`, if any, refusing anything over ``KadDHT/maxRecordSize``.
+        private static func record(in dht: DHT.Message) throws -> DHT.Record? {
+            guard dht.hasRecord else { return nil }
+            guard dht.record.count <= KadDHT.Defaults.maxRecordSize else {
+                throw Errors.recordTooLarge(bytes: dht.record.count, limit: KadDHT.Defaults.maxRecordSize)
+            }
+            return try DHT.Record(serializedBytes: dht.record)
         }
 
         static func decode(_ bytes: [UInt8]) throws -> Response {
@@ -116,27 +125,17 @@ extension KadDHT {
                 /// In the response the record is set to the value for the given key (if found in the datastore) and closerPeers is set to the k closest peers.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
 
-                let rec: DHT.Record?
-                if dht.hasRecord {
-                    rec = try DHT.Record(serializedBytes: dht.record)
-                } else {
-                    rec = nil
-                }
-
-                return Response.getValue(key: [UInt8](dht.key), record: rec, closerPeers: dht.closerPeers)
+                return Response.getValue(
+                    key: [UInt8](dht.key),
+                    record: try Self.record(in: dht),
+                    closerPeers: dht.closerPeers
+                )
 
             case .putValue:
                 /// In the response the target node validates record, and if it is valid, it stores it in the datastore and as a response echoes the request.
                 guard dht.hasKey, !dht.key.isEmpty else { throw Errors.DecodingErrorInvalidType }
 
-                let rec: DHT.Record?
-                if dht.hasRecord {
-                    rec = try DHT.Record(serializedBytes: dht.record)
-                } else {
-                    rec = nil
-                }
-
-                return Response.putValue(key: [UInt8](dht.key), record: rec)
+                return Response.putValue(key: [UInt8](dht.key), record: try Self.record(in: dht))
 
             case .getProviders:
                 /// In the response the target node returns the closest known providerPeers (if any) and the k closest known closerPeers.
