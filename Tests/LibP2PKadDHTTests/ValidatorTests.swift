@@ -61,7 +61,7 @@ private let nonCanonicalIPNSDocuments: [(label: String, hex: String)] = [
 extension LibP2PKadDHTTests {
 
     static let keyTypes = [LibP2PCrypto.Keys.KeyPairType.Ed25519, .Secp256k1, .RSA(bits: .B1024)]
-    
+
     /// The minimal DAG-CBOR reader behind IPNS `data`.
     ///
     /// Every case here is expressed as literal bytes rather than round-tripped through our own
@@ -135,7 +135,7 @@ extension LibP2PKadDHTTests {
     /// `/pk/` records must bind the key to the public key they carry.
     @Suite("PubKey Validator Tests", .serialized)
     struct PubKeyValidatorTests {
-        
+
         @Test(arguments: keyTypes)
         func acceptsAKeyThatMatchesItsPublicKey(_ keyType: LibP2PCrypto.Keys.KeyPairType) throws {
             let peer = try PeerID(keyType)
@@ -210,13 +210,13 @@ extension LibP2PKadDHTTests {
             #expect(throws: Never.self) {
                 try KadDHT.IPNSValidator().validate(key: signed1.key, value: signed1.record)
             }
-            
+
             let peerSecP256k1 = try PeerID(.Secp256k1)
             let signed2 = try IPNSFixture(name: peerSecP256k1, includePubKey: false)
             #expect(throws: Never.self) {
                 try KadDHT.IPNSValidator().validate(key: signed2.key, value: signed2.record)
             }
-            
+
             // RSA doesn't support inlined pubkeys, so when we don't include the pubkey in
             // the record, our validator throws due to no pubkey available
             let peerRSA = try PeerID(.RSA(bits: .B1024))
@@ -236,7 +236,7 @@ extension LibP2PKadDHTTests {
                 try KadDHT.IPNSValidator().validate(key: signed.key, value: signed.record)
             }
         }
-        
+
         @Test(arguments: keyTypes)
         func rejectsATamperedSignature(_ keyType: LibP2PCrypto.Keys.KeyPairType) throws {
             let peer = try PeerID(keyType)

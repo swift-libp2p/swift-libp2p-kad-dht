@@ -1777,7 +1777,7 @@ extension KadDHT {
         }
         return now.timeIntervalSince(received.date) > maxAge
     }
-    
+
     /// Builds the `/pk/` record that publishes `peerID`'s public key to the DHT.
     ///
     /// The record's key is `"/pk/"` followed by the raw bytes of the peer's multihash id, and its
