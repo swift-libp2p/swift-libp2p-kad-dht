@@ -300,7 +300,7 @@ extension LibP2PKadDHTTests {
         }
 
         @Test func testPeerIDDistance() throws {
-            let peerID = try PeerID()
+            let peerID = try PeerID(.Ed25519)
             print(peerID.hexString)
 
             //var peers:[PeerID] = (0..<256).map { _ in try! PeerID(.Ed25519) }

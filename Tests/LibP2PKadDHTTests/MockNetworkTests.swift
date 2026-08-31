@@ -223,7 +223,7 @@ extension LibP2PKadDHTTests {
             #expect(key == "test".bytes)
             /// Assume we don't have the key their looking for, so return a set of peers that are closer...
             let testAddresses = try (0..<3).map {
-                let pid = try PeerID()
+                let pid = try PeerID(.Ed25519)
                 return try PeerInfo(
                     peer: pid,
                     addresses: [Multiaddr("/ip4/127.0.0.1/tcp/\(1000 + $0)/p2p/\(pid.b58String)")]
