@@ -53,8 +53,14 @@ public enum KadDHT {
         /// Fake Internet Connection Type
         //let connection:InternetType
 
-        /// Lookup concurrency (`α`) — the number of requests a query path keeps in flight
+        /// Lookup concurrency (`α`), the number of requests a query path keeps in flight.
         let concurrency: Int
+
+        /// Resiliency (`β`), how many of the closest peers must respond before a lookup is done.
+        let resiliency: Int
+
+        /// How many records a value lookup collects before stopping early. `0` searches to convergence.
+        let quorum: Int
 
         /// Max Connection Timeout
         let connectionTimeout: TimeAmount
@@ -72,11 +78,7 @@ public enum KadDHT {
         let maxProviderStoreSize: Int
 
         /// When a given (key, provider-peer-id) provider record was added
-        /// to ``providerStore``. Parallel-data alternative to changing
-        /// ``providerStore``'s value type. Keys are the concatenation of
-        /// the routing-table key bytes and the provider peer's id bytes,
-        /// encoded as `Data` so the dictionary handles equality/hashing
-        /// for us.
+        /// to ``providerStore``.
         var providerRecordAddedAt: [Data: Date] = [:]
 
         /// CIDs (as routing-table keys) for which *we* are the local
@@ -144,19 +146,17 @@ public enum KadDHT {
 
         public private(set) var state: ServiceLifecycleState = .stopped
 
-        private var maxLookupDepth: Int = 5
-
         private var firstSearch: Bool = true
 
         private var handler: LibP2P.ProtocolHandler?
 
         private var isRunningHeartbeat: Bool = false
 
-        /// [Namespace:Validator]
+        /// [Namespace: Validator]
         ///
         /// - Note: There's deliberately no fallback validator: a PUT for a namespace we don't have a
         ///   validator for is rejected rather than stored unchecked.
-        private var validators: [[UInt8]: Validator] = [:]
+        var validators: [[UInt8]: Validator] = [:]
 
         /// This is why there is a "ipfs/lan/kad/1.0.0" protocol...
         let isRunningLocally: Bool
@@ -176,6 +176,8 @@ public enum KadDHT {
             self.peerID = peerID
             self.peerstore = peerstore ?? network.peers
             self.concurrency = options.concurrency
+            self.resiliency = options.resiliency
+            self.quorum = options.quorum
             self.connectionTimeout = options.connectionTimeout
             self.dht = EventLoopDictionary(on: eventLoop)
             self.dhtSize = options.maxKeyValueStoreSize
