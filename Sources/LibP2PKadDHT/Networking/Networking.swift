@@ -72,11 +72,20 @@ extension KadDHT {
     public struct NodeOptions: Sendable {
         public let connectionTimeout: TimeAmount
 
-        /// Lookup concurrency (`α`) — how many requests a query path keeps in flight.
+        /// Lookup concurrency (`α`), how many requests a query path keeps in flight.
         public let concurrency: Int
 
         @available(*, deprecated, renamed: "concurrency")
         public var maxConcurrentConnections: Int { self.concurrency }
+
+        /// Resiliency (`β`), how many of the closest peers must respond before a lookup is done.
+        public let resiliency: Int
+
+        /// How many records a value lookup collects before it stops early.
+        ///
+        /// `0` searches to convergence, which is the spec's default behaviour: every peer among the
+        /// closest is asked, and the best of all the answers wins.
+        public let quorum: Int
 
         public let bucketSize: Int
         public let maxPeers: Int
@@ -100,6 +109,8 @@ extension KadDHT {
         public init(
             connectionTimeout: TimeAmount = .seconds(4),
             concurrency: Int = KadDHT.Defaults.concurrency,
+            resiliency: Int = KadDHT.Defaults.resiliency,
+            quorum: Int = 0,
             bucketSize: Int = KadDHT.Defaults.bucketSize,
             maxPeers: Int = 100,
             maxKeyValueStoreEntries: Int = 100,
@@ -110,6 +121,8 @@ extension KadDHT {
         ) {
             self.connectionTimeout = connectionTimeout
             self.concurrency = concurrency
+            self.resiliency = resiliency
+            self.quorum = quorum
             self.bucketSize = bucketSize
             self.maxPeers = maxPeers
             self.maxKeyValueStoreSize = maxKeyValueStoreEntries
