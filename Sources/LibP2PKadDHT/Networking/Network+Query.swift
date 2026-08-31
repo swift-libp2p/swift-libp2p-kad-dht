@@ -54,14 +54,12 @@ extension KadDHT {
             switch self {
             case .ping:
                 /// Ping is deprecated, we don't send ping messages through DHT anymore! Use the dedicated "ipfs/ping/1.0.0" protocol instead.
-                //throw Errors.encodingError
+                /// - Note: Encoding stays for round-trip tests. PING carries no payload.
                 req.type = .ping
-                req.key = Data(DispatchTime.now().uptimeNanoseconds.toBytes)
 
             case let .findNode(key):
                 req.type = .findNode
-                /// In the request, key is the Kademlia key whose closest peers we want (often, but not
-                /// necessarily, a PeerId).
+                /// In the request, key is the Kademlia key whose closest peers we want (often, but not necessarily, a PeerId).
                 guard !key.isEmpty else { throw Errors.encodingError }
                 req.key = Data(key)
 

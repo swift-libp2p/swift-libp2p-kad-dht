@@ -19,7 +19,7 @@ import NIOConcurrencyHelpers
 
 public enum KadDHT {
     public static let multicodec: String = "/ipfs/kad/1.0.0"
-    public static let multicodecLAN: String = "ipfs/lan/kad/1.0.0"
+    public static let multicodecLAN: String = "/ipfs/lan/kad/1.0.0"
 
     static let CPL_BITS_NOT_BYTES: Bool = true
 
@@ -53,8 +53,8 @@ public enum KadDHT {
         /// Fake Internet Connection Type
         //let connection:InternetType
 
-        /// Max number of concurrent requests we can have open at any moment
-        let maxConcurrentRequest: Int
+        /// Lookup concurrency (`α`) — the number of requests a query path keeps in flight
+        let concurrency: Int
 
         /// Max Connection Timeout
         let connectionTimeout: TimeAmount
@@ -93,17 +93,10 @@ public enum KadDHT {
         var localProviderCIDs: [KadDHT.Key: [UInt8]] = [:]
 
         /// Provider records older than this are pruned on heartbeat.
-        ///
-        /// 48 hours, matching the spec ("In the IPFS DHT the Expiration Interval is set to 48 hours")
-        /// and go's `DefaultProvideValidity = 48 * time.Hour`.
-        let providerRecordTTL: TimeInterval = 48 * 60 * 60
+        let providerRecordTTL: TimeInterval = Node.seconds(KadDHT.Defaults.provideValidity)
 
         /// Cadence at which we re-publish our own provider records.
-        ///
-        /// 22 hours, matching the spec ("For the IPFS network it is currently set to 22 hours") and
-        /// go's `DefaultReprovideInterval = 22 * time.Hour`. Comfortably inside the 48-hour
-        /// expiry above, so a single missed republish doesn't drop us from other peers' stores.
-        let providerRecordRepublishInterval: TimeInterval = 22 * 60 * 60
+        let providerRecordRepublishInterval: TimeInterval = Node.seconds(KadDHT.Defaults.reprovideInterval)
 
         /// The longest we hold a value record, measured from its `timeReceived` stamp.
         ///
@@ -181,8 +174,7 @@ public enum KadDHT {
             self.mode = mode
             self.peerID = peerID
             self.peerstore = peerstore ?? network.peers
-            //self.connection = options.connection
-            self.maxConcurrentRequest = options.maxConcurrentConnections
+            self.concurrency = options.concurrency
             self.connectionTimeout = options.connectionTimeout
             self.dht = EventLoopDictionary(on: eventLoop)
             self.dhtSize = options.maxKeyValueStoreSize
@@ -418,7 +410,7 @@ public enum KadDHT {
                 let lookup = KeyLookup(
                     host: self,
                     target: kid,
-                    concurrentRequests: self.maxConcurrentRequest,
+                    concurrentRequests: self.concurrency,
                     seeds: seeds,
                     groupProvider: self.network!.eventLoopGroupProvider
                 )
@@ -582,22 +574,46 @@ public enum KadDHT {
             }
         }
 
-        /// Removes provider records older than ``providerRecordTTL`` and,
-        /// if the store is still over capacity, prunes the lowest-provider
-        /// keys down to ``maxProviderStoreSize``.
+        /// Removes provider records older than ``providerRecordTTL`` and, if the store is still over capacity,
+        /// prunes the stalest keys down to ``maxProviderStoreSize``.
         ///
-        /// Both expiry and capacity pruning happen in one heartbeat pass.
-        /// We never prune our own provider records (entries in
-        /// ``localProviderKeys``) — the renewal job is responsible for
-        /// their lifecycle.
-        private func _pruneProviders() -> EventLoopFuture<Void> {
+        /// Both expiry and capacity pruning happen in one heartbeat pass. We never prune our own provider records
+        /// (entries in ``localProviderKeys``), the renewal job is responsible for their lifecycle.
+        func _pruneProviders() -> EventLoopFuture<Void> {
             self.eventLoop.flatSubmit {
                 let cutoff = Date().addingTimeInterval(-self.providerRecordTTL)
-                self.logger.notice("✂️✂️✂️ Pruning expired provider entries (cutoff=\(cutoff)) ✂️✂️✂️")
+                self.logger.notice("Pruning expired provider entries (cutoff=\(cutoff))")
                 return self._expireOldProviderRecords(before: cutoff).flatMap {
-                    self.providerStore.prune(toAmount: self.maxProviderStoreSize)
+                    self.providerStore.all()
+                }.flatMap { snapshot in
+                    self.providerStore.prune(
+                        toAmount: self.maxProviderStoreSize,
+                        protecting: self.localProviderKeys,
+                        freshness: self._providerKeyFreshness(snapshot)
+                    )
                 }
             }
+        }
+
+        /// The newest `addedAt` we hold for each provider-store key, so capacity pruning drops the
+        /// stalest keys first. Keys we never tracked a timestamp for report as `.distantPast`.
+        private func _providerKeyFreshness(
+            _ snapshot: [EventLoopDictionary<KadDHT.Key, [DHT.Message.Peer]>.Element]
+        ) -> [KadDHT.Key: Date] {
+            var freshness: [KadDHT.Key: Date] = [:]
+            for entry in snapshot {
+                var newest = Date.distantPast
+                for provider in entry.value {
+                    guard let pid = try? PeerID(fromBytesID: provider.id.byteArray) else { continue }
+                    if let added = self.providerRecordAddedAt[Self.providerRecordKey(entry.key, peerID: pid)],
+                        added > newest
+                    {
+                        newest = added
+                    }
+                }
+                freshness[entry.key] = newest
+            }
+            return freshness
         }
 
         /// Sweeps value records that have aged past `maxRecordAge`.
@@ -1155,15 +1171,20 @@ public enum KadDHT {
             }
         }
 
-        // - TODO: Implement me
-        //        private func _shareProviderRecords() -> EventLoopFuture<Void> { ... }
+        /// The DHT protocols we treat as evidence that a peer is operating as a server.
+        private var dhtProtocols: [String] {
+            self.isRunningLocally ? [KadDHT.multicodec, KadDHT.multicodecLAN] : [KadDHT.multicodec]
+        }
 
         /// Checks if the peer specified has announced the "/ipfs/kad/1.0.0" protocol in their Indentify packet.
         /// - Parameter pid: The PeerID to check
-        /// - Returns: True if this peer is announcing the /ipfs/kad/1.0.0 protocol
+        /// - Returns: True if this peer is announcing the "/ipfs/kad/1.0.0" protocol (or lan version)
         /// - Note: Peers are only supposed to announce the protocol when in server mode.
         private func _isPeerOperatingAsServer(_ pid: PeerID) -> EventLoopFuture<Bool> {
-            self.peerstore.getProtocols(forPeer: pid).map { $0.contains { $0.stringValue.contains(KadDHT.multicodec) } }
+            let known = self.dhtProtocols
+            return self.peerstore.getProtocols(forPeer: pid).map { announced in
+                announced.contains { proto in known.contains { proto == $0 } }
+            }
         }
 
         public func stop() {
@@ -1224,7 +1245,7 @@ public enum KadDHT {
                     let lookup = KeyLookup(
                         host: self,
                         target: targetID,
-                        concurrentRequests: self.maxConcurrentRequest,
+                        concurrentRequests: self.concurrency,
                         seeds: seeds,
                         groupProvider: self.network!.eventLoopGroupProvider
                     )
@@ -1353,7 +1374,7 @@ public enum KadDHT {
                             let lookupList = KeyLookup(
                                 host: self,
                                 target: kid,
-                                concurrentRequests: self.maxConcurrentRequest,
+                                concurrentRequests: self.concurrency,
                                 seeds: seeds,
                                 groupProvider: self.network!.eventLoopGroupProvider
                             )
@@ -1373,7 +1394,7 @@ public enum KadDHT {
                     let lookupList = KeyLookup(
                         host: self,
                         target: kid,
-                        concurrentRequests: self.maxConcurrentRequest,
+                        concurrentRequests: self.concurrency,
                         seeds: seeds,
                         groupProvider: self.network!.eventLoopGroupProvider
                     )
@@ -1522,7 +1543,7 @@ public enum KadDHT {
                     let lookup = Lookup(
                         host: self,
                         target: addressToSearchFor,
-                        concurrentRequests: self.maxConcurrentRequest,
+                        concurrentRequests: self.concurrency,
                         seeds: seeds,
                         groupProvider: self.network!.eventLoopGroupProvider
                     )

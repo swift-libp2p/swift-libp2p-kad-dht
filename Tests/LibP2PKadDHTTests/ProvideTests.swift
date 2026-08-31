@@ -94,6 +94,42 @@ extension LibP2PKadDHTTests {
             }
         }
 
+        /// Capacity pruning used to pop arbitrary entries off an unordered dictionary, so it could
+        /// evict our own records while keeping stale foreign ones.
+        @Test func testCapacityPruningKeepsOurRecordsAndEvictsStalestFirst() async throws {
+            let options = KadDHT.NodeOptions(
+                connectionTimeout: .milliseconds(150),
+                concurrency: 3,
+                bucketSize: 5,
+                maxPeers: 15,
+                maxKeyValueStoreEntries: 10,
+                maxProviderStoreSize: 2,
+                supportLocalNetwork: true
+            )
+            try await withApp(configure: dhtHost(mode: .client, options: options)) { app in
+                let node = app.dht.kadDHT
+
+                // Our own record — must survive pruning.
+                let ourCID = try syntheticCID("capacity-ours")
+                try await node.provide(cid: ourCID, announce: false).get()
+                let ourKey = try providerRoutingKey(ourCID)
+
+                // Two foreign records, both well inside the TTL so only capacity pruning applies.
+                let recent = try await stageForeignProvider("capacity-recent", on: node, age: 60)
+                let stalest = try await stageForeignProvider("capacity-stalest", on: node, age: 3600)
+
+                #expect(try await node.providerStore.count().get() == 3)
+
+                try await node._pruneProviders().get()
+
+                let remaining = Set(try await node.providerStore.all().get().map { $0.key })
+                #expect(remaining.contains(ourKey), "our own provider record must never be pruned")
+                #expect(remaining.contains(recent), "the fresher foreign record should survive")
+                #expect(!remaining.contains(stalest), "the stalest foreign record should be evicted")
+                #expect(remaining.count == 2, "store should be pruned to maxProviderStoreSize")
+            }
+        }
+
         @Test func testProvideRenewalEligibility() async throws {
             try await withApp(configure: defaultDHTClientConfig) { app in
                 let node = app.dht.kadDHT
@@ -147,7 +183,7 @@ extension LibP2PKadDHTTests {
         @Test func testProvideThenFindRoundTrip() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(500),
-                maxConcurrentConnections: 3,
+                concurrency: 3,
                 bucketSize: 5,
                 maxPeers: 15,
                 maxKeyValueStoreEntries: 10,
@@ -174,7 +210,7 @@ extension LibP2PKadDHTTests {
         @Test func testProvideMultipleKeys() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(500),
-                maxConcurrentConnections: 3,
+                concurrency: 3,
                 bucketSize: 5,
                 maxPeers: 15,
                 maxKeyValueStoreEntries: 10,
@@ -214,6 +250,22 @@ extension LibP2PKadDHTTests {
             KadDHT.Key(try CID(cid).multihash.value, keySpace: .xor)
         }
 
+        /// Inserts a provider record for a random foreign peer, stamped `age` seconds ago.
+        /// - Returns: The routing-table key the record was stored under.
+        private func stageForeignProvider(
+            _ tag: String,
+            on node: KadDHT.Node,
+            age: TimeInterval
+        ) async throws -> KadDHT.Key {
+            let peerID = try PeerID(.Ed25519)
+            let kid = try providerRoutingKey(try syntheticCID(tag))
+            let provider = try DHT.Message.Peer(PeerInfo(peer: peerID, addresses: []))
+            let _ = try await node.providerStore.updateValue([provider], forKey: kid).get()
+            node.providerRecordAddedAt[KadDHT.Node.providerRecordKey(kid, peerID: peerID)] =
+                Date().addingTimeInterval(-age)
+            return kid
+        }
+
         /// Default app configuration for a DHT Client suitable for the above tests
         var defaultDHTClientConfig: ((Application) async throws -> Void) = { app in
             app.logger.logLevel = .warning
@@ -224,7 +276,7 @@ extension LibP2PKadDHTTests {
                     mode: .client,
                     options: KadDHT.NodeOptions(
                         connectionTimeout: .milliseconds(150),
-                        maxConcurrentConnections: 3,
+                        concurrency: 3,
                         bucketSize: 5,
                         maxPeers: 15,
                         maxKeyValueStoreEntries: 10,

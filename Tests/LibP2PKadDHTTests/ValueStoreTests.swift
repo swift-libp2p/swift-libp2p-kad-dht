@@ -44,7 +44,7 @@ extension LibP2PKadDHTTests {
         @Test func testStoreNewWithEmptyRoutingTableReturnsTrue() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(150),
-                maxConcurrentConnections: 3,
+                concurrency: 3,
                 bucketSize: 5,
                 maxPeers: 15,
                 maxKeyValueStoreEntries: 10,
@@ -72,7 +72,7 @@ extension LibP2PKadDHTTests {
         @Test func testStoreNewCrossNodeRoundTrip() async throws {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(500),
-                maxConcurrentConnections: 3,
+                concurrency: 3,
                 bucketSize: 5,
                 maxPeers: 15,
                 maxKeyValueStoreEntries: 10,
