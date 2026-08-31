@@ -175,7 +175,7 @@ extension Application.DHTServices.Provider {
     public static func kadDHT(
         mode: KadDHT.Mode,
         connectionTimeout: TimeAmount,
-        maxConcurrentConnections: Int,
+        concurrency: Int,
         bucketSize: Int,
         maxPeers: Int,
         maxKeyValueStoreEntries: Int,
@@ -190,7 +190,7 @@ extension Application.DHTServices.Provider {
                     bootstrapPeers: bootstrappedPeers,
                     options: KadDHT.NodeOptions(
                         connectionTimeout: connectionTimeout,
-                        maxConcurrentConnections: maxConcurrentConnections,
+                        concurrency: concurrency,
                         bucketSize: bucketSize,
                         maxPeers: maxPeers,
                         maxKeyValueStoreEntries: maxKeyValueStoreEntries
@@ -206,6 +206,29 @@ extension Application.DHTServices.Provider {
                 return dht
             }
         }
+    }
+
+    @available(*, deprecated, message: "`maxConcurrentConnections` is the Kademlia α parameter — use `concurrency:`")
+    public static func kadDHT(
+        mode: KadDHT.Mode,
+        connectionTimeout: TimeAmount,
+        maxConcurrentConnections: Int,
+        bucketSize: Int,
+        maxPeers: Int,
+        maxKeyValueStoreEntries: Int,
+        autoUpdate: Bool = true,
+        bootstrappedPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes
+    ) -> Self {
+        self.kadDHT(
+            mode: mode,
+            connectionTimeout: connectionTimeout,
+            concurrency: maxConcurrentConnections,
+            bucketSize: bucketSize,
+            maxPeers: maxPeers,
+            maxKeyValueStoreEntries: maxKeyValueStoreEntries,
+            autoUpdate: autoUpdate,
+            bootstrappedPeers: bootstrappedPeers
+        )
     }
 }
 
