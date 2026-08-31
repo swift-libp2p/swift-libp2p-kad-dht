@@ -431,8 +431,6 @@ public enum KadDHT {
             return combined
         }
 
-        
-        
         /// Find providers for the content keyed by the given `CID`
         /// - Parameters:
         ///   - cid: The `CID` you're interested in finding providers for
