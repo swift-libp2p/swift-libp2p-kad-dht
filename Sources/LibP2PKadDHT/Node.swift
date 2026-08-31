@@ -574,22 +574,46 @@ public enum KadDHT {
             }
         }
 
-        /// Removes provider records older than ``providerRecordTTL`` and,
-        /// if the store is still over capacity, prunes the lowest-provider
-        /// keys down to ``maxProviderStoreSize``.
+        /// Removes provider records older than ``providerRecordTTL`` and, if the store is still over capacity,
+        /// prunes the stalest keys down to ``maxProviderStoreSize``.
         ///
-        /// Both expiry and capacity pruning happen in one heartbeat pass.
-        /// We never prune our own provider records (entries in
-        /// ``localProviderKeys``) — the renewal job is responsible for
-        /// their lifecycle.
-        private func _pruneProviders() -> EventLoopFuture<Void> {
+        /// Both expiry and capacity pruning happen in one heartbeat pass. We never prune our own provider records
+        /// (entries in ``localProviderKeys``), the renewal job is responsible for their lifecycle.
+        func _pruneProviders() -> EventLoopFuture<Void> {
             self.eventLoop.flatSubmit {
                 let cutoff = Date().addingTimeInterval(-self.providerRecordTTL)
-                self.logger.notice("✂️✂️✂️ Pruning expired provider entries (cutoff=\(cutoff)) ✂️✂️✂️")
+                self.logger.notice("Pruning expired provider entries (cutoff=\(cutoff))")
                 return self._expireOldProviderRecords(before: cutoff).flatMap {
-                    self.providerStore.prune(toAmount: self.maxProviderStoreSize)
+                    self.providerStore.all()
+                }.flatMap { snapshot in
+                    self.providerStore.prune(
+                        toAmount: self.maxProviderStoreSize,
+                        protecting: self.localProviderKeys,
+                        freshness: self._providerKeyFreshness(snapshot)
+                    )
                 }
             }
+        }
+
+        /// The newest `addedAt` we hold for each provider-store key, so capacity pruning drops the
+        /// stalest keys first. Keys we never tracked a timestamp for report as `.distantPast`.
+        private func _providerKeyFreshness(
+            _ snapshot: [EventLoopDictionary<KadDHT.Key, [DHT.Message.Peer]>.Element]
+        ) -> [KadDHT.Key: Date] {
+            var freshness: [KadDHT.Key: Date] = [:]
+            for entry in snapshot {
+                var newest = Date.distantPast
+                for provider in entry.value {
+                    guard let pid = try? PeerID(fromBytesID: provider.id.byteArray) else { continue }
+                    if let added = self.providerRecordAddedAt[Self.providerRecordKey(entry.key, peerID: pid)],
+                        added > newest
+                    {
+                        newest = added
+                    }
+                }
+                freshness[entry.key] = newest
+            }
+            return freshness
         }
 
         /// Sweeps value records that have aged past `maxRecordAge`.
