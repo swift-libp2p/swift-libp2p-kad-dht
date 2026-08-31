@@ -14,8 +14,27 @@
 
 import LibP2P
 
+/// Validates and orders the records stored under one DHT namespace.
+///
+/// Both methods take the record's `value` bytes
+/// - Note: `Query.decode` has already checked that the message key and the record key agree,
+///   and `timeReceived` is our own local stamp, which is why neither is a validator input.
 public protocol Validator: Sendable {
+    /// Whether `value` is an acceptable record value for `key`.
+    ///
+    /// - Parameters:
+    ///   - key: The full DHT key, including its `/<namespace>/` prefix.
+    ///   - value: The record's `value` bytes.
+    /// - Throws: If the value is invalid for this key.
     func validate(key: [UInt8], value: [UInt8]) throws
+
+    /// The index of the best value in `values`.
+    ///
+    /// - Parameters:
+    ///   - key: The full DHT key, including its `/<namespace>/` prefix.
+    ///   - values: Candidate record `value` bytes.
+    /// - Returns: An index into `values`.
+    /// - Throws: If none of the candidates can be ordered.
     func select(key: [UInt8], values: [[UInt8]]) throws -> Int
 }
 
@@ -98,17 +117,13 @@ extension KadDHT {
             try self.selectFunction(key, values)
         }
 
+        /// Accepts anything and always picks the first value.
         struct AllowAll: Validator {
             init() {}
 
-            func validate(key: [UInt8], value: [UInt8]) throws {
-                print("🔎 AllowAllValidator::Validating key `\(key.toHexString())`")
-            }
+            func validate(key: [UInt8], value: [UInt8]) throws {}
 
-            func select(key: [UInt8], values: [[UInt8]]) throws -> Int {
-                print("🔎 AllowAllValidator::Selecting key `\(key.toHexString())` from \(values.count) values")
-                return 0
-            }
+            func select(key: [UInt8], values: [[UInt8]]) throws -> Int { 0 }
         }
     }
 
