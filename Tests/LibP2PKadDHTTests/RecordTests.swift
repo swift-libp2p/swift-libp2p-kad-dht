@@ -152,8 +152,8 @@ extension LibP2PKadDHTTests {
         // MARK: - /ipns/
 
         @Test func ipnsSelectPrefersHigherSequence() throws {
-            let older = try ipnsRecord(sequence: 4, validity: "2030-01-01T00:00:00Z")
-            let newer = try ipnsRecord(sequence: 7, validity: "2030-01-01T00:00:00Z")
+            let older = try ipnsEntry(sequence: 4, validity: "2030-01-01T00:00:00Z")
+            let newer = try ipnsEntry(sequence: 7, validity: "2030-01-01T00:00:00Z")
 
             let validator = KadDHT.IPNSValidator()
             #expect(try validator.select(key: "/ipns/".bytes, values: [older, newer]) == 1)
@@ -164,8 +164,8 @@ extension LibP2PKadDHTTests {
         /// publisher whose republish interval is shorter than its record lifetime re-emits the same
         /// sequence with a nearer EOL, the longer-lived record has to survive.
         @Test func ipnsSelectBreaksSequenceTiesOnLaterValidity() throws {
-            let shortLived = try ipnsRecord(sequence: 9, validity: "2027-01-01T00:00:00Z")
-            let longLived = try ipnsRecord(sequence: 9, validity: "2027-01-01T00:00:00.1Z")
+            let shortLived = try ipnsEntry(sequence: 9, validity: "2027-01-01T00:00:00Z")
+            let longLived = try ipnsEntry(sequence: 9, validity: "2027-01-01T00:00:00.1Z")
 
             let validator = KadDHT.IPNSValidator()
             #expect(try validator.select(key: "/ipns/".bytes, values: [shortLived, longLived]) == 1)
@@ -191,7 +191,7 @@ extension LibP2PKadDHTTests {
         }
 
         @Test func ipnsSelectSkipsUnparseableLeadingValue() throws {
-            let valid = try ipnsRecord(sequence: 3, validity: "2030-01-01T00:00:00Z")
+            let valid = try ipnsEntry(sequence: 3, validity: "2030-01-01T00:00:00Z")
             let garbage: [UInt8] = [0xff, 0xff, 0xff, 0xff]
 
             let chosen = try KadDHT.IPNSValidator().select(key: "/ipns/".bytes, values: [garbage, valid])
@@ -246,26 +246,16 @@ extension LibP2PKadDHTTests {
 
         // MARK: - Helpers
 
-        /// Builds an unsigned serialized `DHT.Record` wrapping an `IpnsEntry`.
+        /// Builds an unsigned serialized `IpnsEntry` — a record `value`, which is what selection reads.
         ///
         /// Only the fields that selection reads are populated.
-        private func ipnsRecord(
-            sequence: UInt64,
-            validity: String,
-            timeReceived: String = "2024-01-01T00:00:00Z"
-        ) throws -> [UInt8] {
-            let entry = IpnsEntry.with {
+        private func ipnsEntry(sequence: UInt64, validity: String) throws -> [UInt8] {
+            try IpnsEntry.with {
                 $0.value = Data("/ipfs/bafyfoo".utf8)
                 $0.sequence = sequence
                 $0.validityType = .eol
                 $0.validity = Data(validity.utf8)
-            }
-            let record = DHT.Record.with {
-                $0.key = Data("/ipns/".bytes)
-                $0.value = (try? entry.serializedData()) ?? Data()
-                $0.timeReceived = timeReceived
-            }
-            return try record.serializedData().byteArray
+            }.serializedData().byteArray
         }
     }
 
