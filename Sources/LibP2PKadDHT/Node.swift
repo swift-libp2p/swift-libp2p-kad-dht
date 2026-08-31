@@ -105,6 +105,25 @@ public enum KadDHT {
         /// expiry above, so a single missed republish doesn't drop us from other peers' stores.
         let providerRecordRepublishInterval: TimeInterval = 22 * 60 * 60
 
+        /// The longest we hold a value record, measured from its `timeReceived` stamp.
+        ///
+        /// Enforced on every read and by `_pruneValues()`. Defaults to 48 hours, matching go's
+        /// `DefaultMaxRecordAge`.
+        let maxRecordAge: TimeInterval
+
+        /// Cadence of the value-store GC sweep. Defaults to 24 hours, matching go's
+        /// `DefaultValueGCInterval`.
+        let valueGCInterval: TimeInterval
+
+        /// When `_pruneValues()` last swept, so the sweep keeps its own (slow) cadence rather than
+        /// walking the whole store on every heartbeat. `distantPast` makes the first heartbeat sweep.
+        private var lastValueGC: Date = .distantPast
+
+        /// A `TimeAmount` expressed in seconds.
+        private static func seconds(_ amount: TimeAmount) -> TimeInterval {
+            TimeInterval(amount.nanoseconds) / 1_000_000_000
+        }
+
         /// The event loop that we're operating on...
         public let eventLoop: EventLoop
 
@@ -170,6 +189,8 @@ public enum KadDHT {
             self.providerStore = EventLoopDictionary(on: eventLoop)
             self.maxProviderStoreSize = options.maxProviderStoreSize
             self.maxPeers = options.maxPeers
+            self.maxRecordAge = Self.seconds(options.maxRecordAge)
+            self.valueGCInterval = Self.seconds(options.valueGCInterval)
             self.routingTable = RoutingTable(
                 eventloop: eventLoop,
                 bucketSize: options.bucketSize,
@@ -485,9 +506,11 @@ public enum KadDHT {
                             "PeerStore<\(peers.count)> [ \n\(peers.map { "\($0.id.b58String)" }.joined(separator: ",\n"))]"
                         )
                         return self._pruneProviders().flatMap {
-                            self._republishProviderRecords().flatMap {
-                                self._shareDHTKVs().flatMap {
-                                    self._searchForPeersLookupStyle().transform(to: Void())
+                            self._pruneValues().flatMap {
+                                self._republishProviderRecords().flatMap {
+                                    self._shareDHTKVs().flatMap {
+                                        self._searchForPeersLookupStyle().transform(to: Void())
+                                    }
                                 }
                             }
                         }
@@ -573,6 +596,26 @@ public enum KadDHT {
                 self.logger.notice("✂️✂️✂️ Pruning expired provider entries (cutoff=\(cutoff)) ✂️✂️✂️")
                 return self._expireOldProviderRecords(before: cutoff).flatMap {
                     self.providerStore.prune(toAmount: self.maxProviderStoreSize)
+                }
+            }
+        }
+
+        /// Sweeps value records that have aged past `maxRecordAge`.
+        ///
+        /// - Note: Reads expire independently (see `getUnexpiredValue`), so a slow periodic sweep can't
+        ///   cause us to serve stale records.
+        private func _pruneValues() -> EventLoopFuture<Void> {
+            self.eventLoop.flatSubmit {
+                let now = Date()
+                guard now.timeIntervalSince(self.lastValueGC) >= self.valueGCInterval else {
+                    return self.eventLoop.makeSucceededVoidFuture()
+                }
+                self.lastValueGC = now
+                self.logger.notice("pruning expired records (maxAge=\(self.maxRecordAge)s)")
+                return self.dht.removeExpiredValues(maxAge: self.maxRecordAge, now: now).map { expired in
+                    if expired > 0 {
+                        self.logger.notice("Expired \(expired) record(s)")
+                    }
                 }
             }
         }
@@ -849,7 +892,7 @@ public enum KadDHT {
                 /// - Note: We attach the k closest peers whether or not we hold the record. go's
                 ///   `handleGetValue` sets `Record` and `CloserPeers` unconditionally; only sending closer
                 ///   peers on a miss truncates the requester's lookup at the first hop that has a copy.
-                return self.dht.getValue(forKey: kid).and(
+                return self.dht.getUnexpiredValue(forKey: kid, maxAge: self.maxRecordAge).and(
                     self._nearest(self.routingTable.bucketSize, peersToKey: kid, excluding: from.peer)
                 ).map { value, peers in
                     request.logger.notice(
@@ -1005,7 +1048,7 @@ public enum KadDHT {
         private func _shareDHTKVs() -> EventLoopFuture<Void> {
             self.dht.count().flatMap { count in
                 guard count <= 2 else { return self._shareDHTKVsSequentially() }
-                return self.dht.all().flatMap { elements in
+                return self.dht.unexpiredValues(maxAge: self.maxRecordAge).flatMap { elements in
                     elements.map { key, value in
                         self.eventLoop.next().submit {
                             self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3)
@@ -1039,7 +1082,7 @@ public enum KadDHT {
                     self.logger.warning("Already Sharing KVs, skipping...")
                     return self.eventLoop.makeSucceededVoidFuture()
                 }
-                return self.dht.all().flatMap { elements in
+                return self.dht.unexpiredValues(maxAge: self.maxRecordAge).flatMap { elements in
                     self.kvsToShare = elements
 
                     /// Launch concurrent recursive share routines...
@@ -1249,7 +1292,7 @@ public enum KadDHT {
         public func get(_ key: [UInt8]) -> EventLoopFuture<DHTRecord?> {
             self.eventLoop.flatSubmit {
                 let kid = KadDHT.Key(key, keySpace: .xor)
-                return self.dht.getValue(forKey: kid).flatMap { value in
+                return self.dht.getUnexpiredValue(forKey: kid, maxAge: self.maxRecordAge).flatMap { value in
                     if let val = value {
                         return self.eventLoop.makeSucceededFuture(val)
                     } else {
@@ -1275,7 +1318,7 @@ public enum KadDHT {
             self.eventLoop.flatSubmit {
                 let kid = KadDHT.Key(key, keySpace: .xor)
                 let trace = LookupTrace()
-                return self.dht.getValue(forKey: kid).flatMap { value in
+                return self.dht.getUnexpiredValue(forKey: kid, maxAge: self.maxRecordAge).flatMap { value in
                     if let val = value {
                         return self.eventLoop.makeSucceededFuture((val, trace))
                     } else {
@@ -1301,7 +1344,7 @@ public enum KadDHT {
         public func getUsingLookupList(_ key: [UInt8]) -> EventLoopFuture<DHTRecord?> {
             self.eventLoop.flatSubmit {
                 let kid = KadDHT.Key(key, keySpace: .xor)
-                return self.dht.getValue(forKey: kid).flatMap { value in
+                return self.dht.getUnexpiredValue(forKey: kid, maxAge: self.maxRecordAge).flatMap { value in
                     if let val = value {
                         return self.eventLoop.makeSucceededFuture(val)
                     } else {
@@ -1720,12 +1763,41 @@ extension KadDHT {
         return stamped
     }
 
+    /// Whether a value record has aged past `maxAge`, measured from the `timeReceived` we stamped on
+    /// it when it entered the store.
+    ///
+    /// A record whose `timeReceived` is absent or unparseable counts as expired. That's go's
+    /// behaviour in `checkLocalDatastore` — "either no receive time set on record, or it was invalid"
+    /// marks the record bad — and it's the safe default: a record we can't age is a record we can
+    /// never be trusted to expire. Everything that enters our store goes through ``timeStamped``, so
+    /// a missing stamp means the entry didn't arrive by a path we control.
+    static func isExpired(_ record: DHT.Record, maxAge: TimeInterval, now: Date = Date()) -> Bool {
+        guard record.hasTimeReceived, let received = try? RFC3339Date(string: record.timeReceived) else {
+            return true
+        }
+        return now.timeIntervalSince(received.date) > maxAge
+    }
+
+    /// Builds the `/pk/` record that publishes `peerID`'s public key to the DHT.
+    ///
+    /// The record's key is `"/pk/"` followed by the raw bytes of the peer's multihash id, and its
+    /// value is the protobuf-marshalled public key.
+    ///
+    /// ```swift
+    /// let record = try KadDHT.createPubKeyRecord(peerID: myPeerID)
+    /// let stored = try app.dht.kadDHT.storeNew("/pk/".bytes + myPeerID.id, value: record).wait()
+    /// ```
+    ///
+    /// - Parameter peerID: The peer whose public key should be published. Only the id and the public
+    ///   key are read, so a `PeerID` without a private key is fine.
+    /// - Returns: A `DHTRecord` keyed under `/pk/<multihash>` holding the marshalled public key.
+    /// - Throws: An error if the peer's public key cannot be marshalled — for example a `PeerID`
+    ///   constructed from a multihash alone, which carries no key material.
     static public func createPubKeyRecord(peerID: PeerID) throws -> DHTRecord {
         let key = "/pk/".bytes + peerID.id
         let record = try DHT.Record.with { rec in
             rec.key = Data(key)
             rec.value = try Data(peerID.marshalPublicKey())
-            rec.timeReceived = RFC3339Date().string
         }
 
         return record

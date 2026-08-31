@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+import Foundation
 import NIOCore
 
 /// An eventloop bound dictionary
@@ -112,6 +113,40 @@ where Key: Hashable & Sendable, Value: Sendable {
 }
 
 extension EventLoopDictionary where Key == KadDHT.Key, Value == DHT.Record {
+
+    /// Returns the record held for `kid`, unless it has aged past `maxAge`, in which case the entry
+    /// is evicted and `nil` returned.
+    func getUnexpiredValue(
+        forKey kid: Key,
+        maxAge: TimeInterval,
+        now: Date = Date()
+    ) -> EventLoopFuture<Value?> {
+        self.eventLoop.submit {
+            guard let record = self.store[kid] else { return nil }
+            guard KadDHT.isExpired(record, maxAge: maxAge, now: now) else { return record }
+            self.store.removeValue(forKey: kid)
+            return nil
+        }
+    }
+
+    /// Every record that hasn't aged past `maxAge`.
+    func unexpiredValues(maxAge: TimeInterval, now: Date = Date()) -> EventLoopFuture<[Element]> {
+        self.eventLoop.submit {
+            self.store.filter { !KadDHT.isExpired($0.value, maxAge: maxAge, now: now) }.map { $0 }
+        }
+    }
+
+    /// Evicts every record that has aged past `maxAge`, returning how many were dropped.
+    @discardableResult
+    func removeExpiredValues(maxAge: TimeInterval, now: Date = Date()) -> EventLoopFuture<Int> {
+        self.eventLoop.submit {
+            let expired = self.store.filter { KadDHT.isExpired($0.value, maxAge: maxAge, now: now) }
+            for entry in expired { self.store.removeValue(forKey: entry.key) }
+            return expired.count
+        }
+    }
+
+    /// Attempts to add the record for the given key using the validator provided
     func addKeyIfSpaceOrCloser(
         key kid: KadDHT.Key,
         value: DHT.Record,

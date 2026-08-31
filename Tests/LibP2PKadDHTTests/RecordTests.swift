@@ -16,6 +16,7 @@ import CryptoSwift
 import Foundation
 import LibP2P
 import LibP2PCrypto
+import LibP2PTesting
 import Testing
 
 @testable import LibP2PKadDHT
@@ -115,7 +116,8 @@ extension LibP2PKadDHTTests {
         }
 
         @Test func pubKeyRecordTimestampIsSelfParseable() throws {
-            let record = try KadDHT.createPubKeyRecord(peerID: PeerID(.Ed25519)).toProtobuf()
+            let rec = try KadDHT.createPubKeyRecord(peerID: PeerID(.Ed25519)).toProtobuf()
+            let record = KadDHT.timeStamped(rec)
             #expect(!record.timeReceived.isEmpty)
             #expect(throws: Never.self) { try RFC3339Date(string: record.timeReceived) }
         }
@@ -264,6 +266,119 @@ extension LibP2PKadDHTTests {
                 $0.timeReceived = timeReceived
             }
             return try record.serializedData().byteArray
+        }
+    }
+
+    /// Value records age out against `maxRecordAge`, which was declared and referenced nowhere.
+    @Suite("Value Record Expiry Tests", .serialized)
+    struct ValueRecordExpiryTests {
+
+        /// go: `DefaultMaxRecordAge = 48 * time.Hour`, `DefaultValueGCInterval = 24 * time.Hour`.
+        @Test func defaultsMatchGo() async throws {
+            let app = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
+            app.logger.logLevel = .warning
+            app.security.use(.noise)
+            app.muxers.use(.yamux)
+            app.dht.use(.kadDHT(mode: .client, options: .default, bootstrapPeers: [], autoUpdate: false))
+
+            let node = app.dht.kadDHT
+            #expect(node.maxRecordAge == 48 * 60 * 60)
+            #expect(node.valueGCInterval == 24 * 60 * 60)
+
+            try await app.asyncShutdown()
+        }
+
+        @Test func agesRecordsAgainstTheirTimeReceived() throws {
+            let hour: TimeInterval = 60 * 60
+            let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+            let fresh = Self.record(timeReceived: RFC3339Date(date: now.addingTimeInterval(-hour)).string)
+            #expect(!KadDHT.isExpired(fresh, maxAge: 48 * hour, now: now))
+
+            let stale = Self.record(timeReceived: RFC3339Date(date: now.addingTimeInterval(-49 * hour)).string)
+            #expect(KadDHT.isExpired(stale, maxAge: 48 * hour, now: now))
+        }
+
+        /// go's `checkLocalDatastore` marks a record bad when there's "either no receive time set on
+        /// record, or it was invalid". A record we can't age is one we could never expire.
+        @Test(arguments: ["", "not-a-timestamp"])
+        func treatsAnUnusableTimestampAsExpired(_ timeReceived: String) throws {
+            #expect(KadDHT.isExpired(Self.record(timeReceived: timeReceived), maxAge: 48 * 60 * 60))
+        }
+
+        @Test func readDropsAnExpiredRecordAndReportsAMiss() throws {
+            let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+            defer { try! group.syncShutdownGracefully() }
+
+            let store = EventLoopDictionary(key: KadDHT.Key.self, value: DHT.Record.self, on: group.next())
+            let kid = KadDHT.Key("/pk/expired".bytes, keySpace: .xor)
+            let maxAge: TimeInterval = 48 * 60 * 60
+
+            let expired = Self.record(
+                timeReceived: RFC3339Date(date: Date().addingTimeInterval(-(maxAge + 60))).string
+            )
+            let _ = try store.updateValue(expired, forKey: kid).wait()
+
+            #expect(try store.getUnexpiredValue(forKey: kid, maxAge: maxAge).wait() == nil)
+            /// Expiring on read has to actually evict, or the record would keep being re-shared.
+            #expect(try store.count().wait() == 0)
+        }
+
+        @Test func sweepRemovesOnlyTheExpiredRecords() throws {
+            let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+            defer { try! group.syncShutdownGracefully() }
+
+            let store = EventLoopDictionary(key: KadDHT.Key.self, value: DHT.Record.self, on: group.next())
+            let maxAge: TimeInterval = 48 * 60 * 60
+            let now = Date()
+
+            let fresh = KadDHT.Key("/pk/fresh".bytes, keySpace: .xor)
+            let stale = KadDHT.Key("/pk/stale".bytes, keySpace: .xor)
+            let _ = try store.updateValue(
+                Self.record(timeReceived: RFC3339Date(date: now.addingTimeInterval(-60)).string),
+                forKey: fresh
+            ).wait()
+            let _ = try store.updateValue(
+                Self.record(timeReceived: RFC3339Date(date: now.addingTimeInterval(-(maxAge + 60))).string),
+                forKey: stale
+            ).wait()
+
+            #expect(try store.removeExpiredValues(maxAge: maxAge, now: now).wait() == 1)
+            #expect(try store.getValue(forKey: fresh).wait() != nil)
+            #expect(try store.getValue(forKey: stale).wait() == nil)
+
+            /// The re-share pass reads the same filter, so an expired record can't be pushed back out
+            /// and resurrected with a fresh stamp on the receiving side.
+            #expect(try store.unexpiredValues(maxAge: maxAge, now: now).wait().count == 1)
+        }
+
+        /// A record stored through `storeNew` is stamped, so the publisher's own read still resolves.
+        @Test func freshlyStoredRecordsAreReadable() async throws {
+            try await withApp(configure: dhtHost(mode: .server, options: .default)) { node in
+                let key = try syntheticCID("expiry-fresh")
+                let record = DHT.Record.with {
+                    $0.key = Data(key)
+                    $0.value = Data("still-fresh".utf8)
+                }
+                let stored = try await node.dht.kadDHT.storeNew(key, value: record).get()
+                #expect(stored)
+
+                let fetched = try await node.dht.kadDHT.get(key).get()
+                #expect(fetched?.value == Data("still-fresh".utf8))
+                /// `storeNew` stamps the local copy, which is what makes the record age-checkable —
+                /// and the stamp has to be one we can parse back.
+                let stamp = fetched?.timeReceived ?? ""
+                #expect(stamp.isEmpty == false)
+                #expect(throws: Never.self) { try RFC3339Date(string: stamp) }
+            }
+        }
+
+        private static func record(timeReceived: String) -> DHT.Record {
+            DHT.Record.with {
+                $0.key = Data("/pk/test".bytes)
+                $0.value = Data("value".utf8)
+                $0.timeReceived = timeReceived
+            }
         }
     }
 
