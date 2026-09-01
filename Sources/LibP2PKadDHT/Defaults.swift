@@ -69,6 +69,18 @@ extension KadDHT {
         /// go: `DefaultRoutingTableRefreshQueryTimeout`.
         public static let refreshQueryTimeout: TimeAmount = .seconds(10)
 
+        /// The deepest bucket a refresh will aim a targeted lookup at.
+        ///
+        /// A refresh target has to be a *pre-image*, the peer we ask hashes whatever key we send,
+        /// and finding one for a given bucket costs an expected `2 ^ (cpl + 1)` hashes. go-libp2p
+        /// dodges the search with a generated 16-bit pre-image table and which caps at 15
+        /// (`kbucket.maxCplForRefresh`). We search instead, so we stop before the search
+        /// becomes too expensive.
+        ///
+        /// Deeper buckets aren't left unrefreshed, they cover the key space adjacent to our own ID,
+        /// which is exactly what the self-lookup every refresh cycle walks.
+        public static let maxRefreshPrefixLength: Int = 12
+
         /// The largest inbound message we'll reassemble.
         ///
         /// A length prefix is remote input: without a ceiling, a peer can announce a multi-gigabyte
