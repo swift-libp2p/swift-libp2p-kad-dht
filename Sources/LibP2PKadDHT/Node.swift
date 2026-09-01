@@ -894,11 +894,7 @@ public enum KadDHT {
                     ///   bytes into key space via `KadDHT.Key(_:)` rather than requiring a PeerID. When the
                     ///   key is a PeerId's bytes this is identical to the old `KadDHT.Key(peerID)` path, so
                     ///   swift↔swift lookups are unchanged.
-                    return self.nearest(
-                        self.routingTable.bucketSize,
-                        toKey: KadDHT.Key(key, keySpace: .xor),
-                        excluding: from.peer
-                    )
+                    return self.closerPeers(toFindNodeKey: key, from: from.peer)
                 }
 
             case .putValue(let key, let value):
@@ -1640,15 +1636,47 @@ public enum KadDHT {
             }
         }
 
-        /// Returns a `findNode` response containing up to `num` of the closest peers we know of to `key`,
-        /// excluding ourselves and (optionally) the peer that asked.
-        private func nearest(
-            _ num: Int,
-            toKey key: KadDHT.Key,
-            excluding requester: PeerID? = nil
-        ) -> EventLoopFuture<Response> {
-            self._nearest(num, peersToKey: key, excluding: requester).map { ps in
-                Response.findNode(closerPeers: ps.compactMap { try? DHT.Message.Peer($0) })
+        /// Answers a `.findNode` query with the k closest peers we know of to `key`, with the target itself
+        /// when we can reach it.
+        ///
+        /// The peer being looked for is added to the answer whether or not it's in our routing table.
+        /// It matters because a routing table is deliberately not a directory of everyone we've met,
+        /// only server-mode kad-dht peers, and even those only when there's room in the bucket.
+        /// Without this, a `findPeer` for a client-only peer can never resolve, however many of its
+        /// neighbours we know, because nobody's table is allowed to hold it. Therefore we prepend
+        /// the target peer if we know about them in our PeerStore and they have dialable addresses.
+        private func closerPeers(toFindNodeKey key: [UInt8], from requester: PeerID) -> EventLoopFuture<Response> {
+            self._nearest(
+                self.routingTable.bucketSize,
+                peersToKey: KadDHT.Key(key, keySpace: .xor),
+                excluding: requester
+            ).flatMap { closest -> EventLoopFuture<[PeerInfo]> in
+                /// Ensure the key is an actual PeerID
+                guard let target = try? PeerID(fromBytesID: key) else {
+                    return self.eventLoop.makeSucceededFuture(closest)
+                }
+                /// Never tell a peer about itself, our own ID is answered further up.
+                guard target != requester, target != self.peerID else {
+                    return self.eventLoop.makeSucceededFuture(closest)
+                }
+                /// If they're already in the list, just return it.
+                guard !closest.contains(where: { $0.peer == target }) else {
+                    return self.eventLoop.makeSucceededFuture(closest)
+                }
+                /// Check our peerstore for a potential match
+                return self.peerstore.getPeerInfo(byID: target.b58String, on: self.eventLoop).map {
+                    known -> [PeerInfo] in
+                    /// go prunes address-less entries from the answer, a bare ID tells the requester
+                    /// nothing it can dial, and costs a `closerPeers` slot that a neighbour could use.
+                    guard !known.addresses.isEmpty else { return closest }
+                    /// We prepend so our `maxPeersPerMessage` doesn't drop the match
+                    return [known] + closest
+                }.flatMapErrorThrowing { _ in
+                    /// We've never heard of them; the closest we know is the best we can do.
+                    closest
+                }
+            }.map { peers in
+                Response.findNode(closerPeers: peers.compactMap { try? DHT.Message.Peer($0) })
             }
         }
 
