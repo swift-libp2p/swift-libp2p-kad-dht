@@ -148,13 +148,16 @@ public enum KadDHT {
 
         private var heartbeatTask: RepeatedTask?
 
-        public private(set) var state: ServiceLifecycleState = .stopped
+        /// Refresh runs on a slower interval than the maintenance beat, see `start()`.
+        private var refreshTask: RepeatedTask?
 
-        private var firstSearch: Bool = true
+        public private(set) var state: ServiceLifecycleState = .stopped
 
         private var handler: LibP2P.ProtocolHandler?
 
         private var isRunningHeartbeat: Bool = false
+
+        private var isRunningRefresh: Bool = false
 
         /// [Namespace: Validator]
         ///
@@ -306,13 +309,24 @@ public enum KadDHT {
                 }
             }
 
-            /// Set up the heartbeat task
+            /// Two clocks, because the jobs have genuinely different periods.
+            ///
+            /// Store maintenance (heartbeat), provider expiry, value GC, re-publish, should run often.
+            /// A routing-table refresh consists of `1 + non-empty buckets` lookups, and go
+            /// runs it every 10 minutes (`DefaultRoutingTableRefreshPeriod`).
             if self.autoUpdate == true {
                 self.heartbeatTask = self.eventLoop.scheduleRepeatedAsyncTask(
                     initialDelay: .milliseconds(500),
                     delay: .seconds(120),
                     notifying: nil,
                     self._heartbeat
+                )
+                self.refreshTask = self.eventLoop.scheduleRepeatedAsyncTask(
+                    /// Give the node a few seconds to settle before refreshing
+                    initialDelay: .seconds(3),
+                    delay: KadDHT.Defaults.refreshInterval,
+                    notifying: nil,
+                    { _ in self._refreshRoutingTable() }
                 )
             }
 
@@ -497,7 +511,13 @@ public enum KadDHT {
                             self._pruneValues().flatMap {
                                 self._republishProviderRecords().flatMap {
                                     self._shareDHTKVs().flatMap {
-                                        self._searchForPeersLookupStyle().transform(to: Void())
+                                        /// skip the RoutingTable refresh when in autoUpdate (it has it's own task).
+                                        guard self.autoUpdate == false else {
+                                            return self.eventLoop.makeSucceededVoidFuture()
+                                        }
+                                        /// When autoUpdate is off, lets perform the refresh because we don't offer
+                                        /// a public api for the refresh at the moment.
+                                        return self._refreshRoutingTable()
                                     }
                                 }
                             }
@@ -1226,6 +1246,11 @@ public enum KadDHT {
                 return
             }
             self.state = .stopping
+            /// - Note: not waited on, unlike the heartbeat below. `stop()` already blocks on one
+            ///   promise and waiting on a refresh mid-fan-out would hold
+            ///   shutdown for up to `refreshQueryTimeout` per outstanding lookup.
+            self.refreshTask?.cancel()
+            self.refreshTask = nil
             if self.heartbeatTask != nil {
                 let promise = self.eventLoop.makePromise(of: Void.self)
                 self.heartbeatTask?.cancel(promise: promise)
@@ -1415,31 +1440,74 @@ public enum KadDHT {
             }
         }
 
-        private var numberOfSearches: Int = 0
-        /// Performs a node lookup on our the specified address, or a randomly generated one, to try and find the peers closest to it in the current network
-        /// - Note: we can fudge the CPL if we're trying to discover peers for a certain k bucket
-        private func _searchForPeersLookupStyle(_ peer: PeerID? = nil) -> EventLoopFuture<[PeerInfo]> {
-            self.logger.info("Searching for peers... Lookup Style...")
-            let addressToSearchFor: PeerID
-            if let specified = peer {
-                addressToSearchFor = specified
-            } else if self.firstSearch || self.numberOfSearches % 3 == 0 {
-                /// If it's our first search, search for our own address...
-                self.logger.debug("Searching for our own address")
-                self.firstSearch = false
-                addressToSearchFor = self.peerID
-            } else {
-                // Create a random peer and search for it?
-                let randomPeer = try! PeerID(.Ed25519)
-                //addressToSearchFor = try! Multiaddr("/ip4/127.0.0.1/tcp/8080/p2p/\(randomPeer.b58String)")
-                addressToSearchFor = randomPeer
+        /// Walks the key space we care about, so the routing table stays populated and current.
+        ///
+        /// One self-lookup, which refreshes our closest peers, the part of the table that matters
+        /// most and the part `maxRefreshPrefixLength` wont reach, followed by one targeted
+        /// lookup per each non-empty bucket.
+        ///
+        /// Lookups run one at a time. A refresh is background maintenance, so it yields to whatever
+        /// else the node is doing rather than opening `k * α` streams at once.
+        func _refreshRoutingTable() -> EventLoopFuture<Void> {
+            self.eventLoop.flatSubmit {
+                guard self.isRunningRefresh == false else {
+                    self.logger.debug("Refresh already in flight, skipping this cycle")
+                    return self.eventLoop.makeSucceededVoidFuture()
+                }
+                self.isRunningRefresh = true
+                let tic = DispatchTime.now()
+
+                return self.routingTable.nonEmptyBucketPrefixLengths().flatMap {
+                    prefixLengths -> EventLoopFuture<Void> in
+                    let refreshable = prefixLengths.filter { $0 <= KadDHT.Defaults.maxRefreshPrefixLength }
+                    if refreshable.count < prefixLengths.count {
+                        self.logger.debug(
+                            "Leaving \(prefixLengths.count - refreshable.count) deep bucket(s) to the self-lookup"
+                        )
+                    }
+                    self.logger.notice("Refreshing self + \(refreshable.count) bucket(s)")
+
+                    /// Our own key first, it's the one lookup we always run.
+                    let targets =
+                        [KadDHT.Key(self.peerID, keySpace: .xor)]
+                        + refreshable.compactMap { cpl in
+                            self.refreshTarget(forBucketAtPrefixLength: cpl)
+                        }
+
+                    /// Perform a lookup for each non-empty bucket (one at a time, so we dont overwhelm the node with concurrent requests)
+                    return targets.reduce(self.eventLoop.makeSucceededVoidFuture()) { chain, target in
+                        chain.flatMap { _ in
+                            self.lookupClosestPeers(
+                                to: target,
+                                timeout: KadDHT.Defaults.refreshQueryTimeout
+                            ).flatMapAlways { result -> EventLoopFuture<Void> in
+                                /// Dont fail the rest of our lookups when one of them fails.
+                                if case .failure(let error) = result {
+                                    self.logger.debug("Refresh lookup failed: \(error)")
+                                }
+                                return self.eventLoop.makeSucceededVoidFuture()
+                            }
+                        }
+                    }
+                }.always { _ in
+                    self.logger.notice(
+                        "Refresh finished after \((DispatchTime.now().uptimeNanoseconds - tic.uptimeNanoseconds) / 1_000_000)ms"
+                    )
+                    self.isRunningRefresh = false
+                }
             }
-            self.numberOfSearches += 1
-            /// Discovery runs on a clock, so it's bounded rather than allowed to hold up a heartbeat.
-            return self.lookupClosestPeers(
-                to: KadDHT.Key(addressToSearchFor, keySpace: .xor),
-                timeout: KadDHT.Defaults.refreshQueryTimeout
+        }
+
+        /// A lookup target that lands in the bucket `cpl` bits away from us.
+        private func refreshTarget(forBucketAtPrefixLength cpl: Int) -> KadDHT.Key? {
+            let target = KadDHT.Key.random(
+                commonPrefixLength: cpl,
+                with: KadDHT.Key(self.peerID, keySpace: .xor)
             )
+            if target == nil {
+                self.logger.debug("Couldn't find a refresh target for bucket \(cpl), skipping it")
+            }
+            return target
         }
 
         /// This method adds a peer to our routingTable and peerstore if we either have excess capacity or if the peer is closer to us than the furthest current peer

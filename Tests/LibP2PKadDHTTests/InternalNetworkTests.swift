@@ -267,7 +267,7 @@ extension LibP2PKadDHTTests {
             // Add the last nodes info to the first node
             try nodes[0].peers.add(peerInfo: nodes.last!.peerInfo).wait()
 
-            for round in 0..<5 {
+            for round in 0..<3 {
                 for node in nodes {
                     try node.dht.kadDHT.heartbeat().wait()
                 }

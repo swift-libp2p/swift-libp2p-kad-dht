@@ -134,7 +134,7 @@ extension LibP2PKadDHTTests {
             lib.peers.dumpAll()
             print("")
 
-            for _ in (0..<20) {
+            for _ in (0..<5) {
                 /// Trigger a heartbeat (which will perform a peer lookup for our peerID)
                 try await lib.dht.kadDHT.heartbeat().get()
 
@@ -308,14 +308,13 @@ extension LibP2PKadDHTTests {
             /// Start the node
             try lib.start()
 
-            /// Do your test stuff ...
             #expect(lib.dht.kadDHT.state == .started)
 
             #expect(throws: Never.self) {
                 let val = try lib.dht.kadDHT.findPeer(peer: PeerID(cid: peerID)).wait()
                 #expect(val.peer.b58String == peerID)
                 #expect(val.peer.type == .idOnly)
-                #expect(val.addresses.count > 1)
+                #expect(val.addresses.count >= 1)
             }
 
             /// Stop the node

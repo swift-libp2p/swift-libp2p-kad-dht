@@ -162,6 +162,37 @@ extension KadDHT.Key {
     internal func commonPrefixLength(with peer: KadDHT.Key) -> Int {
         self.bytes.commonPrefixLength(with: peer.bytes)
     }
+
+    /// A key that hashes into the bucket exactly `cpl` bits away from the `target`, for aiming a
+    /// routing-table refresh at one particular bucket.
+    ///
+    /// A lookup puts ``Key.original`` on the wire, and the peer we ask hashes it
+    /// (`KadDHT.Key(key, keySpace: .xor)`), so the original must hash to the correct CPL.
+    ///
+    /// Instead of using a pre-generated list of CPL hashes, we just search for one. Each candidate
+    /// is a coin flip per bit, so this is an expected `2 ^ (cpl + 1)` hashes, cheap for the shallow
+    /// buckets and bounded by ``KadDHT/Defaults/maxRefreshPrefixLength`` for the rest.
+    ///
+    /// - Returns: `nil` if `attempts` ran out, so the caller skips that bucket rather than spinning.
+    internal static func random(
+        commonPrefixLength cpl: Int,
+        with target: KadDHT.Key,
+        attempts: Int? = nil,
+        preimageLength: Int = 32
+    ) -> KadDHT.Key? {
+        guard cpl >= 0, preimageLength > 0 else { return nil }
+        /// Eight times the expected trials, so a bucket is skipped for being deep rather than unlucky.
+        let budget = attempts ?? (8 << (cpl + 1))
+
+        for _ in 0..<budget {
+            let candidate = KadDHT.Key(
+                (0..<preimageLength).map { _ in UInt8.random(in: UInt8.min...UInt8.max) },
+                keySpace: target.keySpace
+            )
+            if candidate.commonPrefixLength(with: target) == cpl { return candidate }
+        }
+        return nil
+    }
 }
 
 extension KadDHT {
