@@ -84,10 +84,27 @@ extension LibP2PKadDHTTests {
         @Test(.internalIntegrationTestsEnabled)
         func testAddProviderWithoutAdvertisedAddressesIsDropped() async throws {
             try await Self.withProviderExchange { client, server, key in
+                let target = PeerInfo(peer: server.peerID, addresses: server.listenAddresses)
                 _ = try? await client.dht.kadDHT._sendQuery(
                     .addProvider(key: key, providerPeers: []),
-                    to: PeerInfo(peer: server.peerID, addresses: server.listenAddresses)
+                    to: target
                 ).get()
+
+                /// A well-formed announce on a second key. `ADD_PROVIDER` is fire-and-forget, so
+                /// `_sendQuery` returning says nothing about the server having read anything, without
+                /// this control, "no record for `key`" would also pass if the server were simply
+                /// asleep. Once the control lands, the server is demonstrably processing our announces.
+                /// So we can be reasonably confident that the empty advertise was dropped correctly.
+                let controlKey = try CID(LibP2PKadDHTTests.syntheticCID("address-trust-control")).multihash.value
+                let advertised = try DHT.Message.Peer(
+                    PeerInfo(peer: client.peerID, addresses: client.listenAddresses)
+                )
+                _ = try? await client.dht.kadDHT._sendQuery(
+                    .addProvider(key: controlKey, providerPeers: [advertised]),
+                    to: target
+                ).get()
+                let control = try await Self.awaitProviders(for: controlKey, on: server, count: 1)
+                #expect(control.count == 1, "the control announce should have landed")
 
                 let stored = try await Self.providers(for: key, on: server)
                 #expect(stored.isEmpty, "a provider that advertises nothing shouldn't be recorded")
@@ -107,7 +124,7 @@ extension LibP2PKadDHTTests {
                     to: PeerInfo(peer: server.peerID, addresses: server.listenAddresses)
                 ).get()
 
-                let stored = try await Self.providers(for: key, on: server)
+                let stored = try await Self.awaitProviders(for: key, on: server, count: 1)
                 #expect(stored.count == 1)
                 #expect(stored.first?.id == Data(client.peerID.id))
                 let recorded = try #require(try stored.first?.toPeerInfo())
@@ -126,7 +143,7 @@ extension LibP2PKadDHTTests {
                     to: PeerInfo(peer: server.peerID, addresses: server.listenAddresses)
                 ).get()
 
-                let stored = try await Self.providers(for: key, on: server)
+                let stored = try await Self.awaitProviders(for: key, on: server, count: 1)
                 #expect(stored.count == 1, "opting in should record the observed address")
                 #expect(stored.first?.id == Data(client.peerID.id))
             }
@@ -164,6 +181,24 @@ extension LibP2PKadDHTTests.AddressTrustTests {
                 let key = try CID(try LibP2PKadDHTTests.syntheticCID("address-trust")).multihash.value
                 try await body(client, server, key)
             }
+        }
+    }
+
+    /// Waits for `app` to hold at least `count` provider records for `key`.
+    ///
+    /// `ADD_PROVIDER` is fire-and-forget, `_sendQuery` resolves once the request is on the wire, so
+    /// there's no moment at which the receiver is known to have processed it.
+    fileprivate static func awaitProviders(
+        for key: [UInt8],
+        on app: Application,
+        count: Int,
+        timeout: Duration = .seconds(2)
+    ) async throws -> [DHT.Message.Peer] {
+        let deadline = ContinuousClock.now + timeout
+        while true {
+            let stored = try await self.providers(for: key, on: app)
+            if stored.count >= count || ContinuousClock.now >= deadline { return stored }
+            try await Task.sleep(for: .milliseconds(10))
         }
     }
 
