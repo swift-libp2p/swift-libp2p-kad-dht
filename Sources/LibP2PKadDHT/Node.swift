@@ -343,9 +343,14 @@ public enum KadDHT {
         ///    network queries when we already hold a record).
         /// 2. If `announce` is true: runs the iterative-closest-peers
         ///    query to find the K nearest peers to the CID and sends
-        ///    each an `ADD_PROVIDER` RPC. The returned future resolves
-        ///    when those RPCs have completed (or timed out — see
-        ///    `connectionTimeout`).
+        ///    each an `ADD_PROVIDER` RPC. `ADD_PROVIDER` is fire-and-forget
+        ///    — go answers it with nothing — so the returned future
+        ///    resolves once those requests are on the wire, *not* once the
+        ///    peers have processed them. Per-peer outcomes are discarded
+        ///    either way, so this has never implied anybody stored the
+        ///    record; it now also doesn't imply anybody has read it yet.
+        ///    Shutting the node down immediately after can therefore drop
+        ///    an announce that was still draining.
         /// 3. Records the CID in ``localProviderKeys`` so the heartbeat
         ///    renewal job re-issues the announcement before TTL expiry.
         ///
@@ -1064,13 +1069,17 @@ public enum KadDHT {
                         self.logger.info(
                             "Dialable Addresses For \(to.peer): [\(dialableAddresses.map { $0.description }.joined(separator: ","))]"
                         )
+                        /// An RPC the peer doesn't answer resolves as soon as our write is out
+                        let fireAndForget = query.fireAndForgetResponse
                         return network.newRequest(
                             to: ma,
                             forProtocol: KadDHT.multicodec,
                             withRequest: Data(payload),
+                            style: fireAndForget == nil ? .responseExpected : .noResponseExpected,
                             withTimeout: self.connectionTimeout
-                        ).flatMapThrowing { resp in
-                            try Response.decode(resp.byteArray)
+                        ).flatMapThrowing { resp -> Response in
+                            if let fireAndForget { return fireAndForget }
+                            return try Response.decode(resp.byteArray)
                         }
                     } catch {
                         return (on ?? self.eventLoop).makeFailedFuture(Errors.peerIDMultiaddrEncapsulationFailed)

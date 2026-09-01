@@ -166,6 +166,23 @@ extension KadDHT {
             }
         }
 
+        /// The result to report for an RPC the peer never answers, or `nil` when we expect a reply.
+        ///
+        /// go's `handleAddProvider` returns no message at all, so waiting for an echo means every
+        /// announce burns the full `connectionTimeout` against a peer that behaved correctly. There's
+        /// nothing on the wire to decode either
+        ///
+        /// Only ADD_PROVIDER is fire-and-forget. PUT_VALUE still expects its echo, matching go, which
+        /// reads a reply for every other request type.
+        var fireAndForgetResponse: Response? {
+            switch self {
+            case let .addProvider(key, providerPeers):
+                .addProvider(cid: key, providerPeers: providerPeers)
+            case .findNode, .getValue, .putValue, .getProviders, .ping:
+                nil
+            }
+        }
+
         var description: String {
             switch self {
             case .findNode(let key):
