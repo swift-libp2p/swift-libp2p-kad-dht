@@ -129,6 +129,18 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         /// - Note: We deliberately don't close our `eventLoop` here. It's shared with the `KadDHT.Node`.
     }
 
+    /// The common-prefix lengths of the buckets that currently hold at least one peer.
+    ///
+    /// Bucket `i` holds the peers sharing exactly `i` leading bits with us, so the index *is* the
+    /// prefix length
+    func nonEmptyBucketPrefixLengths() -> EventLoopFuture<[Int]> {
+        self.eventLoop.submit {
+            self.buckets.enumerated().compactMap { index, bucket in
+                bucket.count > 0 ? index : nil
+            }
+        }
+    }
+
     func numberOfPeers(withCommonPrefixLength cpl: Int) -> EventLoopFuture<Int> {
         self.eventLoop.submit {
             if cpl >= self.buckets.count - 1 {
