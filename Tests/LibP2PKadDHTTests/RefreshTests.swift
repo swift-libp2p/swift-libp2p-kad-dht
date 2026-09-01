@@ -125,19 +125,31 @@ extension LibP2PKadDHTTests {
             /// network without walking it.
             try await withApp(configure: LibP2PKadDHTTests.dhtHost(mode: .server, options: options)) { first in
                 try await withApp(
-                    configure: LibP2PKadDHTTests.dhtHost(mode: .server, options: options, bootstrapPeers: [
-                        first.peerInfo
-                    ])
+                    configure: LibP2PKadDHTTests.dhtHost(
+                        mode: .server,
+                        options: options,
+                        bootstrapPeers: [
+                            first.peerInfo
+                        ]
+                    )
                 ) { second in
                     try await withApp(
-                        configure: LibP2PKadDHTTests.dhtHost(mode: .server, options: options, bootstrapPeers: [
-                            second.peerInfo
-                        ])
+                        configure: LibP2PKadDHTTests.dhtHost(
+                            mode: .server,
+                            options: options,
+                            bootstrapPeers: [
+                                second.peerInfo
+                            ]
+                        )
                     ) { third in
                         try await withApp(
-                            configure: LibP2PKadDHTTests.dhtHost(mode: .server, options: options, bootstrapPeers: [
-                                third.peerInfo
-                            ])
+                            configure: LibP2PKadDHTTests.dhtHost(
+                                mode: .server,
+                                options: options,
+                                bootstrapPeers: [
+                                    third.peerInfo
+                                ]
+                            )
                         ) { newcomer in
                             let node = newcomer.dht.kadDHT
                             let before = try await node.routingTable.totalPeers().get()

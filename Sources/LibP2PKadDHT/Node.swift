@@ -1468,9 +1468,11 @@ public enum KadDHT {
                     self.logger.notice("Refreshing self + \(refreshable.count) bucket(s)")
 
                     /// Our own key first, it's the one lookup we always run.
-                    let targets = [KadDHT.Key(self.peerID, keySpace: .xor)] + refreshable.compactMap { cpl in
-                        self.refreshTarget(forBucketAtPrefixLength: cpl)
-                    }
+                    let targets =
+                        [KadDHT.Key(self.peerID, keySpace: .xor)]
+                        + refreshable.compactMap { cpl in
+                            self.refreshTarget(forBucketAtPrefixLength: cpl)
+                        }
 
                     /// Perform a lookup for each non-empty bucket (one at a time, so we dont overwhelm the node with concurrent requests)
                     return targets.reduce(self.eventLoop.makeSucceededVoidFuture()) { chain, target in
