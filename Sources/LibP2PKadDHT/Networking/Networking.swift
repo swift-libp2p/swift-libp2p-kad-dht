@@ -93,6 +93,14 @@ extension KadDHT {
         public let maxProviderStoreSize: Int
         public let supportLocalNetwork: Bool
 
+        /// Whether an `ADD_PROVIDER` whose `providerPeers` don't carry the sender's addresses may
+        /// fall back to the address we observed the stream on.
+        ///
+        /// Off by default, matching go: a provider record is only as good as its addresses, and the
+        /// address an inbound stream arrives on is usually an ephemeral source port nobody can dial
+        /// back. A provider that doesn't advertise itself is dropped instead.
+        public let acceptObservedProviderAddress: Bool
+
         /// The longest we'll hold a value record, measured from the `timeReceived` we stamped on it.
         ///
         /// A record that outlives this is dropped on read and swept by the value GC pass, so a
@@ -117,7 +125,8 @@ extension KadDHT {
             maxProviderStoreSize: Int = 10_000,
             supportLocalNetwork: Bool = false,
             maxRecordAge: TimeAmount = KadDHT.Defaults.maxRecordAge,
-            valueGCInterval: TimeAmount = KadDHT.Defaults.valueGCInterval
+            valueGCInterval: TimeAmount = KadDHT.Defaults.valueGCInterval,
+            acceptObservedProviderAddress: Bool = false
         ) {
             self.connectionTimeout = connectionTimeout
             self.concurrency = concurrency
@@ -130,6 +139,7 @@ extension KadDHT {
             self.supportLocalNetwork = supportLocalNetwork
             self.maxRecordAge = maxRecordAge
             self.valueGCInterval = valueGCInterval
+            self.acceptObservedProviderAddress = acceptObservedProviderAddress
         }
 
         @available(

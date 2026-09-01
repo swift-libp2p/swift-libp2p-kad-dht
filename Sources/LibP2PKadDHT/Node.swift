@@ -39,6 +39,11 @@ public enum KadDHT {
             case stopped
         }
 
+        /// A `TimeAmount` expressed in seconds.
+        private static func seconds(_ amount: TimeAmount) -> TimeInterval {
+            TimeInterval(amount.nanoseconds) / 1_000_000_000
+        }
+
         /// A weak reference back to our main LibP2P instance
         weak var network: Application?
 
@@ -114,10 +119,9 @@ public enum KadDHT {
         /// walking the whole store on every heartbeat. `distantPast` makes the first heartbeat sweep.
         private var lastValueGC: Date = .distantPast
 
-        /// A `TimeAmount` expressed in seconds.
-        private static func seconds(_ amount: TimeAmount) -> TimeInterval {
-            TimeInterval(amount.nanoseconds) / 1_000_000_000
-        }
+        /// Whether an `ADD_PROVIDER` whose `providerPeers` don't carry the sender's addresses may
+        /// fall back to the address we observed the stream on. Off by default, matching go.
+        let acceptObservedProviderAddress: Bool
 
         /// The event loop that we're operating on...
         public let eventLoop: EventLoop
@@ -186,6 +190,7 @@ public enum KadDHT {
             self.maxPeers = options.maxPeers
             self.maxRecordAge = Self.seconds(options.maxRecordAge)
             self.valueGCInterval = Self.seconds(options.valueGCInterval)
+            self.acceptObservedProviderAddress = options.acceptObservedProviderAddress
             self.routingTable = RoutingTable(
                 eventloop: eventLoop,
                 bucketSize: options.bucketSize,
@@ -393,8 +398,8 @@ public enum KadDHT {
         /// - Note: The `ADD_PROVIDER` wire key is the CID's *multihash*, matching
         ///   ``provide(cid:announce:)`` and ``findProviders(cid:count:)``. We also advertise our own
         ///   `PeerInfo` in `providerPeers`; the receiver validates that entry against the sender's
-        ///   PeerID and takes our dialable addresses from it, falling back to the single address it
-        ///   observed the connection on if we send nothing.
+        ///   PeerID and takes our dialable addresses from it. A receiver following go drops the
+        ///   record outright when we advertise nothing, so this isn't optional.
         func _announceProviderRecord(cid: [UInt8], key kid: KadDHT.Key) -> EventLoopFuture<Void> {
             guard let providerKey = (try? CID(cid))?.multihash.value else {
                 return self.eventLoop.makeFailedFuture(Errors.invalidCID)
@@ -743,8 +748,12 @@ public enum KadDHT {
                 return self.onReady(req)
             case .data:
                 return self.onData(request: req).flatMapError { error -> EventLoopFuture<LibP2P.Response<ByteBuffer>> in
+                    /// The spec has us reset a stream we failed to serve, rather than closing it
+                    /// cleanly: a clean close reads as "nothing more to say", so the peer would take
+                    /// our silence for a legitimate empty answer instead of a failed request. This
+                    /// matches the `.reset` the decode/auth guards in `onData` already return.
                     self.logger.warning("KadDHT::OnData::Error -> \(error)")
-                    return req.eventLoop.makeSucceededFuture(.close)
+                    return req.eventLoop.makeSucceededFuture(.reset(error))
                 }
             case .closed:
                 return req.eventLoop.makeSucceededFuture(.close)
@@ -776,29 +785,29 @@ public enum KadDHT {
                 return request.eventLoop.makeSucceededFuture(.reset(Errors.DecodingErrorInvalidType))
             }
 
-            let pInfo = PeerInfo(peer: from, addresses: [request.addr])
-
-            /// Do we know this peer?
-            ///
-            /// Nodes, both those operating in client and server mode, add another node to their routing table if and only if that node operates in server mode.
-            /// This distinction allows restricted nodes to utilize the DHT, i.e. query the DHT, without decreasing the quality of the distributed hash table, i.e. without polluting the routing tables.
-            _ = self._isPeerOperatingAsServer(from).map { isActingAsServer -> EventLoopFuture<Void> in
-                self.network!.peers.getPeerInfo(byID: from.b58String).flatMap { peerInfo in
-                    //pInfo = peerInfo
-                    self.addPeerIfSpaceOrCloser(peerInfo)
-                }
-            }
-
             /// Handle the query
+            ///
+            /// - Important: We need to return the Response on the `request.eventLoop`.
             return request.eventLoop.flatSubmit {  //.flatScheduleTask(in: self.connection.responseTime) {
-                self._handleQuery(query, from: pInfo, request: request).always { result in
-                    switch result {
-                    case .success(let res):
-                        self.metrics.add(event: .queryResponse(pInfo, res))
-                    case .failure(let error):
-                        request.logger.error(
-                            "Error encountered while responding to query \(query) from peer \(from) -> \(error)"
-                        )
+                self.trustedAddresses(for: from, observedOn: request.addr).flatMap {
+                    pInfo -> EventLoopFuture<Response> in
+
+                    /// Do we know this peer?
+                    ///
+                    /// Nodes, both those operating in client and server mode, add another node to their routing table if and only if that node operates in server mode.
+                    /// This distinction allows restricted nodes to utilize the DHT, i.e. query the DHT, without decreasing the quality of the distributed hash table, i.e. without polluting the routing tables.
+                    /// `addPeerIfSpaceOrCloser` makes that server-mode check itself.
+                    _ = self.addPeerIfSpaceOrCloser(pInfo)
+
+                    return self._handleQuery(query, from: pInfo, request: request).always { result in
+                        switch result {
+                        case .success(let res):
+                            self.metrics.add(event: .queryResponse(pInfo, res))
+                        case .failure(let error):
+                            request.logger.error(
+                                "Error encountered while responding to query \(query) from peer \(from) -> \(error)"
+                            )
+                        }
                     }
                 }
             }.flatMapThrowing { resp in
@@ -808,7 +817,25 @@ public enum KadDHT {
                 request.logger.info("---")
 
                 /// Return the response
-                return try .respondThenClose(request.allocator.buffer(bytes: resp.encode()))
+                return try LibP2P.Response.respondThenClose(request.allocator.buffer(bytes: resp.encode()))
+            }.hop(to: request.eventLoop)
+        }
+
+        /// The addresses we're willing to attribute to `peer` when it dials us.
+        ///
+        /// A requester-supplied, or it's observed, address is unverified: for an inbound stream
+        /// `request.addr` is wherever we happened to see the peer, which is usually an ephemeral
+        /// source port nothing can dial back. So we lead with what identify already put in the
+        /// peerstore and keep the observed address only as a trailing fallback, rather than letting
+        /// it be the only thing we record.
+        func trustedAddresses(for peer: PeerID, observedOn observed: Multiaddr) -> EventLoopFuture<PeerInfo> {
+            self.peerstore.getPeerInfo(byID: peer.b58String, on: self.eventLoop).map { known -> PeerInfo in
+                guard !known.addresses.isEmpty else { return PeerInfo(peer: peer, addresses: [observed]) }
+                guard !known.addresses.contains(observed) else { return known }
+                return PeerInfo(peer: peer, addresses: known.addresses + [observed])
+            }.flatMapErrorThrowing { _ in
+                /// Nothing on file — the observed address is all we have to go on.
+                PeerInfo(peer: peer, addresses: [observed])
             }
         }
 
@@ -945,13 +972,20 @@ public enum KadDHT {
                     let addresses =
                         matchingInfo.addresses + from.addresses.filter { !matchingInfo.addresses.contains($0) }
                     provider = try? DHT.Message.Peer(PeerInfo(peer: from.peer, addresses: addresses))
-                } else {
-                    if !advertised.isEmpty {
-                        request.logger.warning(
-                            "Query::AddProvider::No providerPeers entry matched sender \(from.peer), falling back to the observed address"
-                        )
-                    }
+                } else if self.acceptObservedProviderAddress {
+                    request.logger.warning(
+                        "Query::AddProvider::No providerPeers entry matched sender \(from.peer), falling back to the observed address"
+                    )
                     provider = try? DHT.Message.Peer(from)
+                } else {
+                    /// go's `handleAddProvider` drops a record whose matching `providerPeers` entry
+                    /// carries no addresses. Substituting the address we observed would publish an
+                    /// ephemeral source port as a provider address, so every peer that later asked us
+                    /// for providers would get an answer it can't dial.
+                    request.logger.warning(
+                        "Query::AddProvider::Dropping record from \(from.peer) — no providerPeers entry advertised the sender's addresses"
+                    )
+                    return self.eventLoop.makeSucceededFuture(Response.addProvider(cid: key, providerPeers: []))
                 }
 
                 guard let provider else {
