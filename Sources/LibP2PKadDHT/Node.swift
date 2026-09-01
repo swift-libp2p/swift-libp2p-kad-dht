@@ -821,7 +821,10 @@ public enum KadDHT {
                 request.logger.info("\(resp)")
                 request.logger.info("---")
 
-                /// Return the response
+                guard query.fireAndForgetResponse == nil else {
+                    /// none of the other implementations respond to ADD_PROVIDER queries.
+                    return LibP2P.Response.close
+                }
                 return try LibP2P.Response.respondThenClose(request.allocator.buffer(bytes: resp.encode()))
             }.hop(to: request.eventLoop)
         }
