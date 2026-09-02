@@ -493,11 +493,10 @@ public enum KadDHT {
                     .flatMap { arg0, providerRecordCount in
                         let (peers, dhtValues) = arg0
                         self.logger.notice("\(self.routingTable.description)")
-                        if let data = try? JSONEncoder().encode(MetadataBook.PrunableMetadata(prunable: .necessary))
-                            .byteArray
-                        {
+                        let necessary = KadDHT.PeerPrunableMetadata.necessary
+                        if !necessary.isEmpty {
                             self.logger.notice(
-                                "Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.Prunable.rawValue] == data }).count)>"
+                                "Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.Prunable.rawValue] == necessary }).count)>"
                             )
                         }
                         self.logger.notice("ProviderStore<\(providerRecordCount)>")
@@ -1533,28 +1532,40 @@ public enum KadDHT {
             }).hop(to: self.eventLoop)
         }
 
+        /// Marks the given peer as necessary in our global peerstore
+        /// - Note: This will prevent the peer from being pruned under normal circumstances
         private func markPeerAsNecessary(peer: PeerID) -> EventLoopFuture<Void> {
-            self.logger.notice("Marking \(peer) as necessary")
-            guard let data = try? JSONEncoder().encode(MetadataBook.PrunableMetadata(prunable: .necessary)) else {
-                return self.eventLoop.makeSucceededVoidFuture()
-            }
-            return self.peerstore.add(
-                metaKey: MetadataBook.Keys.Prunable.rawValue,
-                data: data.byteArray,
-                toPeer: peer,
-                on: self.eventLoop
-            )
-            //self.peerstore.update(metaKey: .prunableValue(.necessary), forPeer: peer)
+            self.markPeersPrunability(peer, as: .necessary)
         }
 
+        /// Marks the given peer as prunable
         private func markPeerAsPrunable(peer: PeerID) -> EventLoopFuture<Void> {
-            self.logger.notice("Marking \(peer) as prunable")
-            guard let data = try? JSONEncoder().encode(MetadataBook.PrunableMetadata(prunable: .prunable)) else {
+            self.markPeersPrunability(peer, as: .prunable)
+        }
+
+        /// Updates prunability metadata for the given `peer` in the peerstore.
+        private func markPeersPrunability(
+            _ peer: PeerID,
+            as state: MetadataBook.PrunableMetadata.Prunable
+        ) -> EventLoopFuture<Void> {
+            // Grab the pre-encoded metadata value for the PrunableMetadata state
+            let value:[UInt8]
+            switch state {
+            case .necessary:
+                value = KadDHT.PeerPrunableMetadata.necessary
+            case .preferred:
+                value = KadDHT.PeerPrunableMetadata.preferred
+            case .prunable:
+                value = KadDHT.PeerPrunableMetadata.prunable
+            }
+            self.logger.info("Marking \(peer) as \(value)")
+            guard !value.isEmpty else {
+                self.logger.warning("No encoded `\(state)` metadata to write for \(peer)")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
             return self.peerstore.add(
                 metaKey: MetadataBook.Keys.Prunable.rawValue,
-                data: data.byteArray,
+                data: value,
                 toPeer: peer,
                 on: self.eventLoop
             )
