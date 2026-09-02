@@ -98,3 +98,29 @@ extension KadDHT {
         public static let maxPeersPerMessage: Int = KadDHT.Defaults.bucketSize
     }
 }
+
+extension KadDHT {
+
+    /// The peerstore metadata values we write, encoded once, instead of everytime we access the metadata.
+    ///
+    /// - TODO: This should move into swift-libp2p
+    enum PeerPrunableMetadata {
+
+        /// A peer the routing table is relying on, the peerstore shouldn't prune it.
+        static let necessary: [UInt8] = Self.encoded(.necessary)
+
+        /// A peer the routing table has let go of, the peerstore may prune it.
+        static let prunable: [UInt8] = Self.encoded(.prunable)
+
+        /// A peer the routing table prefers, but isn't necessary, the peerstore should prune others first.
+        static let preferred: [UInt8] = Self.encoded(.preferred)
+
+        /// - Returns: The encoded bytes, or empty if encoding failed
+        private static func encoded(_ prunable: MetadataBook.PrunableMetadata.Prunable) -> [UInt8] {
+            guard let data = try? JSONEncoder().encode(MetadataBook.PrunableMetadata(prunable: prunable)) else {
+                return []
+            }
+            return data.byteArray
+        }
+    }
+}

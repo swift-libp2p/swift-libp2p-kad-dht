@@ -159,41 +159,60 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         replacementStrategy: ReplacementStrategy? = nil
     ) -> EventLoopFuture<Bool> {
         self.eventLoop.submit {
-            try self._addPeer(
-                peer,
+            let now = Date().timeIntervalSince1970
+            return self._addPeer(
+                DHTPeerInfo(
+                    id: peer,
+                    lastUsefulAt: nil,
+                    lastSuccessfulOutboundQueryAt: now,
+                    addedAt: now,
+                    dhtID: KadDHT.Key(peer),
+                    replaceable: isReplaceable
+                ),
                 isQueryPeer: isQueryPeer,
-                isReplaceable: isReplaceable,
                 replacementStrategy: replacementStrategy
             )
         }
     }
 
-    private func _addPeer(
-        _ peer: PeerID,
+    public func addPeer(
+        _ peer: DHTPeerInfo,
         isQueryPeer: Bool,
-        isReplaceable: Bool,
         replacementStrategy: ReplacementStrategy? = nil
-    ) throws -> Bool {
+    ) throws -> EventLoopFuture<Bool> {
+        self.eventLoop.submit {
+            self._addPeer(peer, isQueryPeer: isQueryPeer, replacementStrategy: replacementStrategy)
+        }
+    }
+
+    /// Adds a `peer` into our `RoutingTable` if room or the `replacementStrategy` allows for it.
+    ///
+    /// Both entry points funnel through here. It works on a fully-formed ``DHTPeerInfo`` rather than
+    /// deriving one, because `dhtID` is not always `KadDHT.Key(id)`, test helpers build peers
+    /// with a synthetic key so they can place one in a chosen bucket.
+    private func _addPeer(
+        _ peer: DHTPeerInfo,
+        isQueryPeer: Bool,
+        replacementStrategy: ReplacementStrategy? = nil
+    ) -> Bool {
 
         var bucketID = self._bucketIDFor(peer: peer)
+        self.logger.debug("Attempting to add peer to bucket[\(bucketID)]")
 
         let now = Date().timeIntervalSince1970
-        var lastUsefulAt: TimeInterval?
-        if isQueryPeer {
-            lastUsefulAt = now
-        }
+        let lastUsefulAt: TimeInterval? = isQueryPeer ? now : nil
 
         /// If the peer already exists in the Routing Table
         if self.buckets[bucketID].getPeer(
             peer,
             modifier: { existing in
                 /// if we're querying the peer first time after adding it, let's give it a usefulness bump.
-                /// - Note: This will ONLY happen once.
                 if existing.lastUsefulAt == nil && isQueryPeer {
                     existing.lastUsefulAt = lastUsefulAt
                 }
             }
         ) {
+            self.logger.debug("Peer Already Exists. Returning Without Adding")
             return false
         }
 
@@ -211,164 +230,140 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
 
         /// If we have room in the correct bucket, add the peer...
         if self.buckets[bucketID].count < self.bucketSize {
-            self.buckets[bucketID].pushFront(
-                DHTPeerInfo(
-                    id: peer,
-                    lastUsefulAt: lastUsefulAt,
-                    lastSuccessfulOutboundQueryAt: now,
-                    addedAt: now,
-                    dhtID: KadDHT.Key(peer),
-                    replaceable: isReplaceable
-                )
-            )
-            /// Invoke the peerAddedHandler if one is registered
-            self.peerAddedHandler?(peer)
+            self._insert(peer, lastUsefulAt: lastUsefulAt, at: bucketID, now: now)
+            self.logger.debug("Peer Added To Current Bucket Due To Excess Capacity")
             return true
         }
 
         /// If the bucket is full and it's the last bucket (the wildcard bucket) unfold it.
         if bucketID == self.buckets.count - 1 {
+            self.logger.debug("Attempting to unfold the last wildcard bucket")
             self._nextBucket()
 
             /// The split may have moved this peer into a different bucket
             bucketID = self._bucketIDFor(peer: peer)
+            self.logger.debug("Now attempting to add peer to bucket[\(bucketID)] after split")
 
             /// If there's room for the peer after splitting, add the peer to the bucket...
             if self.buckets[bucketID].count < self.bucketSize {
-                self.buckets[bucketID].pushFront(
-                    DHTPeerInfo(
-                        id: peer,
-                        lastUsefulAt: lastUsefulAt,
-                        lastSuccessfulOutboundQueryAt: now,
-                        addedAt: now,
-                        dhtID: KadDHT.Key(peer),
-                        replaceable: isReplaceable
-                    )
-                )
-                /// Invoke the peerAddedHandler if one is registered
-                self.peerAddedHandler?(peer)
+                self._insert(peer, lastUsefulAt: lastUsefulAt, at: bucketID, now: now)
+                self.logger.debug("Peer Added To Bucket[\(bucketID)] post split due to excess capacity")
                 return true
             }
         }
 
-        switch replacementStrategy ?? self.defaultReplacementStrategy {
-        case .anyReplaceable:
-            /// The bucket to which the peer belongs is full. Let's try and find a peer in that bucket which is replaceable
-            /// We don't really need a stable sort here as it doesn't matter which peer we evict as long as it's a replaceable peer
-            if let replaceablePeer = self.buckets[bucketID].shuffled().last(where: { $0.replaceable }) {
-                if self._removePeer(replaceablePeer) {
-                    /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
-                    bucketID = self._bucketIDFor(peer: peer)
-                    self.buckets[bucketID].pushFront(
-                        DHTPeerInfo(
-                            id: peer,
-                            lastUsefulAt: lastUsefulAt,
-                            lastSuccessfulOutboundQueryAt: now,
-                            addedAt: now,
-                            dhtID: KadDHT.Key(peer),
-                            replaceable: isReplaceable
-                        )
-                    )
-                    /// Invoke the peerAddedHandler if one is registered
-                    self.peerAddedHandler?(peer)
-                    return true
-                }
-            } else {
-                self.logger.debug("Failed to find a peer to evict in order to make room for this peer...")
-            }
-
-        case .furthestReplaceable:
-            /// Replaces the furthest replaceable peer without checking if the new peer is closer of farther then the replaceable peer
-            /// - Note: This results is a little more random movement throughout the network leading to more peer discovery and better kv lookup results
-            if let replaceablePeer = self.buckets[bucketID].filter({ $0.replaceable }).sorted(by: { lhs, rhs in
-                self.localDHTID.compareDistancesFromSelf(to: lhs.dhtID, and: rhs.dhtID) == .firstKey
-            }).last {
-                self.logger.debug(
-                    "Found the furthest replaceable peer in bucket[\(bucketID)], attempting to replace it with this peer"
-                )
-                if self._removePeer(replaceablePeer) {
-                    /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
-                    bucketID = self._bucketIDFor(peer: peer)
-                    self.buckets[bucketID].pushFront(
-                        DHTPeerInfo(
-                            id: peer,
-                            lastUsefulAt: lastUsefulAt,
-                            lastSuccessfulOutboundQueryAt: now,
-                            addedAt: now,
-                            dhtID: KadDHT.Key(peer),
-                            replaceable: isReplaceable
-                        )
-                    )
-                    /// Invoke the peerAddedHandler if one is registered
-                    self.peerAddedHandler?(peer)
-                    return true
-                }
-            } else {
-                self.logger.debug("Failed to find a peer to evict in order to make room for this peer...")
-            }
-
-        case .oldestReplaceable:
-            /// The bucket to which the peer belongs is full. Let's try and find a peer in that bucket which is replaceable
-            /// We don't really need a stable sort here as it doesn't matter which peer we evict as long as it's a replaceable peer
-            if let replaceablePeer = self.buckets[bucketID].last(where: { $0.replaceable }) {
-                if self._removePeer(replaceablePeer) {
-                    /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
-                    bucketID = self._bucketIDFor(peer: peer)
-                    self.buckets[bucketID].pushFront(
-                        DHTPeerInfo(
-                            id: peer,
-                            lastUsefulAt: lastUsefulAt,
-                            lastSuccessfulOutboundQueryAt: now,
-                            addedAt: now,
-                            dhtID: KadDHT.Key(peer),
-                            replaceable: isReplaceable
-                        )
-                    )
-                    /// Invoke the peerAddedHandler if one is registered
-                    self.peerAddedHandler?(peer)
-                    return true
-                }
-            } else {
-                self.logger.debug("Failed to find a peer to evict in order to make room for this peer...")
-            }
-
-        case .furtherThanReplacement:
-            /// Adds the peer if they are closer to us than the furthest replaceable peer in the current bucket
-            /// - Note: This results in the network converging fairly quickly and accurately, but can lead to network segragation and results in poor kv lookup results
-            if let replaceablePeer = self.buckets[bucketID].filter({ $0.replaceable }).sorted(by: { lhs, rhs in
-                self.localDHTID.compareDistancesFromSelf(to: lhs.dhtID, and: rhs.dhtID) == .firstKey
-            }).last, self.localPeerID.compareDistancesFromSelf(to: peer, and: replaceablePeer.id) == .firstKey {
-                self.logger.debug(
-                    "Found a peer in bucket[\(bucketID)] that's replaceable and further away from us than the new peer, attempting to replace it with this peer"
-                )
-                if self._removePeer(replaceablePeer) {
-                    /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
-                    bucketID = self._bucketIDFor(peer: peer)
-                    self.buckets[bucketID].pushFront(
-                        DHTPeerInfo(
-                            id: peer,
-                            lastUsefulAt: lastUsefulAt,
-                            lastSuccessfulOutboundQueryAt: now,
-                            addedAt: now,
-                            dhtID: KadDHT.Key(peer),
-                            replaceable: isReplaceable
-                        )
-                    )
-                    /// Invoke the peerAddedHandler if one is registered
-                    self.peerAddedHandler?(peer)
-                    return true
-                }
-            } else {
-                self.logger.debug("Failed to find a peer to evict in order to make room for this peer...")
-            }
+        /// The bucket is full, so refer to our replacement strategy to determine how to proceed
+        guard
+            let evictee = self._evictionCandidate(
+                in: bucketID,
+                makingRoomFor: peer,
+                strategy: replacementStrategy ?? self.defaultReplacementStrategy,
+                now: now
+            )
+        else {
+            self.logger.debug("Failed to find a peer to evict in order to make room for this peer...")
+            /// We weren't able to find a place for the new peer...
+            //if let df = self.diversityFilter {
+            //    df.removePeer(peer)
+            //}
+            return false
         }
 
-        /// We weren't able to find a place for the new peer...
-        //if let df = self.diversityFilter {
-        //    df.removePeer(peer)
-        //}
+        /// Remove the unlucky peer
+        guard self._removePeer(evictee.id, in: self._bucketIDFor(peer: evictee)) else { return false }
 
-        return false
+        /// Recomputing the bucketID shouldn't yeild a different id but recompute it just in case...
+        /// - Note: Should we guard / throw if the recomputed bucketID is different than the removal / evictee?
+        self._insert(peer, lastUsefulAt: lastUsefulAt, at: self._bucketIDFor(peer: peer), now: now)
+        return true
+    }
+
+    /// Puts `peer` at the front of `bucketID` and notifies whoever is watching the table.
+    ///
+    /// - Note: `dhtID` and `replaceable` are carried over from `peer` rather than recomputed.
+    private func _insert(
+        _ peer: DHTPeerInfo,
+        lastUsefulAt: TimeInterval?,
+        at bucketID: Int,
+        now: TimeInterval
+    ) {
+        self.buckets[bucketID].pushFront(
+            DHTPeerInfo(
+                id: peer.id,
+                lastUsefulAt: lastUsefulAt,
+                lastSuccessfulOutboundQueryAt: now,
+                addedAt: now,
+                dhtID: peer.dhtID,
+                replaceable: peer.replaceable
+            )
+        )
+        self.peerAddedHandler?(peer.id)
+    }
+
+    /// Who to evict from a full `bucketID` to make room for `incoming`, or `nil` to discard the
+    /// new peer.
+    ///
+    /// Only replaceable peers are ever candidates. Among those, peers that have had their grace
+    /// period to be useful and weren't go first (see ``_hasntProvedUseful(_:now:)``). The
+    /// strategy then chooses between whatever is left.
+    private func _evictionCandidate(
+        in bucketID: Int,
+        makingRoomFor incoming: DHTPeerInfo,
+        strategy: ReplacementStrategy,
+        now: TimeInterval
+    ) -> DHTPeerInfo? {
+        let replaceable = self.buckets[bucketID].filter { $0.replaceable }
+        guard !replaceable.isEmpty else { return nil }
+
+        /// Filter out the recently useful peers
+        let stale = replaceable.filter { self._hasntProvedUseful($0, now: now) }
+        /// If stale is empty, then fall back to all replaceable peers
+        let candidates = stale.isEmpty ? replaceable : stale
+        if !stale.isEmpty {
+            self.logger.debug(
+                "\(stale.count) of \(replaceable.count) replaceable peers in bucket[\(bucketID)] have outstayed their usefulness grace period"
+            )
+        }
+
+        switch strategy {
+        case .anyReplaceable:
+            /// It doesn't matter which one goes, so no need for a stable order.
+            return candidates.shuffled().last
+
+        case .oldestReplaceable:
+            /// Peers are pushed onto the front of a bucket, so the tail is the oldest.
+            return candidates.last
+
+        case .furthestReplaceable:
+            /// Evicts the furthest peer regardless of where the newcomer sits.
+            /// - Note: this keeps peers moving through the table, which turns up more of the network
+            ///   and gives better kv lookup results than converging hard on our own neighbourhood.
+            return self._furthestFromUs(candidates)
+
+        case .furtherThanReplacement:
+            /// Only worth the churn if the newcomer is actually an improvement.
+            /// - Note: converges quickly and accurately, but can segregate the network and gives
+            ///   poorer kv lookup results.
+            guard let furthest = self._furthestFromUs(candidates),
+                self.localDHTID.compareDistancesFromSelf(to: incoming.dhtID, and: furthest.dhtID) == .firstKey
+            else { return nil }
+            return furthest
+        }
+    }
+
+    /// The candidate furthest from us in XOR space.
+    private func _furthestFromUs(_ candidates: [DHTPeerInfo]) -> DHTPeerInfo? {
+        candidates.sorted { lhs, rhs in
+            self.localDHTID.compareDistancesFromSelf(to: lhs.dhtID, and: rhs.dhtID) == .firstKey
+        }.last
+    }
+
+    /// Whether a peer has been marked useful in the last `usefulnessGracePeriod`.
+    ///
+    /// Measured from `lastUsefulAt`, falling back to `addedAt` for a peer that has never been useful.
+    private func _hasntProvedUseful(_ peer: DHTPeerInfo, now: TimeInterval) -> Bool {
+        let grace = TimeInterval(self.usefulnessGracePeriod.nanoseconds) / 1_000_000_000
+        return now - (peer.lastUsefulAt ?? peer.addedAt) > grace
     }
 
     public enum ReplacementStrategy {
@@ -382,235 +377,27 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         case furtherThanReplacement
     }
 
-    public func addPeer(
-        _ peer: DHTPeerInfo,
-        isQueryPeer: Bool,
-        replacementStrategy: ReplacementStrategy? = nil
-    ) throws -> EventLoopFuture<Bool> {
+    public func removePeer(_ peer: PeerID) -> EventLoopFuture<Bool> {
         self.eventLoop.submit {
-            var bucketID = self._bucketIDFor(peer: peer)
-            self.logger.debug("Attempting to add peer to bucket[\(bucketID)]")
-
-            let now = Date().timeIntervalSince1970
-            var lastUsefulAt: TimeInterval?
-            if isQueryPeer {
-                lastUsefulAt = now
-            }
-
-            /// If the peer already exists in the Routing Table
-            if self.buckets[bucketID].getPeer(
-                peer,
-                modifier: { existing in
-                    /// if we're querying the peer first time after adding it, let's give it a usefulness bump.
-                    /// - Note: This will ONLY happen once.
-                    if existing.lastUsefulAt == nil && isQueryPeer {
-                        existing.lastUsefulAt = lastUsefulAt
-                    }
-                }
-            ) {
-                self.logger.debug("Peer Already Exists. Returning Without Adding")
-                return false
-            }
-
-            /// Check peers latency metrics
-            //if self.metrics["peer"]["LatencyEWMA"] > self.maxLatency {
-            /// Connection doesn't meet our latency requirements, don't add peer to DHT
-            /// TODO: Throw error instead??
-            //    return false
-            //}
-
-            /// If we have a diversity filter, add the peer to the filter
-            //if let df = self.diversityFilter {
-            //    try df.addPeer(peer)
-            //}
-
-            /// If we have room in the correct bucket, add the peer...
-            if self.buckets[bucketID].count < self.bucketSize {
-                self.buckets[bucketID].pushFront(
-                    DHTPeerInfo(
-                        id: peer.id,
-                        lastUsefulAt: lastUsefulAt,
-                        lastSuccessfulOutboundQueryAt: now,
-                        addedAt: now,
-                        dhtID: peer.dhtID,
-                        replaceable: peer.replaceable
-                    )
-                )
-                /// Invoke the peerAddedHandler if one is registered
-                self.peerAddedHandler?(peer.id)
-                self.logger.debug("Peer Added To Current Bucket Due To Excess Capacity")
-                return true
-            }
-
-            /// If the bucket is full and it's the last bucket (the wildcard bucket) unfold it.
-            if bucketID == self.buckets.count - 1 {
-                self.logger.debug("Attempting to unfold the last wildcard bucket")
-                self._nextBucket()
-
-                /// The split may have moved this peer into a different bucket
-                bucketID = self._bucketIDFor(peer: peer)
-                self.logger.debug("Now attempting to add peer to bucket[\(bucketID)] after split")
-
-                /// If there's room for the peer after splitting, add the peer to the bucket...
-                if self.buckets[bucketID].count < self.bucketSize {
-                    self.buckets[bucketID].pushFront(
-                        DHTPeerInfo(
-                            id: peer.id,
-                            lastUsefulAt: lastUsefulAt,
-                            lastSuccessfulOutboundQueryAt: now,
-                            addedAt: now,
-                            dhtID: peer.dhtID,
-                            replaceable: peer.replaceable
-                        )
-                    )
-                    /// Invoke the peerAddedHandler if one is registered
-                    self.peerAddedHandler?(peer.id)
-                    self.logger.debug("Peer Added To Bucket[\(bucketID)] post split due to excess capacity")
-                    return true
-                }
-            }
-
-            /// Begin Peer Replacement Logic
-            switch replacementStrategy ?? self.defaultReplacementStrategy {
-            case .anyReplaceable:
-                /// The bucket to which the peer belongs is full. Let's try and find a peer in that bucket which is replaceable
-                /// We don't really need a stable sort here as it doesn't matter which peer we evict as long as it's a replaceable peer
-                if let replaceablePeer = self.buckets[bucketID].shuffled().last(where: { $0.replaceable }) {
-                    self.logger.debug(
-                        "Found a peer in bucket[\(bucketID)] that's replaceable, attempting to replace it with this peer"
-                    )
-                    if self._removePeer(replaceablePeer) {
-                        /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
-                        bucketID = self._bucketIDFor(peer: peer)
-                        self.buckets[bucketID].pushFront(
-                            DHTPeerInfo(
-                                id: peer.id,
-                                lastUsefulAt: lastUsefulAt,
-                                lastSuccessfulOutboundQueryAt: now,
-                                addedAt: now,
-                                dhtID: peer.dhtID,
-                                replaceable: peer.replaceable
-                            )
-                        )
-                        /// Invoke the peerAddedHandler if one is registered
-                        self.peerAddedHandler?(peer.id)
-                        return true
-                    }
-                } else {
-                    self.logger.debug("Failed to find a peer to evict in order to make room for this peer...")
-                }
-
-            case .furthestReplaceable:
-                /// Replaces the furthest replaceable peer without checking if the new peer is closer of farther then the replaceable peer
-                /// - Note: This results is a little more random movement throughout the network leading to more peer discovery and better kv lookup results
-                if let replaceablePeer = self.buckets[bucketID].filter({ $0.replaceable }).sorted(by: { lhs, rhs in
-                    self.localDHTID.compareDistancesFromSelf(to: lhs.dhtID, and: rhs.dhtID) == .firstKey
-                }).last {
-                    self.logger.debug(
-                        "Found the furthest reaplaceable peer in bucket[\(bucketID)], attempting to replace it with this peer"
-                    )
-                    if self._removePeer(replaceablePeer) {
-                        /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
-                        bucketID = self._bucketIDFor(peer: peer)
-                        self.buckets[bucketID].pushFront(
-                            DHTPeerInfo(
-                                id: peer.id,
-                                lastUsefulAt: lastUsefulAt,
-                                lastSuccessfulOutboundQueryAt: now,
-                                addedAt: now,
-                                dhtID: peer.dhtID,
-                                replaceable: peer.replaceable
-                            )
-                        )
-                        /// Invoke the peerAddedHandler if one is registered
-                        self.peerAddedHandler?(peer.id)
-                        return true
-                    }
-                } else {
-                    self.logger.debug("Failed to find a peer to evict in order to make room for this peer...")
-                }
-
-            case .oldestReplaceable:
-                /// The bucket to which the peer belongs is full. Let's try and find a peer in that bucket which is replaceable
-                /// We don't really need a stable sort here as it doesn't matter which peer we evict as long as it's a replaceable peer
-                if let replaceablePeer = self.buckets[bucketID].last(where: { $0.replaceable }) {
-                    self.logger.debug(
-                        "Found a peer in bucket[\(bucketID)] that's replaceable, attempting to replace it with this peer"
-                    )
-                    if self._removePeer(replaceablePeer) {
-                        /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
-                        bucketID = self._bucketIDFor(peer: peer)
-                        self.buckets[bucketID].pushFront(
-                            DHTPeerInfo(
-                                id: peer.id,
-                                lastUsefulAt: lastUsefulAt,
-                                lastSuccessfulOutboundQueryAt: now,
-                                addedAt: now,
-                                dhtID: peer.dhtID,
-                                replaceable: peer.replaceable
-                            )
-                        )
-                        /// Invoke the peerAddedHandler if one is registered
-                        self.peerAddedHandler?(peer.id)
-                        return true
-                    }
-                } else {
-                    self.logger.debug("Failed to find a peer to evict in order to make room for this peer...")
-                }
-
-            case .furtherThanReplacement:
-                /// Adds the peer if they are closer to us than the furthest replaceable peer in the current bucket
-                /// - Note: This results in the network converging fairly quickly and accurately, but can lead to network segragation and results in poor kv lookup results
-                if let replaceablePeer = self.buckets[bucketID].filter({ $0.replaceable }).sorted(by: { lhs, rhs in
-                    self.localDHTID.compareDistancesFromSelf(to: lhs.dhtID, and: rhs.dhtID) == .firstKey
-                }).last,
-                    self.localDHTID.compareDistancesFromSelf(to: peer.dhtID, and: replaceablePeer.dhtID) == .firstKey
-                {
-                    self.logger.debug(
-                        "Found a peer in bucket[\(bucketID)] that's replaceable and further away from us than the new peer, attempting to replace it with this peer"
-                    )
-                    if self._removePeer(replaceablePeer) {
-                        /// `_removePeer` may have trimmed empty buckets, so update `bucketID` before using it
-                        bucketID = self._bucketIDFor(peer: peer)
-                        self.buckets[bucketID].pushFront(
-                            DHTPeerInfo(
-                                id: peer.id,
-                                lastUsefulAt: lastUsefulAt,
-                                lastSuccessfulOutboundQueryAt: now,
-                                addedAt: now,
-                                dhtID: peer.dhtID,
-                                replaceable: peer.replaceable
-                            )
-                        )
-                        /// Invoke the peerAddedHandler if one is registered
-                        self.peerAddedHandler?(peer.id)
-                        return true
-                    }
-                } else {
-                    self.logger.debug("Failed to find a peer to evict in order to make room for this peer...")
-                }
-            }
-
-            /// We weren't able to find a place for the new peer...
-            //if let df = self.diversityFilter {
-            //    df.removePeer(peer)
-            //}
-
-            return false
+            self._removePeer(peer, in: self._bucketIDFor(peer: peer))
         }
     }
 
-    public func removePeer(_ peer: PeerID) -> EventLoopFuture<Bool> {
+    public func removePeer(_ peer: DHTPeerInfo) -> EventLoopFuture<Bool> {
         self.eventLoop.submit {
-            self._removePeer(peer)
+            self._removePeer(peer.id, in: self._bucketIDFor(peer: peer))
         }
     }
 
     /// Removes a peer from our Routing Table
     ///
+    /// The single removal routine. There was a second, near-identical copy taking a `DHTPeerInfo`,
+    /// which existed because the two disagreed on *where to look*: one hashed the `PeerID`, the other
+    /// used the peer's own `dhtID`. Those differ for a peer whose key wasn't derived from its id, so
+    /// the bucket is now passed in by whoever knows it.
+    ///
     /// TODO: Check to make sure our bucket compaction is actually correct. We're deviating a little from the GO implementation...
-    private func _removePeer(_ peer: PeerID) -> Bool {
-        let bucketID = self._bucketIDFor(peer: peer)
+    private func _removePeer(_ peer: PeerID, in bucketID: Int) -> Bool {
         if self.buckets[bucketID].remove(peer) {
 
             /// If we have a diversityFilter installed, remove the peer from it as well...
@@ -621,7 +408,7 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
             /// Compact the buckets array by trimming any empty buckets off of the tail...
             /// - Note: We only trim the tail. A bucket's index is the common prefix length of the
             ///   peers it holds, so removing an interior bucket would shift every higher bucket down and
-            ///   permanently break the CPL
+            ///   permanently break the CPL index
             /// - Note: We always keep at least one bucket around.
             while self.buckets.count > 1, self.buckets[self.buckets.count - 1].isEmpty {
                 self.buckets.removeLast()
@@ -632,47 +419,15 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
 
             return true
         }
-        return false
-    }
 
-    public func removePeer(_ peer: DHTPeerInfo) -> EventLoopFuture<Bool> {
-        self.eventLoop.submit {
-            self._removePeer(peer)
-        }
-    }
-
-    /// Removes a peer from our Routing Table
-    ///
-    /// TODO: Check to make sure our bucket compaction is actually correct. We're deviating a little from the GO implementation...
-    private func _removePeer(_ peer: DHTPeerInfo) -> Bool {
-        let bucketID = self._bucketIDFor(peer: peer)
-        if self.buckets[bucketID].remove(peer.id) {
-
-            /// If we have a diversityFilter installed, remove the peer from it as well...
-            //if var df = self.diversityFilter {
-            //    df.remove(peer)
-            //}
-
-            /// Compact the buckets array by trimming any empty buckets off of the tail...
-            /// - Note: We only trim the tail. A bucket's index is the common prefix length of the
-            ///   peers it holds, so removing an interior bucket would shift every higher bucket down and
-            ///   permanently break the CPL
-            /// - Note: We always keep at least one bucket around.
-            while self.buckets.count > 1, self.buckets[self.buckets.count - 1].isEmpty {
-                self.buckets.removeLast()
-            }
-
-            /// Invoke the peerRemovedHandler if one is set...
-            self.peerRemovedHandler?(peer.id)
-
-            return true
-        } else {
-            for (idx, bucket) in self.buckets.enumerated() {
-                if bucket.contains(where: { peer.id == $0.id }) && idx != bucketID {
-                    self.logger.debug(
-                        "The peer we're trying to remove is in bucket[\(idx)] rather then the bucket we looked in at bucket[\(bucketID)]"
-                    )
-                }
+        /// A peer sitting in a bucket other than the one its CPL points at means an index has
+        /// drifted, which silently breaks eviction and lookups.
+        /// - TODO: Should we drop the peer anyway??
+        for (idx, bucket) in self.buckets.enumerated() where idx != bucketID {
+            if bucket.contains(where: { peer == $0.id }) {
+                self.logger.warning(
+                    "The peer we're trying to remove is in bucket[\(idx)] rather then the bucket we looked in at bucket[\(bucketID)]"
+                )
             }
         }
         return false
