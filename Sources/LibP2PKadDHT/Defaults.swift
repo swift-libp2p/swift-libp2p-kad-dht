@@ -100,7 +100,7 @@ extension KadDHT {
 }
 
 extension KadDHT {
-    
+
     /// The peerstore metadata values we write, encoded once, instead of everytime we access the metadata.
     ///
     /// - TODO: This should move into swift-libp2p
@@ -111,7 +111,7 @@ extension KadDHT {
 
         /// A peer the routing table has let go of, the peerstore may prune it.
         static let prunable: [UInt8] = Self.encoded(.prunable)
-        
+
         /// A peer the routing table prefers, but isn't necessary, the peerstore should prune others first.
         static let preferred: [UInt8] = Self.encoded(.preferred)
 

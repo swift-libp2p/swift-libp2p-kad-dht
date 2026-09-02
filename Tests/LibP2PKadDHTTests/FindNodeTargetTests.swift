@@ -155,9 +155,13 @@ extension LibP2PKadDHTTests.FindNodeTargetTests {
         )
         try await withApp(configure: LibP2PKadDHTTests.dhtHost(mode: .server, options: options)) { server in
             try await withApp(
-                configure: LibP2PKadDHTTests.dhtHost(mode: .server, options: options, bootstrapPeers: [
-                    server.peerInfo
-                ])
+                configure: LibP2PKadDHTTests.dhtHost(
+                    mode: .server,
+                    options: options,
+                    bootstrapPeers: [
+                        server.peerInfo
+                    ]
+                )
             ) { client in
                 try await body(client, server)
             }

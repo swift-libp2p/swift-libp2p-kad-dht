@@ -1549,7 +1549,7 @@ public enum KadDHT {
             as state: MetadataBook.PrunableMetadata.Prunable
         ) -> EventLoopFuture<Void> {
             // Grab the pre-encoded metadata value for the PrunableMetadata state
-            let value:[UInt8]
+            let value: [UInt8]
             switch state {
             case .necessary:
                 value = KadDHT.PeerPrunableMetadata.necessary
