@@ -233,8 +233,8 @@ extension LibP2PKadDHTTests {
             let dhtParams = KadDHT.NodeOptions(
                 connectionTimeout: .milliseconds(150),
                 concurrency: 3,
-                bucketSize: 8,
-                maxPeers: 20,
+                bucketSize: 7,
+                maxPeers: 10,
                 maxKeyValueStoreEntries: 10,
                 supportLocalNetwork: true
             )
