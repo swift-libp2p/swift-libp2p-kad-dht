@@ -134,6 +134,13 @@ extension KadDHT {
                 switch result {
                 case .success(let outcome):
                     self.peers.mark(peer.peer, as: .queried)
+                    /// A peer that was helpful should be marked useful
+                    if !outcome.closerPeers.isEmpty || outcome.stop {
+                        _ = self.host.routingTable.updateLastUseful(
+                            at: Date().timeIntervalSince1970,
+                            for: peer.peer
+                        )
+                    }
                     self.peers.insert(outcome.closerPeers.filter { $0.peer != self.host.peerID })
                     if outcome.stop { self.stopped = true }
                 case .failure(let error):
