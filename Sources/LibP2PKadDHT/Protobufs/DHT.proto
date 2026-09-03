@@ -13,18 +13,28 @@
 //===----------------------------------------------------------------------===//
 
 syntax = "proto3";
-// can't use, because protocol-buffers doesn't support imports
-// so we have to duplicate for now :(
-// import "record.proto";
 
+// https://github.com/libp2p/specs/blob/master/kad-dht/README.md
+// Record represents a dht record that contains a value for a key value pair
 message Record {
-    // adjusted for javascript
+    // The key that references this record
     optional bytes key = 1;
+
+    // The actual value this record is storing
     optional bytes value = 2;
-    optional bytes author = 3;
-    optional bytes signature = 4;
+
+    // Note: These fields were removed from the Record message
+    //
+    // Hash of the authors public key
+    // optional string author = 3;
+    //
+    // A PKI signature for the key+value+author
+    // optional bytes signature = 4;
+
+    // Time the record was received, set by receiver
+    // Formatted according to https://datatracker.ietf.org/doc/html/rfc3339
     optional string timeReceived = 5;
-}
+};
 
 message Message {
     enum MessageType {
@@ -70,17 +80,15 @@ message Message {
 
     // defines what coral cluster level this query/response belongs to.
     // in case we want to implement coral's cluster rings in the future.
-    optional int32 clusterLevelRaw = 10;
+    optional int32 clusterLevelRaw = 10; // NOT USED
 
     // Used to specify the key associated with this message.
     // PUT_VALUE, GET_VALUE, ADD_PROVIDER, GET_PROVIDERS
-    // adjusted for javascript
     optional bytes key = 2;
 
     // Used to return a value
     // PUT_VALUE, GET_VALUE
-    // adjusted Record to bytes for js
-    optional bytes record = 3;
+    optional Record record = 3;
 
     // Used to return peers closer to a key in a query
     // GET_VALUE, GET_PROVIDERS, FIND_NODE
