@@ -1075,7 +1075,15 @@ public enum KadDHT {
                             withTimeout: self.connectionTimeout
                         ).flatMapThrowing { resp -> Response in
                             if let fireAndForget { return fireAndForget }
-                            return try Response.decode(resp.byteArray)
+                            do {
+                                return try Response.decode(resp.byteArray)
+                            } catch {
+                                /// Dump the bytes in trace so we can determine if the decoding error is our fault.
+                                self.logger.trace(
+                                    "Undecodable response from \(to.peer): \(resp.byteArray.toHexString())"
+                                )
+                                throw error
+                            }
                         }
                     } catch {
                         return (on ?? self.eventLoop).makeFailedFuture(Errors.peerIDMultiaddrEncapsulationFailed)
