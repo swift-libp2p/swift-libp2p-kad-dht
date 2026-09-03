@@ -97,16 +97,14 @@ extension LibP2PKadDHTTests {
         /// Capacity pruning used to pop arbitrary entries off an unordered dictionary, so it could
         /// evict our own records while keeping stale foreign ones.
         @Test func testCapacityPruningKeepsOurRecordsAndEvictsStalestFirst() async throws {
-            let options = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(150),
-                concurrency: 3,
+            let configuration = KadDHT.Configuration(
                 bucketSize: 5,
-                maxPeers: 15,
-                maxKeyValueStoreEntries: 10,
-                maxProviderStoreSize: 2,
-                supportLocalNetwork: true
+                concurrency: 3,
+                connectionTimeout: .milliseconds(150),
+                supportLocalNetwork: true,
+                maxProviderStoreEntries: 2
             )
-            try await withApp(configure: dhtHost(mode: .client, options: options)) { app in
+            try await withApp(configure: dhtHost(mode: .client, configuration: configuration)) { app in
                 let node = app.dht.kadDHT
 
                 // Our own record — must survive pruning.
@@ -126,7 +124,7 @@ extension LibP2PKadDHTTests {
                 #expect(remaining.contains(ourKey), "our own provider record must never be pruned")
                 #expect(remaining.contains(recent), "the fresher foreign record should survive")
                 #expect(!remaining.contains(stalest), "the stalest foreign record should be evicted")
-                #expect(remaining.count == 2, "store should be pruned to maxProviderStoreSize")
+                #expect(remaining.count == 2, "store should be pruned to maxProviderStoreEntries")
             }
         }
 
@@ -181,17 +179,16 @@ extension LibP2PKadDHTTests {
         }
 
         @Test func testProvideThenFindRoundTrip() async throws {
-            let dhtParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(500),
-                concurrency: 3,
+            let dhtParams = KadDHT.Configuration(
                 bucketSize: 5,
-                maxPeers: 15,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(500),
                 supportLocalNetwork: true
             )
-            try await withApp(configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [])) { nodeA in
+            try await withApp(configure: dhtHost(mode: .server, configuration: dhtParams, bootstrapPeers: [])) {
+                nodeA in
                 try await withApp(
-                    configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [nodeA.peerInfo])
+                    configure: dhtHost(mode: .server, configuration: dhtParams, bootstrapPeers: [nodeA.peerInfo])
                 ) { nodeB in
                     // NodeA creates and provides a CID
                     let cid = try syntheticCID("integration-round-trip")
@@ -212,30 +209,28 @@ extension LibP2PKadDHTTests {
         @Test func testFindProvidersHonoursCount() async throws {
             /// One query in flight, so "stop at `count`" is observable rather than racing the second
             /// response back.
-            let searcherParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(500),
-                concurrency: 1,
+            let searcherParams = KadDHT.Configuration(
                 bucketSize: 5,
-                maxPeers: 15,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 1,
+                connectionTimeout: .milliseconds(500),
                 supportLocalNetwork: true
             )
-            let providerParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(500),
-                concurrency: 3,
+            let providerParams = KadDHT.Configuration(
                 bucketSize: 5,
-                maxPeers: 15,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(500),
                 supportLocalNetwork: true
             )
 
-            try await withApp(configure: dhtHost(mode: .server, options: providerParams, bootstrapPeers: [])) { first in
-                try await withApp(configure: dhtHost(mode: .server, options: providerParams, bootstrapPeers: [])) {
+            try await withApp(configure: dhtHost(mode: .server, configuration: providerParams, bootstrapPeers: [])) {
+                first in
+                try await withApp(configure: dhtHost(mode: .server, configuration: providerParams, bootstrapPeers: []))
+                {
                     second in
                     try await withApp(
                         configure: dhtHost(
                             mode: .server,
-                            options: searcherParams,
+                            configuration: searcherParams,
                             bootstrapPeers: [first.peerInfo, second.peerInfo]
                         )
                     ) { searcher in
@@ -269,17 +264,16 @@ extension LibP2PKadDHTTests {
         }
 
         @Test func testProvideMultipleKeys() async throws {
-            let dhtParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(500),
-                concurrency: 3,
+            let dhtParams = KadDHT.Configuration(
                 bucketSize: 5,
-                maxPeers: 15,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(500),
                 supportLocalNetwork: true
             )
-            try await withApp(configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [])) { nodeA in
+            try await withApp(configure: dhtHost(mode: .server, configuration: dhtParams, bootstrapPeers: [])) {
+                nodeA in
                 try await withApp(
-                    configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [nodeA.peerInfo])
+                    configure: dhtHost(mode: .server, configuration: dhtParams, bootstrapPeers: [nodeA.peerInfo])
                 ) { nodeB in
                     // NodeA creates and provides multiple CIDs
                     let cids = try ["key-one", "key-two", "key-three"].map { try syntheticCID($0) }
@@ -335,12 +329,10 @@ extension LibP2PKadDHTTests {
             app.dht.use(
                 .kadDHT(
                     mode: .client,
-                    options: KadDHT.NodeOptions(
-                        connectionTimeout: .milliseconds(150),
-                        concurrency: 3,
+                    configuration: KadDHT.Configuration(
                         bucketSize: 5,
-                        maxPeers: 15,
-                        maxKeyValueStoreEntries: 10,
+                        concurrency: 3,
+                        connectionTimeout: .milliseconds(150),
                         supportLocalNetwork: true
                     ),
                     bootstrapPeers: [],

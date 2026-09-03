@@ -96,6 +96,38 @@ extension KadDHT {
         ///
         /// The spec says "the k closest peers"
         public static let maxPeersPerMessage: Int = KadDHT.Defaults.bucketSize
+
+        /// Maximum acceptable latency for peers in the routing table's cluster.
+        /// go: `dhtcfg` `RoutingTable.LatencyTolerance`.
+        public static let routingTableLatencyTolerance: TimeAmount = .seconds(10)
+
+        // - MARK: Custom Params (no direct go/amino counterpart)
+
+        /// How long a single outbound request may take before we treat the peer as unreachable.
+        public static let connectionTimeout: TimeAmount = .seconds(4)
+
+        /// How many records a value lookup collects before it stops early.
+        /// `0` searches to convergence, which is the spec's behaviour.
+        public static let quorum: Int = 0
+
+        /// How many value records we hold before capacity pruning kicks in.
+        public static let maxValueStoreEntries: Int = 1_000
+
+        /// How many provider-store keys we hold before capacity pruning kicks in.
+        public static let maxProviderStoreEntries: Int = 1_000
+
+        /// Cadence of the maintenance beat: provider expiry, value GC, provider re-publish.
+        ///
+        /// Distinct from ``refreshInterval``, this beat is cheap (it walks local state) where a
+        /// refresh is `1 + non-empty buckets` lookups.
+        public static let heartbeatInterval: TimeAmount = .seconds(120)
+
+        /// How long a peer stays "useful" after it last helped us, before eviction may prefer it.
+        /// If they haven't provided useful information over the last two refreshes, lets downgrade them.
+        public static let usefulnessGracePeriod: TimeAmount = Self.refreshInterval * 2
+
+        /// The strategy our ``RoutingTable`` uses to determine which peer to evict from a full ``Bucket``.
+        public static let replacementStrategy: KadDHT.ReplacementStrategy = .furtherThanReplacement
     }
 }
 

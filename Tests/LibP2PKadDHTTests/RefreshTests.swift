@@ -112,22 +112,21 @@ extension LibP2PKadDHTTests {
         /// peer, across every bucket the network reaches into.
         @Test(.internalIntegrationTestsEnabled)
         func testRefreshPopulatesTheRoutingTable() async throws {
-            let options = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(800),
-                concurrency: 3,
+            let configuration = KadDHT.Configuration(
                 bucketSize: 5,
-                maxPeers: 25,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(800),
                 supportLocalNetwork: true
             )
 
             /// A small ring: each node knows only the one before it, so nobody can see the whole
             /// network without walking it.
-            try await withApp(configure: LibP2PKadDHTTests.dhtHost(mode: .server, options: options)) { first in
+            try await withApp(configure: LibP2PKadDHTTests.dhtHost(mode: .server, configuration: configuration)) {
+                first in
                 try await withApp(
                     configure: LibP2PKadDHTTests.dhtHost(
                         mode: .server,
-                        options: options,
+                        configuration: configuration,
                         bootstrapPeers: [
                             first.peerInfo
                         ]
@@ -136,7 +135,7 @@ extension LibP2PKadDHTTests {
                     try await withApp(
                         configure: LibP2PKadDHTTests.dhtHost(
                             mode: .server,
-                            options: options,
+                            configuration: configuration,
                             bootstrapPeers: [
                                 second.peerInfo
                             ]
@@ -145,7 +144,7 @@ extension LibP2PKadDHTTests {
                         try await withApp(
                             configure: LibP2PKadDHTTests.dhtHost(
                                 mode: .server,
-                                options: options,
+                                configuration: configuration,
                                 bootstrapPeers: [
                                     third.peerInfo
                                 ]

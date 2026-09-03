@@ -161,20 +161,18 @@ extension LibP2PKadDHTTests.AddressTrustTests {
         acceptObservedProviderAddress: Bool = false,
         _ body: (Application, Application, [UInt8]) async throws -> Void
     ) async throws {
-        let options = KadDHT.NodeOptions(
-            connectionTimeout: .milliseconds(500),
-            concurrency: 3,
+        let configuration = KadDHT.Configuration(
             bucketSize: 5,
-            maxPeers: 15,
-            maxKeyValueStoreEntries: 10,
+            concurrency: 3,
+            connectionTimeout: .milliseconds(500),
             supportLocalNetwork: true,
             acceptObservedProviderAddress: acceptObservedProviderAddress
         )
-        try await withApp(configure: LibP2PKadDHTTests.dhtHost(mode: .server, options: options)) { server in
+        try await withApp(configure: LibP2PKadDHTTests.dhtHost(mode: .server, configuration: configuration)) { server in
             try await withApp(
                 configure: LibP2PKadDHTTests.dhtHost(
                     mode: .server,
-                    options: options,
+                    configuration: configuration,
                     bootstrapPeers: [server.peerInfo]
                 )
             ) { client in

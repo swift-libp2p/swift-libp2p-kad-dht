@@ -152,11 +152,11 @@ extension LibP2PKadDHTTests {
         ) -> ((Application) async throws -> Void) {
             LibP2PKadDHTTests.dhtHost(
                 mode: .client,
-                options: .init(
-                    connectionTimeout: .milliseconds(150),
+                configuration: .init(
+                    bucketSize: bucketSize,
                     concurrency: concurrency,
                     resiliency: resiliency,
-                    bucketSize: bucketSize,
+                    connectionTimeout: .milliseconds(150),
                     supportLocalNetwork: true
                 )
             )

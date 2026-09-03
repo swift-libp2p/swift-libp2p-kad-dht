@@ -58,29 +58,32 @@ public enum KadDHT {
         /// Fake Internet Connection Type
         //let connection:InternetType
 
+        /// Everything tunable about this node. The properties below are the derived working values,
+        /// this is the declared intent.
+        let configuration: Configuration
+
         /// Lookup concurrency (`α`), the number of requests a query path keeps in flight.
-        let concurrency: Int
+        var concurrency: Int { self.configuration.concurrency }
 
         /// Resiliency (`β`), how many of the closest peers must respond before a lookup is done.
-        let resiliency: Int
+        var resiliency: Int { self.configuration.resiliency }
 
         /// How many records a value lookup collects before stopping early. `0` searches to convergence.
-        let quorum: Int
+        var quorum: Int { self.configuration.quorum }
 
         /// Max Connection Timeout
-        let connectionTimeout: TimeAmount
+        var connectionTimeout: TimeAmount { self.configuration.connectionTimeout }
 
         /// DHT Key:Value Store
-        let dhtSize: Int
         let dht: EventLoopDictionary<KadDHT.Key, DHT.Record>
+        var maxValueStoreEntries: Int { self.configuration.maxValueStoreEntries }
 
         /// DHT Peer Store
         let routingTable: RoutingTable
-        let maxPeers: Int
 
         /// Naive DHT Provider Store
         let providerStore: EventLoopDictionary<KadDHT.Key, [DHT.Message.Peer]>
-        let maxProviderStoreSize: Int
+        var maxProviderStoreEntries: Int { self.configuration.maxProviderStoreEntries }
 
         /// When a given (key, provider-peer-id) provider record was added
         /// to ``providerStore``.
@@ -100,10 +103,14 @@ public enum KadDHT {
         var localProviderCIDs: [KadDHT.Key: [UInt8]] = [:]
 
         /// Provider records older than this are pruned on heartbeat.
-        let providerRecordTTL: TimeInterval = Node.seconds(KadDHT.Defaults.provideValidity)
+        ///
+        /// `configuration.provideValidity` in seconds, converted once.
+        let providerRecordTTL: TimeInterval
 
         /// Cadence at which we re-publish our own provider records.
-        let providerRecordRepublishInterval: TimeInterval = Node.seconds(KadDHT.Defaults.reprovideInterval)
+        ///
+        /// `configuration.reprovideInterval` in seconds, converted once.
+        let providerRecordRepublishInterval: TimeInterval
 
         /// The longest we hold a value record, measured from its `timeReceived` stamp.
         ///
@@ -121,7 +128,7 @@ public enum KadDHT {
 
         /// Whether an `ADD_PROVIDER` whose `providerPeers` don't carry the sender's addresses may
         /// fall back to the address we observed the stream on. Off by default, matching go.
-        let acceptObservedProviderAddress: Bool
+        var acceptObservedProviderAddress: Bool { self.configuration.acceptObservedProviderAddress }
 
         /// The event loop that we're operating on...
         public let eventLoop: EventLoop
@@ -144,7 +151,7 @@ public enum KadDHT {
         /// Wether the node should start a timer that triggers the heartbeat method, or if it should wait for an external service to call the heartbeat method explicitly
         public var autoUpdate: Bool
 
-        var replacementStrategy: RoutingTable.ReplacementStrategy = .furtherThanReplacement
+        var replacementStrategy: RoutingTable.ReplacementStrategy { self.configuration.replacementStrategy }
 
         private var heartbeatTask: RepeatedTask?
 
@@ -166,7 +173,7 @@ public enum KadDHT {
         var validators: [[UInt8]: Validator] = [:]
 
         /// This is why there is a "ipfs/lan/kad/1.0.0" protocol...
-        let isRunningLocally: Bool
+        var isRunningLocally: Bool { self.configuration.supportLocalNetwork }
 
         init(
             eventLoop: EventLoop,
@@ -174,7 +181,7 @@ public enum KadDHT {
             mode: KadDHT.Mode,
             peerID: PeerID,
             bootstrapedPeers: [PeerInfo],
-            options: NodeOptions,
+            configuration: Configuration,
             peerstore: PeerStore? = nil
         ) {
             self.eventLoop = eventLoop
@@ -182,32 +189,26 @@ public enum KadDHT {
             self.mode = mode
             self.peerID = peerID
             self.peerstore = peerstore ?? network.peers
-            self.concurrency = options.concurrency
-            self.resiliency = options.resiliency
-            self.quorum = options.quorum
-            self.connectionTimeout = options.connectionTimeout
+            self.configuration = configuration
             self.dht = EventLoopDictionary(on: eventLoop)
-            self.dhtSize = options.maxKeyValueStoreSize
             self.providerStore = EventLoopDictionary(on: eventLoop)
-            self.maxProviderStoreSize = options.maxProviderStoreSize
-            self.maxPeers = options.maxPeers
-            self.maxRecordAge = Self.seconds(options.maxRecordAge)
-            self.valueGCInterval = Self.seconds(options.valueGCInterval)
-            self.acceptObservedProviderAddress = options.acceptObservedProviderAddress
+            self.providerRecordTTL = Self.seconds(configuration.provideValidity)
+            self.providerRecordRepublishInterval = Self.seconds(configuration.reprovideInterval)
+            self.maxRecordAge = Self.seconds(configuration.maxRecordAge)
+            self.valueGCInterval = Self.seconds(configuration.valueGCInterval)
             self.routingTable = RoutingTable(
                 eventloop: eventLoop,
-                bucketSize: options.bucketSize,
+                bucketSize: configuration.bucketSize,
                 localPeerID: peerID,
-                latency: options.connectionTimeout,
+                latency: configuration.routingTableLatencyTolerance,
                 peerstoreMetrics: [:],
-                usefulnessGracePeriod: .minutes(5)
+                usefulnessGracePeriod: configuration.usefulnessGracePeriod
             )
             self.logger = Logger(label: "DHTNode\(peerID)")
             self.logger.logLevel = network.logger.logLevel
             self.metrics = NodeMetrics(record: false)
             self.state = .stopped
             self.autoUpdate = true
-            self.isRunningLocally = options.supportLocalNetwork
 
             /// Add our initialized event
             self.metrics.add(event: .initialized)
@@ -265,7 +266,7 @@ public enum KadDHT {
             network: Application,
             mode: KadDHT.Mode,
             bootstrapPeers: [PeerInfo],
-            options: NodeOptions
+            configuration: Configuration
         ) throws {
             self.init(
                 eventLoop: network.eventLoopGroup.next(),
@@ -273,7 +274,7 @@ public enum KadDHT {
                 mode: mode,
                 peerID: network.peerID,
                 bootstrapedPeers: bootstrapPeers,
-                options: options
+                configuration: configuration
             )
         }
 
@@ -317,14 +318,14 @@ public enum KadDHT {
             if self.autoUpdate == true {
                 self.heartbeatTask = self.eventLoop.scheduleRepeatedAsyncTask(
                     initialDelay: .milliseconds(500),
-                    delay: .seconds(120),
+                    delay: self.configuration.heartbeatInterval,
                     notifying: nil,
                     self._heartbeat
                 )
                 self.refreshTask = self.eventLoop.scheduleRepeatedAsyncTask(
                     /// Give the node a few seconds to settle before refreshing
                     initialDelay: .seconds(3),
-                    delay: KadDHT.Defaults.refreshInterval,
+                    delay: self.configuration.refreshInterval,
                     notifying: nil,
                     { _ in self._refreshRoutingTable() }
                 )
@@ -590,7 +591,7 @@ public enum KadDHT {
         }
 
         /// Removes provider records older than ``providerRecordTTL`` and, if the store is still over capacity,
-        /// prunes the stalest keys down to ``maxProviderStoreSize``.
+        /// prunes the stalest keys down to ``maxProviderStoreEntries``.
         ///
         /// Both expiry and capacity pruning happen in one heartbeat pass. We never prune our own provider records
         /// (entries in ``localProviderKeys``), the renewal job is responsible for their lifecycle.
@@ -602,7 +603,7 @@ public enum KadDHT {
                     self.providerStore.all()
                 }.flatMap { snapshot in
                     self.providerStore.prune(
-                        toAmount: self.maxProviderStoreSize,
+                        toAmount: self.maxProviderStoreEntries,
                         protecting: self.localProviderKeys,
                         freshness: self._providerKeyFreshness(snapshot)
                     )
@@ -1454,7 +1455,7 @@ public enum KadDHT {
 
                 return self.routingTable.nonEmptyBucketPrefixLengths().flatMap {
                     prefixLengths -> EventLoopFuture<Void> in
-                    let refreshable = prefixLengths.filter { $0 <= KadDHT.Defaults.maxRefreshPrefixLength }
+                    let refreshable = prefixLengths.filter { $0 <= self.configuration.maxRefreshPrefixLength }
                     if refreshable.count < prefixLengths.count {
                         self.logger.debug(
                             "Leaving \(prefixLengths.count - refreshable.count) deep bucket(s) to the self-lookup"
@@ -1474,7 +1475,7 @@ public enum KadDHT {
                         chain.flatMap { _ in
                             self.lookupClosestPeers(
                                 to: target,
-                                timeout: KadDHT.Defaults.refreshQueryTimeout
+                                timeout: self.configuration.refreshQueryTimeout
                             ).flatMapAlways { result -> EventLoopFuture<Void> in
                                 /// Dont fail the rest of our lookups when one of them fails.
                                 if case .failure(let error) = result {
@@ -1558,7 +1559,7 @@ public enum KadDHT {
             case .prunable:
                 value = KadDHT.PeerPrunableMetadata.prunable
             }
-            self.logger.info("Marking \(peer) as \(value)")
+            self.logger.info("Marking \(peer) as \(state)")
             guard !value.isEmpty else {
                 self.logger.warning("No encoded `\(state)` metadata to write for \(peer)")
                 return self.eventLoop.makeSucceededVoidFuture()
@@ -1597,7 +1598,7 @@ public enum KadDHT {
                 key: kid,
                 value: KadDHT.timeStamped(value),
                 usingValidator: validator,
-                maxStoreSize: self.dhtSize,
+                maxStoreSize: self.maxValueStoreEntries,
                 targetKey: KadDHT.Key(self.peerID, keySpace: .xor)
             ).map { storedResult in
                 switch storedResult {

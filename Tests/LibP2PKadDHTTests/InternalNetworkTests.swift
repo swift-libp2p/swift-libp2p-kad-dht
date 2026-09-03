@@ -29,12 +29,10 @@ extension LibP2PKadDHTTests {
 
         @Test(.internalIntegrationTestsEnabled)
         func testInternalNetwork_PeerRouting() throws {
-            let dhtParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(150),
-                concurrency: 3,
+            let dhtParams = KadDHT.Configuration(
                 bucketSize: 5,
-                maxPeers: 15,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(150),
                 supportLocalNetwork: true
             )
 
@@ -43,28 +41,28 @@ extension LibP2PKadDHTTests {
 
             let node1 = try makeHost(
                 mode: .server,
-                options: dhtParams,
+                configuration: dhtParams,
                 bootstrapPeers: [],
                 autoHeartbeat: false,
                 usingGroup: .shared(group)
             )
             let node2 = try makeHost(
                 mode: .server,
-                options: dhtParams,
+                configuration: dhtParams,
                 bootstrapPeers: [node1.peerInfo],
                 autoHeartbeat: false,
                 usingGroup: .shared(group)
             )
             let node3 = try makeHost(
                 mode: .server,
-                options: dhtParams,
+                configuration: dhtParams,
                 bootstrapPeers: [node2.peerInfo],
                 autoHeartbeat: false,
                 usingGroup: .shared(group)
             )
             let node4 = try makeHost(
                 mode: .server,
-                options: dhtParams,
+                configuration: dhtParams,
                 bootstrapPeers: [node3.peerInfo],
                 autoHeartbeat: false,
                 usingGroup: .shared(group)
@@ -91,11 +89,11 @@ extension LibP2PKadDHTTests {
 
         //    @Test(.internalIntegrationTestsEnabled)
         //    func testInternalNetwork_ContentRouting() throws {
-        //        let dhtParams = KadDHT.NodeOptions(connectionTimeout: .seconds(5), concurrency: 3, bucketSize: 5, maxPeers: 15, maxKeyValueStoreEntries: 10)
+        //        let dhtParams = KadDHT.Configuration(bucketSize: 5, concurrency: 3, connectionTimeout: .seconds(5))
         //
-        //        let node1 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [], autoHeartbeat: false)
-        //        let node2 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [PeerInfo(peer: node1.peerID, addresses: node1.listenAddresses)], autoHeartbeat: false)
-        //        let node3 = try makeHost(mode: .server, options: dhtParams, bootstrapPeers: [PeerInfo(peer: node2.peerID, addresses: node2.listenAddresses)], autoHeartbeat: false)
+        //        let node1 = try makeHost(mode: .server, configuration: dhtParams, bootstrapPeers: [], autoHeartbeat: false)
+        //        let node2 = try makeHost(mode: .server, configuration: dhtParams, bootstrapPeers: [PeerInfo(peer: node1.peerID, addresses: node1.listenAddresses)], autoHeartbeat: false)
+        //        let node3 = try makeHost(mode: .server, configuration: dhtParams, bootstrapPeers: [PeerInfo(peer: node2.peerID, addresses: node2.listenAddresses)], autoHeartbeat: false)
         //
         //        try node1.start()
         //        try node2.start()
@@ -121,18 +119,16 @@ extension LibP2PKadDHTTests {
             defer { try! group.syncShutdownGracefully() }
 
             let numberOfNodes = 4
-            let dhtParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(150),
-                concurrency: 3,
+            let dhtParams = KadDHT.Configuration(
                 bucketSize: 3,
-                maxPeers: 8,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(150),
                 supportLocalNetwork: true
             )
             var nodes: [Application] = try [
                 makeHost(
                     mode: .server,
-                    options: dhtParams,
+                    configuration: dhtParams,
                     bootstrapPeers: [],
                     autoHeartbeat: false,
                     usingGroup: .shared(group)
@@ -142,7 +138,7 @@ extension LibP2PKadDHTTests {
                 try nodes.append(
                     self.makeHost(
                         mode: .server,
-                        options: dhtParams,
+                        configuration: dhtParams,
                         bootstrapPeers: [nodes[i - 1].peerInfo],
                         autoHeartbeat: false,
                         usingGroup: .shared(group)
@@ -230,18 +226,16 @@ extension LibP2PKadDHTTests {
             defer { try! group.syncShutdownGracefully() }
 
             let numberOfNodes = 20
-            let dhtParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(150),
-                concurrency: 3,
+            let dhtParams = KadDHT.Configuration(
                 bucketSize: 7,
-                maxPeers: 10,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(150),
                 supportLocalNetwork: true
             )
             var nodes: [Application] = try [
                 makeHost(
                     mode: .server,
-                    options: dhtParams,
+                    configuration: dhtParams,
                     bootstrapPeers: [],
                     autoHeartbeat: false,
                     logLevel: .critical,
@@ -252,7 +246,7 @@ extension LibP2PKadDHTTests {
                 try nodes.append(
                     self.makeHost(
                         mode: .server,
-                        options: dhtParams,
+                        configuration: dhtParams,
                         bootstrapPeers: [nodes[i - 1].peerInfo],
                         autoHeartbeat: false,
                         logLevel: .critical,
@@ -295,17 +289,15 @@ extension LibP2PKadDHTTests {
             defer { try! group.syncShutdownGracefully() }
 
             let numberOfNodes = 4
-            let dhtParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(150),
-                concurrency: 3,
+            let dhtParams = KadDHT.Configuration(
                 bucketSize: 3,
-                maxPeers: 8,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(150),
                 supportLocalNetwork: true
             )
             let beaconNode = try makeHost(
                 mode: .server,
-                options: dhtParams,
+                configuration: dhtParams,
                 bootstrapPeers: [],
                 autoHeartbeat: false,
                 usingGroup: .shared(group)
@@ -313,7 +305,7 @@ extension LibP2PKadDHTTests {
             let nodes = try (0..<numberOfNodes).map { _ in
                 try makeHost(
                     mode: .server,
-                    options: dhtParams,
+                    configuration: dhtParams,
                     bootstrapPeers: [beaconNode.peerInfo],
                     autoHeartbeat: false,
                     usingGroup: .shared(group)
@@ -400,7 +392,7 @@ extension LibP2PKadDHTTests {
         var nextPort: Int = 10000
         private func makeHost(
             mode: KadDHT.Mode = .client,
-            options: KadDHT.NodeOptions = .default,
+            configuration: KadDHT.Configuration = .default,
             bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
             autoHeartbeat: Bool = false,
             logLevel: Logger.Level = .notice,
@@ -411,7 +403,12 @@ extension LibP2PKadDHTTests {
             lib.security.use(.noise)
             lib.muxers.use(.yamux)
             lib.dht.use(
-                .kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: autoHeartbeat)
+                .kadDHT(
+                    mode: mode,
+                    configuration: configuration,
+                    bootstrapPeers: bootstrapPeers,
+                    autoUpdate: autoHeartbeat
+                )
             )
             lib.servers.use(.tcp(host: "127.0.0.1", port: self.nextPort))
 

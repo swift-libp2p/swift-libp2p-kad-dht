@@ -50,23 +50,92 @@ extension LibP2PKadDHTTests {
             #expect(KadDHT.Defaults.refreshQueryTimeout == .seconds(10))
         }
 
-        /// α was 4, which under-queries every lookup path relative to the rest of the network.
-        @Test func nodeOptionsDefaultToAminoAlphaAndK() {
-            let options = KadDHT.NodeOptions.default
-            #expect(options.concurrency == KadDHT.Defaults.concurrency)
-            #expect(options.bucketSize == KadDHT.Defaults.bucketSize)
-            #expect(options.maxRecordAge == KadDHT.Defaults.maxRecordAge)
-            #expect(options.valueGCInterval == KadDHT.Defaults.valueGCInterval)
+        /// ``KadDHT/Defaults`` is meant to be the single source for every param
+        @Test func defaultConfigurationMirrorsDefaults() {
+            let configuration = KadDHT.Configuration.default
+
+            #expect(configuration.bucketSize == KadDHT.Defaults.bucketSize)
+            #expect(configuration.concurrency == KadDHT.Defaults.concurrency)
+            #expect(configuration.resiliency == KadDHT.Defaults.resiliency)
+            #expect(configuration.quorum == KadDHT.Defaults.quorum)
+
+            #expect(configuration.connectionTimeout == KadDHT.Defaults.connectionTimeout)
+            #expect(configuration.supportLocalNetwork == false)
+            #expect(configuration.acceptObservedProviderAddress == false)
+
+            #expect(configuration.maxValueStoreEntries == KadDHT.Defaults.maxValueStoreEntries)
+            #expect(configuration.maxRecordAge == KadDHT.Defaults.maxRecordAge)
+            #expect(configuration.valueGCInterval == KadDHT.Defaults.valueGCInterval)
+
+            #expect(configuration.maxProviderStoreEntries == KadDHT.Defaults.maxProviderStoreEntries)
+            #expect(configuration.provideValidity == KadDHT.Defaults.provideValidity)
+            #expect(configuration.reprovideInterval == KadDHT.Defaults.reprovideInterval)
+            #expect(configuration.providerAddrTTL == KadDHT.Defaults.providerAddrTTL)
+
+            #expect(configuration.heartbeatInterval == KadDHT.Defaults.heartbeatInterval)
+            #expect(configuration.refreshInterval == KadDHT.Defaults.refreshInterval)
+            #expect(configuration.refreshQueryTimeout == KadDHT.Defaults.refreshQueryTimeout)
+            #expect(configuration.maxRefreshPrefixLength == KadDHT.Defaults.maxRefreshPrefixLength)
+
+            #expect(configuration.routingTableLatencyTolerance == KadDHT.Defaults.routingTableLatencyTolerance)
+            #expect(configuration.usefulnessGracePeriod == KadDHT.Defaults.usefulnessGracePeriod)
+            #expect(configuration.replacementStrategy == KadDHT.Defaults.replacementStrategy)
+        }
+
+        @Test func overridingOneParamKeepsTheRestDefaulted() {
+            let configuration = KadDHT.Configuration(concurrency: 3)
+            #expect(configuration.concurrency == 3)
+            #expect(configuration.bucketSize == KadDHT.Defaults.bucketSize)
+            #expect(configuration.resiliency == KadDHT.Defaults.resiliency)
         }
 
         /// The node has to actually carry α through to its lookups.
         @Test func nodeAdoptsConfiguredAlpha() async throws {
-            try await withApp(configure: dhtHost(mode: .client, options: .default)) { app in
+            try await withApp(configure: dhtHost(mode: .client, configuration: .default)) { app in
                 #expect(app.dht.kadDHT.concurrency == KadDHT.Defaults.concurrency)
             }
 
-            try await withApp(configure: dhtHost(mode: .client, options: .init(concurrency: 7))) { app in
+            try await withApp(configure: dhtHost(mode: .client, configuration: .init(concurrency: 7))) { app in
                 #expect(app.dht.kadDHT.concurrency == 7)
+            }
+        }
+
+        /// Everything else the node derives from its configuration, including the two lifetimes it
+        /// converts to `TimeInterval` once at init.
+        @Test func nodeAdoptsTheRestOfTheConfiguration() async throws {
+            let configuration = KadDHT.Configuration(
+                bucketSize: 4,
+                resiliency: 2,
+                quorum: 5,
+                connectionTimeout: .milliseconds(250),
+                supportLocalNetwork: true,
+                acceptObservedProviderAddress: true,
+                maxValueStoreEntries: 7,
+                maxProviderStoreEntries: 9,
+                provideValidity: .hours(1),
+                reprovideInterval: .minutes(30),
+                usefulnessGracePeriod: .seconds(1),
+                replacementStrategy: .oldestReplaceable
+            )
+
+            try await withApp(configure: dhtHost(mode: .client, configuration: configuration)) { app in
+                let node = app.dht.kadDHT
+
+                #expect(node.resiliency == 2)
+                #expect(node.quorum == 5)
+                #expect(node.connectionTimeout == .milliseconds(250))
+                #expect(node.isRunningLocally == true)
+                #expect(node.acceptObservedProviderAddress == true)
+                #expect(node.maxValueStoreEntries == 7)
+                #expect(node.maxProviderStoreEntries == 9)
+                #expect(node.replacementStrategy == .oldestReplaceable)
+
+                /// `k` reaches the routing table, not just the node.
+                #expect(node.routingTable.bucketSize == 4)
+
+                /// Converted to seconds once, at init.
+                #expect(node.providerRecordTTL == 3600)
+                #expect(node.providerRecordRepublishInterval == 1800)
             }
         }
 
