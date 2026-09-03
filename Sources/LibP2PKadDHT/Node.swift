@@ -1316,7 +1316,7 @@ public enum KadDHT {
                                     }
                                     return self.eventLoop.makeSucceededFuture(rec != nil && k == key)
                                 case .failure(let error):
-                                    self.logger.debug("PutValue to \(peer.peer) failed: \(error)")
+                                    self.logger.warning("PutValue to \(peer.peer) failed: \(error)")
                                     return self.eventLoop.makeSucceededFuture(false)
                                 }
                             }
