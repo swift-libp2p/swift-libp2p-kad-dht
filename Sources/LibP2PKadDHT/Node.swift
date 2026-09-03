@@ -162,6 +162,10 @@ public enum KadDHT {
 
         private var handler: LibP2P.ProtocolHandler?
 
+        /// Whether we've registered the route handler already or not, so a restart doesn't
+        /// try to register `/ipfs/kad/1.0.0` a second time.
+        private var didRegisterRoute: Bool = false
+
         private var isRunningHeartbeat: Bool = false
 
         private var isRunningRefresh: Bool = false
@@ -247,9 +251,8 @@ public enum KadDHT {
             }
 
             if case .server = mode {
-                self.logger.info("Registering KadDHT endpoint for opperation as Server")
-                /// register the `/ipfs/kad/1.0.0` endpoint
-                try! registerDHTRoute(self.network!)
+                /// The `/ipfs/kad/1.0.0` route is registered in ``start()``, not here
+                self.logger.info("Operating as a Server")
             } else {
                 self.logger.info("Operating in Client Only Mode")
             }
@@ -267,7 +270,7 @@ public enum KadDHT {
             mode: KadDHT.Mode,
             bootstrapPeers: [PeerInfo],
             configuration: Configuration
-        ) throws {
+        ) {
             self.init(
                 eventLoop: network.eventLoopGroup.next(),
                 network: network,
@@ -292,11 +295,19 @@ public enum KadDHT {
                 return
             }
 
-            guard let addy = network!.listenAddresses.first else { throw Errors.noNetwork }
+            guard let network = self.network else { throw Errors.noNetwork }
+            guard let addy = network.listenAddresses.first else { throw Errors.noNetwork }
             self.address =
                 addy.getPeerIDString() != nil
-                ? addy : try! addy.encapsulate(proto: .p2p, address: self.peerID.b58String)
+                ? addy : try addy.encapsulate(proto: .p2p, address: self.peerID.b58String)
             self.state = .starting
+
+            /// Register the `/ipfs/kad/1.0.0` route handler.
+            if case .server = self.mode, self.didRegisterRoute == false {
+                self.logger.info("Registering the KadDHT endpoint for operation as a Server")
+                try registerDHTRoute(network)
+                self.didRegisterRoute = true
+            }
 
             /// Alert our app of the bootstrapped peers...
             //            for (_, pInfo) in self.peerstore {
