@@ -489,7 +489,7 @@ extension LibP2PKadDHTTests {
         var nextPort: Int = 10000
         private func makeHost(
             mode: KadDHT.Mode = .client,
-            options: KadDHT.NodeOptions = .default,
+            configuration: KadDHT.Configuration = .default,
             bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
             autoHeartbeat: Bool = false,
             usingGroup: Application.EventLoopGroupProvider = .singleton
@@ -498,7 +498,12 @@ extension LibP2PKadDHTTests {
             lib.security.use(.noise)
             lib.muxers.use(.yamux)
             lib.dht.use(
-                .kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: autoHeartbeat)
+                .kadDHT(
+                    mode: mode,
+                    configuration: configuration,
+                    bootstrapPeers: bootstrapPeers,
+                    autoUpdate: autoHeartbeat
+                )
             )
             lib.servers.use(.tcp(host: "127.0.0.1", port: nextPort))
 

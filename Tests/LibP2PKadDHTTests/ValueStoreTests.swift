@@ -42,16 +42,14 @@ extension LibP2PKadDHTTests {
     final class ValueStoreTests {
 
         @Test func testStoreNewWithEmptyRoutingTableReturnsTrue() async throws {
-            let dhtParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(150),
-                concurrency: 3,
+            let dhtParams = KadDHT.Configuration(
                 bucketSize: 5,
-                maxPeers: 15,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(150),
                 supportLocalNetwork: true
             )
 
-            try await withApp(configure: dhtHost(mode: .server, options: dhtParams)) { node in
+            try await withApp(configure: dhtHost(mode: .server, configuration: dhtParams)) { node in
                 let key = try syntheticCID("local-first-empty-rt")
                 let record = TestRecord(
                     key: Data(key),
@@ -72,18 +70,16 @@ extension LibP2PKadDHTTests {
         /// The receiving side of a PUT: namespace lookup, validation against the record's *value*,
         /// then storage. `/pk/` is the namespace both nodes validate out of the box.
         @Test func testCrossNodePutValueIsValidatedAndStored() async throws {
-            let dhtParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(500),
-                concurrency: 3,
+            let dhtParams = KadDHT.Configuration(
                 bucketSize: 5,
-                maxPeers: 15,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(500),
                 supportLocalNetwork: true
             )
 
-            try await withApp(configure: dhtHost(mode: .server, options: dhtParams)) { receiver in
+            try await withApp(configure: dhtHost(mode: .server, configuration: dhtParams)) { receiver in
                 try await withApp(
-                    configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [receiver.peerInfo])
+                    configure: dhtHost(mode: .server, configuration: dhtParams, bootstrapPeers: [receiver.peerInfo])
                 ) { publisher in
                     let record = try KadDHT.createPubKeyRecord(peerID: publisher.peerID).toProtobuf()
                     let stored = try await publisher.dht.kadDHT.storeNew(record.key.byteArray, value: record).get()
@@ -106,18 +102,16 @@ extension LibP2PKadDHTTests {
         }
 
         @Test func testStoreNewCrossNodeRoundTrip() async throws {
-            let dhtParams = KadDHT.NodeOptions(
-                connectionTimeout: .milliseconds(500),
-                concurrency: 3,
+            let dhtParams = KadDHT.Configuration(
                 bucketSize: 5,
-                maxPeers: 15,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(500),
                 supportLocalNetwork: true
             )
 
-            try await withApp(configure: dhtHost(mode: .server, options: dhtParams)) { publisher in
+            try await withApp(configure: dhtHost(mode: .server, configuration: dhtParams)) { publisher in
                 try await withApp(
-                    configure: dhtHost(mode: .server, options: dhtParams, bootstrapPeers: [publisher.peerInfo])
+                    configure: dhtHost(mode: .server, configuration: dhtParams, bootstrapPeers: [publisher.peerInfo])
                 ) { consumer in
                     let key = try syntheticCID("local-first-cross-node")
                     let record = TestRecord(
@@ -157,7 +151,7 @@ extension LibP2PKadDHTTests {
     /// Helper method for configuring a DHT Node for the above tests
     static func dhtHost(
         mode: KadDHT.Mode = .client,
-        options: KadDHT.NodeOptions = .default,
+        configuration: KadDHT.Configuration = .default,
         bootstrapPeers: [PeerInfo] = [],
         logLevel: Logger.Level = .warning
     ) -> ((Application) async throws -> Void) {
@@ -165,7 +159,9 @@ extension LibP2PKadDHTTests {
             app.logger.logLevel = logLevel
             app.security.use(.noise)
             app.muxers.use(.yamux)
-            app.dht.use(.kadDHT(mode: mode, options: options, bootstrapPeers: bootstrapPeers, autoUpdate: false))
+            app.dht.use(
+                .kadDHT(mode: mode, configuration: configuration, bootstrapPeers: bootstrapPeers, autoUpdate: false)
+            )
             app.servers.use(.tcp(host: "127.0.0.1", port: 0))
         }
     }

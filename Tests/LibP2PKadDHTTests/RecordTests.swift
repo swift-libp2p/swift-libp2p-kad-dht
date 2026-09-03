@@ -325,7 +325,7 @@ extension LibP2PKadDHTTests {
             app.logger.logLevel = .warning
             app.security.use(.noise)
             app.muxers.use(.yamux)
-            app.dht.use(.kadDHT(mode: .client, options: .default, bootstrapPeers: [], autoUpdate: false))
+            app.dht.use(.kadDHT(mode: .client, configuration: .default, bootstrapPeers: [], autoUpdate: false))
 
             let node = app.dht.kadDHT
             #expect(node.maxRecordAge == 48 * 60 * 60)
@@ -400,7 +400,7 @@ extension LibP2PKadDHTTests {
 
         /// A record stored through `storeNew` is stamped, so the publisher's own read still resolves.
         @Test func freshlyStoredRecordsAreReadable() async throws {
-            try await withApp(configure: dhtHost(mode: .server, options: .default)) { node in
+            try await withApp(configure: dhtHost(mode: .server, configuration: .default)) { node in
                 let key = try syntheticCID("expiry-fresh")
                 let record = DHT.Record.with {
                     $0.key = Data(key)
@@ -439,7 +439,7 @@ extension LibP2PKadDHTTests {
             app.logger.logLevel = .warning
             app.security.use(.noise)
             app.muxers.use(.yamux)
-            app.dht.use(.kadDHT(mode: .client, options: .default, bootstrapPeers: [], autoUpdate: false))
+            app.dht.use(.kadDHT(mode: .client, configuration: .default, bootstrapPeers: [], autoUpdate: false))
 
             let node = app.dht.kadDHT
             #expect(node.providerRecordTTL == 48 * 60 * 60)

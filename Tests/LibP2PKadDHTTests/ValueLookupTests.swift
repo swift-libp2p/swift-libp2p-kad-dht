@@ -77,13 +77,11 @@ extension LibP2PKadDHTTests {
     @Suite("Value Lookup Tests", .serialized)
     final class ValueLookupTests {
 
-        private var options: KadDHT.NodeOptions {
+        private var configuration: KadDHT.Configuration {
             .init(
-                connectionTimeout: .milliseconds(500),
-                concurrency: 3,
                 bucketSize: 5,
-                maxPeers: 15,
-                maxKeyValueStoreEntries: 10,
+                concurrency: 3,
+                connectionTimeout: .milliseconds(500),
                 supportLocalNetwork: true
             )
         }
@@ -94,13 +92,13 @@ extension LibP2PKadDHTTests {
             let fresh = try IPNSFixture(name: name, sequence: 5)
             let kid = KadDHT.Key(stale.key, keySpace: .xor)
 
-            try await withApp(configure: dhtHost(mode: .server, options: options)) { first in
-                try await withApp(configure: dhtHost(mode: .server, options: options)) { second in
+            try await withApp(configure: dhtHost(mode: .server, configuration: configuration)) { first in
+                try await withApp(configure: dhtHost(mode: .server, configuration: configuration)) { second in
                     try await withApp(
                         configure: dhtHost(
                             /// One query in flight, so "closest first" is also "first to answer".
                             mode: .server,
-                            options: Self.searcherOptions,
+                            configuration: Self.searcherConfiguration,
                             bootstrapPeers: [first.peerInfo, second.peerInfo]
                         )
                     ) { searcher in
@@ -155,9 +153,9 @@ extension LibP2PKadDHTTests {
             let forged = try IPNSFixture(name: name, signer: try PeerID(.Ed25519), sequence: 9)
             let kid = KadDHT.Key(forged.key, keySpace: .xor)
 
-            try await withApp(configure: dhtHost(mode: .server, options: options)) { holder in
+            try await withApp(configure: dhtHost(mode: .server, configuration: configuration)) { holder in
                 try await withApp(
-                    configure: dhtHost(mode: .server, options: options, bootstrapPeers: [holder.peerInfo])
+                    configure: dhtHost(mode: .server, configuration: configuration, bootstrapPeers: [holder.peerInfo])
                 ) { searcher in
                     _ = try await holder.dht.kadDHT.dht.updateValue(
                         KadDHT.timeStamped(try Self.record(forged)),
@@ -173,12 +171,10 @@ extension LibP2PKadDHTTests {
         // MARK: - Helpers
 
         /// Searcher settings: one query in flight, so responses arrive in closest-first order.
-        private static let searcherOptions = KadDHT.NodeOptions(
-            connectionTimeout: .milliseconds(500),
-            concurrency: 1,
+        private static let searcherConfiguration = KadDHT.Configuration(
             bucketSize: 5,
-            maxPeers: 15,
-            maxKeyValueStoreEntries: 10,
+            concurrency: 1,
+            connectionTimeout: .milliseconds(500),
             supportLocalNetwork: true
         )
 
