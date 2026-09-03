@@ -29,22 +29,15 @@ extension LibP2PKadDHTTests {
         /// ********************************************
         ///
         /// This test manually triggers one KadDHT heartbeat that kicks off a FindNode lookup for our libp2p PeerID
-        /// A heartbeat / node lookup takes about 22 secs and discovers about 20 peers...
+        ///
+        /// 1 heartbeat --> Time: 9.7 seconds, Mem: 16.5mb, CPU: 10-40% , Peers: 42
         /// 📒 --------------------------------- 📒
-        /// Routing Table [<peer.ID PiV5bE>]
-        /// Bucket Count: 1 buckets of size: 20
-        /// Total Peers: 20
-        /// b[0] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]
-        /// ---------------------------------------
-        /// 2 heartbeats --> Time:  48 seconds,  Mem: 12.5 --> 13.8,  CPU: 0-12%,  Peers: 28
-        /// 📒 --------------------------------- 📒
-        /// Routing Table [<peer.ID PiV5bE>]
+        /// Routing Table [<peer.ID PrJuTu>]
         /// Bucket Count: 2 buckets of size: 20
-        /// Total Peers: 28
-        /// b[0] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        /// b[1] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        /// Total Peers: 30
+        /// b[0] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        /// b[1] = [2, 2, 2, 2, 2, 2, 2, 3, 3, 4, 7, 8, 9, 9, 9, 10, 12, 1, 1]
         /// ---------------------------------------
-        /// 3 heartbeats --> Time:  59 seconds,  Mem: 12.5 --> 14.5,  CPU: 0-12%,  Peers: 27
         @Test(.disabled())
         func testLibP2PKadDHT_SingleHeartbeat() throws {
             /// Init the libp2p node
@@ -100,20 +93,20 @@ extension LibP2PKadDHTTests {
             print("All Done!")
         }
 
-        /// 20 heartbeats --> Time:  77.6 seconds,  Mem: 18.8,  CPU: 0-20%,  Peers: 258
+        /// 20 heartbeats --> Time:  67.5 seconds,  Mem: 20.1,  CPU: 20-40%,  Peers: 295
+        /// Errors: 93 `error BaseConnection`
         /// 📒 --------------------------------- 📒
-        /// Routing Table [<peer.ID AK2Ay9>]
-        /// Bucket Count: 9 buckets of size: 20
-        /// Total Peers: 97
+        /// Routing Table [<peer.ID KkDSqg>]
+        /// Bucket Count: 6 buckets of size: 20
+        /// Total Peers: 104
+        /// ```
         /// b[0] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         /// b[1] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-        /// b[2] = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
-        /// b[3] = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
-        /// b[4] = [4, 4, 4]
-        /// b[5] = []
-        /// b[6] = [6]
-        /// b[7] = [7, 7, 7, 7, 7, 7, 7]
-        /// b[8] = [8, 8, 8, 8, 8, 8, 8, 9, 11, 9, 9, 12, 13, 16]
+        /// b[2] = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
+        /// b[3] = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
+        /// b[4] = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+        /// b[5] = [5, 6, 6, 7, 9, 9, 10, 11, 11, 5, 6]
+        /// ```
         /// ---------------------------------------
         @Test(.disabled())
         func testLibP2PKadDHT_SingleHeartbeat_Async() async throws {
@@ -221,8 +214,6 @@ extension LibP2PKadDHTTests {
             //let key = try "/ipfs/".bytes + CID("QmXuNFLZc6Nb5akB4sZsxK3doShsFKT1sZFvxLXJvZQwAW").multihash.value // Doesnt work
             //let key = try "/ipfs/".bytes + CID("QmSnuWmxptJZdLJpKRarxBMS2Ju2oANVrgbr2xWbie9b2D").multihash.value // Doesnt work
             let key = try "/ipfs/".bytes + CID("QmdmQXB2mzChmMeKY47C43LxUdg1NDJ5MWcKMKxDu7RgQm").multihash.value
-
-            //let key = try "/pk/".bytes + CID(peerID).multihash.value
 
             let val = try lib.dht.kadDHT.get(key).wait()
             print(val ?? "NIL")
@@ -368,47 +359,33 @@ extension LibP2PKadDHTTests {
         func testLibP2PKadDHT_Provide() throws {
             /// Init the libp2p node
             let lib = try makeHost()
-
-            /// Start the node
             try lib.start()
-
-            /// Do your test stuff ...
             #expect(lib.dht.kadDHT.state == .started)
 
             /// Create a Public Key Record using our nodes PeerID
-
-            //let df = ISO8601DateFormatter()
-            //df.formatOptions.insert(.withFractionalSeconds)
-
             let key = "/pk/".bytes + lib.peerID.id
-            //        let record = try DHT.Record.with { rec in
-            //            rec.key = Data(key)
-            //            rec.value = try Data(lib.peerID.marshalPublicKey())
-            //            rec.timeReceived = df.string(from: Date())
-            //        }
-
             let record = try KadDHT.createPubKeyRecord(peerID: lib.peerID)
 
             /// Attempt to store the Public Key Record on the DHT
             let val = try lib.dht.kadDHT.storeNew(key, value: record).wait()
             print(val)
-            /// Peer: 12D3KooWRo5HnaS7zJJH9MfaZUJE7UQB4FPVNQYiGT3xbdzPTm6V
-            /// Peer: QmPxcrHKPUDQtP9EKsvCkDdvFvt2iiY7AnWygumZP9kzhc
-            /// 12D3KooWGirPF2sNqCFYaXuWhPF27hSLdCYER725kLfz2rxer4Sy
-            /// QmZ9JkSfELePivfpG6fXk7cU1Zu95VCQhKbQafpZt6ZkDX
 
+            /// Our local store should have 1 entry in it
+            print(try lib.dht.kadDHT.dht.count().wait())
+
+            /// Wait a few seconds before querying
             sleep(5)
-
+            
             /// Attempt to retrieve the Public Key Record from the DHT
-            let pubKeyRecord = try lib.dht.kadDHT.get(key).wait()
+            /// - Note: We use `lookupValue` instead of `.get(key)` to skip our local cache
+            let trace = KadDHT.Node.LookupTrace()
+            let pubKeyRecord = try lib.dht.kadDHT.lookupValue(key, quorum: 0, trace: trace).wait()
             print(pubKeyRecord ?? "NIL")
-            /// peer.ID Ro5Hna
-            /// peer.ID PxcrHK
-            /// peer.ID GirPF2
-            /// peer.ID Z9JkSf
-
             sleep(2)
 
+            #expect(pubKeyRecord != nil)
+            print(trace)
+            
             /// Stop the node
             lib.shutdown()
 
