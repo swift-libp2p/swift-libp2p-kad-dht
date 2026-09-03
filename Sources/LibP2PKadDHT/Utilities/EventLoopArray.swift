@@ -14,7 +14,7 @@
 
 import NIOCore
 
-public final class EventLoopArray<Element>: @unchecked Sendable {
+public final class EventLoopArray<Element: Sendable>: @unchecked Sendable {
     private let eventLoop: EventLoop
     private var store: [Element]
 
@@ -48,7 +48,7 @@ public final class EventLoopArray<Element>: @unchecked Sendable {
     }
 
     @discardableResult func removeAll(
-        where shouldBeRemoved: @escaping (Element) throws -> Bool
+        where shouldBeRemoved: @Sendable @escaping (Element) throws -> Bool
     ) -> EventLoopFuture<Void> {
         self.eventLoop.submit {
             try self.store.removeAll(where: shouldBeRemoved)
