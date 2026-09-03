@@ -14,6 +14,21 @@
 
 import LibP2P
 
+extension KadDHT {
+
+    /// Which peer a full bucket gives up when a new one arrives.
+    public enum ReplacementStrategy: Sendable {
+        /// Picks a random replaceable peer
+        case anyReplaceable
+        /// Picks the furthest replacable peer from us
+        case furthestReplaceable
+        /// Picks the oldest replaceable peer
+        case oldestReplaceable
+        /// Only replaces the furthest replacable peer if they're further away from us then the replacement
+        case furtherThanReplacement
+    }
+}
+
 /// The routing table is responsible for maintaining a set of kBuckets each containing a group of DHTPeers that are sorted by distance with respect to our local ID.
 ///
 /// - Note: These buckets needs to be accessed in a thread safe manner using the eventloop.
@@ -21,6 +36,9 @@ import LibP2P
 class RoutingTable: EventLoopService, @unchecked Sendable {
     public typealias Filter = (DHTPeerInfo) -> Bool
     public typealias DiversityFilter = (DHTPeerInfo) -> DiversityFilterResult
+
+    /// Lives on ``KadDHT`` rather than nested here, because ``KadDHT/Configuration``needs it.
+    typealias ReplacementStrategy = KadDHT.ReplacementStrategy
 
     public enum Errors: Error {
         case PeerExceededMaxAcceptableLatency
@@ -364,17 +382,6 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
     private func _hasntProvedUseful(_ peer: DHTPeerInfo, now: TimeInterval) -> Bool {
         let grace = TimeInterval(self.usefulnessGracePeriod.nanoseconds) / 1_000_000_000
         return now - (peer.lastUsefulAt ?? peer.addedAt) > grace
-    }
-
-    public enum ReplacementStrategy {
-        /// Picks a random replaceable peer
-        case anyReplaceable
-        /// Picks the furthest replacable peer from us
-        case furthestReplaceable
-        /// Picks the oldest replaceable peer
-        case oldestReplaceable
-        /// Only replaces the furthest replacable peer if they're further away from us then the replacement
-        case furtherThanReplacement
     }
 
     public func removePeer(_ peer: PeerID) -> EventLoopFuture<Bool> {
