@@ -442,7 +442,7 @@ public enum KadDHT {
 
             return self.lookupClosestPeers(to: kid).flatMap { nearestPeers -> EventLoopFuture<Void> in
                 let closestPeers = nearestPeers.prefix(self.routingTable.bucketSize)
-                self.logger.notice("Announcing provider for cid to \(closestPeers.count) nearest peers")
+                self.logger.debug("Announcing provider for cid to \(closestPeers.count) nearest peers")
                 return closestPeers.map { peer in
                     self._sendQuery(
                         .addProvider(key: providerKey, providerPeers: [myProviderPeer]),
@@ -496,7 +496,7 @@ public enum KadDHT {
         private func _heartbeat(_ task: RepeatedTask? = nil) -> EventLoopFuture<Void> {
             guard self.isRunningHeartbeat == false else { return self.eventLoop.makeSucceededVoidFuture() }
             return self.eventLoop.flatSubmit {
-                self.logger.notice("Running Heartbeat")
+                self.logger.debug("Running Heartbeat")
                 self.isRunningHeartbeat = true
                 let tic = DispatchTime.now()
                 return self.peerstore.all()
@@ -504,18 +504,18 @@ public enum KadDHT {
                     .and(self.providerStore.count())
                     .flatMap { arg0, providerRecordCount in
                         let (peers, dhtValues) = arg0
-                        self.logger.notice("\(self.routingTable.description)")
+                        self.logger.trace("\(self.routingTable.description)")
                         let necessary = KadDHT.PeerPrunableMetadata.necessary
                         if !necessary.isEmpty {
-                            self.logger.notice(
+                            self.logger.trace(
                                 "Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.Prunable.rawValue] == necessary }).count)>"
                             )
                         }
-                        self.logger.notice("ProviderStore<\(providerRecordCount)>")
-                        self.logger.notice(
+                        self.logger.debug("ProviderStore<\(providerRecordCount)>")
+                        self.logger.trace(
                             "DHT Keys<\(dhtValues.count)> [ \n\(dhtValues.map { "\($0.key)" }.joined(separator: ",\n"))]"
                         )
-                        self.logger.notice(
+                        self.logger.trace(
                             "PeerStore<\(peers.count)> [ \n\(peers.map { "\($0.id.b58String)" }.joined(separator: ",\n"))]"
                         )
                         return self._pruneProviders().flatMap {
@@ -534,7 +534,7 @@ public enum KadDHT {
                             }
                         }
                     }.always { _ in
-                        self.logger.notice(
+                        self.logger.debug(
                             "Heartbeat Finished after \((DispatchTime.now().uptimeNanoseconds - tic.uptimeNanoseconds) / 1_000_000)ms"
                         )
                         self.isRunningHeartbeat = false
@@ -559,7 +559,7 @@ public enum KadDHT {
                 //                    self.isRunningHeartbeat = false
                 //                }
             }.flatMapError { error in
-                self.logger.notice("Heartbeat encountered error '\(error)'")
+                self.logger.warning("Heartbeat encountered error '\(error)'")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
         }
@@ -609,7 +609,7 @@ public enum KadDHT {
         func _pruneProviders() -> EventLoopFuture<Void> {
             self.eventLoop.flatSubmit {
                 let cutoff = Date().addingTimeInterval(-self.providerRecordTTL)
-                self.logger.notice("Pruning expired provider entries (cutoff=\(cutoff))")
+                self.logger.debug("Pruning expired provider entries (cutoff=\(cutoff))")
                 return self._expireOldProviderRecords(before: cutoff).flatMap {
                     self.providerStore.all()
                 }.flatMap { snapshot in
@@ -654,10 +654,10 @@ public enum KadDHT {
                     return self.eventLoop.makeSucceededVoidFuture()
                 }
                 self.lastValueGC = now
-                self.logger.notice("pruning expired records (maxAge=\(self.maxRecordAge)s)")
+                self.logger.debug("pruning expired records (maxAge=\(self.maxRecordAge)s)")
                 return self.dht.removeExpiredValues(maxAge: self.maxRecordAge, now: now).map { expired in
                     if expired > 0 {
-                        self.logger.notice("Expired \(expired) record(s)")
+                        self.logger.debug("Expired \(expired) record(s)")
                     }
                 }
             }
@@ -680,7 +680,7 @@ public enum KadDHT {
                 guard !staleKeys.isEmpty else {
                     return self.eventLoop.makeSucceededVoidFuture()
                 }
-                self.logger.notice("Expiring \(staleKeys.count) stale provider record entries")
+                self.logger.debug("Expiring \(staleKeys.count) stale provider record entries")
 
                 // Walk the store entry-by-entry and drop the matching
                 // providers. We don't have a direct (key, peer) → drop
@@ -753,7 +753,7 @@ public enum KadDHT {
                     return (kid, cid)
                 }
                 guard !due.isEmpty else { return self.eventLoop.makeSucceededVoidFuture() }
-                self.logger.notice("Re-publishing \(due.count) local provider records")
+                self.logger.debug("Re-publishing \(due.count) local provider records")
 
                 let announcements = due.map { (kid, cid) -> EventLoopFuture<Void> in
                     self._announceProviderRecord(cid: cid, key: kid).flatMapAlways {
@@ -880,7 +880,7 @@ public enum KadDHT {
 
         /// Switches over the Query Type and Handles each appropriately
         func _handleQuery(_ query: Query, from: PeerInfo, request: Request) -> EventLoopFuture<Response> {
-            request.logger.notice("Query::Handling Query \(query) from peer \(from.peer)")
+            request.logger.debug("Query::Handling Query \(query) from peer \(from.peer)")
             switch query {
             case .ping:
                 return self.eventLoop.makeSucceededFuture(Response.ping)
@@ -909,9 +909,9 @@ public enum KadDHT {
                 }
 
             case .putValue(let key, let value):
-                request.logger.notice("🚨🚨🚨 PutValue Request 🚨🚨🚨")
-                request.logger.notice("DHTRecordKey(HEX)::\(key.toHexString())")
-                request.logger.notice("DHTRecordValue(HEX)::\((try? value.serializedData().toHexString()) ?? "NIL")")
+                request.logger.trace(
+                    "Query::PutValue::key(HEX)=\(key.toHexString()) value(HEX)=\((try? value.serializedData().toHexString()) ?? "NIL")"
+                )
                 guard let namespace = KadDHT.extractNamespace(key) else {
                     request.logger.warning("Failed to extract namespace for DHT PUT request")
                     request.logger.warning("DHTRecordKey(HEX)::\(key.toHexString())")
@@ -936,11 +936,8 @@ public enum KadDHT {
                     return self.eventLoop.makeSucceededFuture(.putValue(key: key, record: nil))
                 }
 
-                request.logger.notice(
-                    "Query::PutValue::KeyVal passed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")'"
-                )
-                request.logger.notice(
-                    "Query::PutValue::Attempting to store value for key: \(KadDHT.keyToHumanReadableString(key))"
+                request.logger.debug(
+                    "Query::PutValue::KeyVal passed validation for namespace '\(String(data: Data(namespace), encoding: .utf8) ?? "???")', storing key: \(KadDHT.keyToHumanReadableString(key))"
                 )
                 return self.addKeyIfSpaceOrCloser(
                     key: key,
@@ -953,14 +950,14 @@ public enum KadDHT {
             case .getValue(let key):
                 /// If we have the value, send it back!
                 let kid = KadDHT.Key(key, keySpace: .xor)
-                request.logger.notice("Query::GetValue::\(KadDHT.keyToHumanReadableString(key))")
+                request.logger.trace("Query::GetValue::\(KadDHT.keyToHumanReadableString(key))")
                 /// - Note: We attach the k closest peers whether or not we hold the record. go's
                 ///   `handleGetValue` sets `Record` and `CloserPeers` unconditionally; only sending closer
                 ///   peers on a miss truncates the requester's lookup at the first hop that has a copy.
                 return self.dht.getUnexpiredValue(forKey: kid, maxAge: self.maxRecordAge).and(
                     self._nearest(self.routingTable.bucketSize, peersToKey: kid, excluding: from.peer)
                 ).map { value, peers in
-                    request.logger.notice(
+                    request.logger.trace(
                         "Query::GetValue::Returning \(value == nil ? "no value" : "value") and \(peers.count) closer peers for key: \(KadDHT.keyToHumanReadableString(key))"
                     )
                     return Response.getValue(
@@ -981,7 +978,7 @@ public enum KadDHT {
                     self._nearest(self.routingTable.bucketSize, peersToKey: kid, excluding: from.peer)
                 ).map { providers, peers in
                     let providers = providers ?? []
-                    request.logger.notice(
+                    request.logger.trace(
                         "Query::GetProviders::Returning \(providers.count) providers and \(peers.count) closer peers for key: \(KadDHT.keyToHumanReadableString(key))"
                     )
                     return Response.getProviders(
@@ -1040,7 +1037,7 @@ public enum KadDHT {
                         /// alive past `providerRecordTTL` — otherwise a provider that faithfully renews every
                         /// republish interval would still be expired by `_pruneProviders`.
                         self.providerRecordAddedAt[timestampKey] = Date()
-                        request.logger.notice(
+                        request.logger.debug(
                             "Query::AddProvider::\(from.peer) refreshed as a provider for key: \(KadDHT.keyToHumanReadableString(key))"
                         )
                         return self.eventLoop.makeSucceededFuture(
@@ -1049,7 +1046,7 @@ public enum KadDHT {
                     }
                     return self.providerStore.updateValue(existingProviders + [provider], forKey: kid).map { _ in
                         self.providerRecordAddedAt[timestampKey] = Date()
-                        request.logger.notice(
+                        request.logger.debug(
                             "Query::AddProvider::Added \(from.peer) as a provider for key: \(KadDHT.keyToHumanReadableString(key))"
                         )
                         return Response.addProvider(cid: key, providerPeers: [provider])
@@ -1162,16 +1159,16 @@ public enum KadDHT {
                     self.kvsToShare = elements
 
                     /// Launch concurrent recursive share routines...
-                    self.logger.notice(
+                    self.logger.debug(
                         "Launching \(workers) workers in order to share \(self.kvsToShare.count) KV pairs!"
                     )
                     return (0..<workers).map { idx in
                         self._recursiveShare().always { _ in
-                            self.logger.notice("DHTKVSharer[\(idx)]::Done Sharing DHT KVs")
+                            self.logger.debug("DHTKVSharer[\(idx)]::Done Sharing DHT KVs")
                         }
                     }.flatten(on: self.eventLoop)
                 }.always { _ in
-                    self.logger.notice("Done Sharing DHT KVs")
+                    self.logger.debug("Done Sharing DHT KVs")
                 }
             }
         }
@@ -1195,7 +1192,7 @@ public enum KadDHT {
             value: DHT.Record,
             nearestPeers peerCount: Int
         ) -> EventLoopFuture<Bool> {
-            self.logger.notice(
+            self.logger.debug(
                 "Sharing \(KadDHT.keyToHumanReadableString(key.original)) with the \(peerCount) closest peers"
             )
             let successfulPuts: NIOLockedValueBox<[PeerID]> = .init([])
@@ -1224,7 +1221,7 @@ public enum KadDHT {
                         }
                     }
                 }.flatten(on: self.eventLoop).map({ $0.contains(true) }).always { results in
-                    self.logger.notice(
+                    self.logger.debug(
                         "Done Sharing Key:\(KadDHT.keyToHumanReadableString(key.original)) with \(successfulPuts.withLockedValue({$0}).count)/\(nearestPeers.count) peers"
                     )
                 }
@@ -1302,7 +1299,7 @@ public enum KadDHT {
             /// deliberately leaves `timeReceived` empty, matching go's `MakePutRecord`.
             return self.dht.updateValue(KadDHT.timeStamped(value), forKey: targetID).flatMap {
                 _ -> EventLoopFuture<Bool> in
-                self.logger.notice(
+                self.logger.debug(
                     "storeNew: stored locally key=\(KadDHT.keyToHumanReadableString(key))"
                 )
                 return self.lookupClosestPeers(to: targetID).flatMap {
@@ -1310,7 +1307,7 @@ public enum KadDHT {
                     /// We have the closest peers to this key that the network knows of, so ask each
                     /// of the k closest to store the value.
                     let closestPeers = nearestPeers.prefix(self.routingTable.bucketSize)
-                    self.logger.notice("Asking the closest \(closestPeers.count) peers to store our value")
+                    self.logger.debug("Asking the closest \(closestPeers.count) peers to store our value")
 
                     // Don't set timeReceived on the way out...
                     var record = DHT.Record()
@@ -1332,7 +1329,7 @@ public enum KadDHT {
                                 }
                             }
                     }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
-                        self.logger.notice(
+                        self.logger.debug(
                             "storeNew: \(results.filter({ $0 }).count)/\(results.count) peers accepted the value (local copy stored regardless)"
                         )
                         /// Local-first semantics: the value is already stored locally, return true.
@@ -1472,7 +1469,7 @@ public enum KadDHT {
                             "Leaving \(prefixLengths.count - refreshable.count) deep bucket(s) to the self-lookup"
                         )
                     }
-                    self.logger.notice("Refreshing self + \(refreshable.count) bucket(s)")
+                    self.logger.debug("Refreshing self + \(refreshable.count) bucket(s)")
 
                     /// Our own key first, it's the one lookup we always run.
                     let targets =
@@ -1497,7 +1494,7 @@ public enum KadDHT {
                         }
                     }
                 }.always { _ in
-                    self.logger.notice(
+                    self.logger.debug(
                         "Refresh finished after \((DispatchTime.now().uptimeNanoseconds - tic.uptimeNanoseconds) / 1_000_000)ms"
                     )
                     self.isRunningRefresh = false
@@ -1614,19 +1611,19 @@ public enum KadDHT {
             ).map { storedResult in
                 switch storedResult {
                 case .excessSpace:
-                    logger.notice("We have excess space in DHT, storing `\(key):\(value)`")
+                    logger.debug("We have excess space in DHT, storing `\(key):\(value)`")
                 case .updatedValue:
-                    logger.notice(
+                    logger.debug(
                         "We already have `\(key):\(value)` in our DHT, but this is a newer record, updating it..."
                     )
                 case .alreadyExists:
-                    logger.notice("We already have `\(key):\(value)` in our DHT")
+                    logger.debug("We already have `\(key):\(value)` in our DHT")
                 case .storedCloser(let furthestKey, let furthestValue):
-                    logger.notice(
+                    logger.debug(
                         "Replaced `\(String(data: Data(furthestKey.original), encoding: .utf8) ?? "???")`:`\(String(describing: furthestValue))` with `\(key)`:`\(value)`"
                     )
                 case .notStoredFurther:
-                    logger.notice(
+                    logger.debug(
                         "New Key Value is further away from all current key value pairs, dropping store request."
                     )
                 }
