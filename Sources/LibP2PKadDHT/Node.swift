@@ -539,25 +539,6 @@ public enum KadDHT {
                         )
                         self.isRunningHeartbeat = false
                     }
-                //                return self.peerstore.all().flatMap { peers in
-                //                    self.logger.notice("\(self.routingTable.description)")
-                //                    if let data = try? JSONEncoder().encode(MetadataBook.PrunableMetadata(prunable: .necessary)).bytes {
-                //                        self.logger.notice("Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.Prunable.rawValue] == data }).count)>")
-                //                    }
-                //                    let allDHT = self.dht.all().map { }
-                //                    self.logger.notice("ProviderStore<\(self.providerStore.count)>")
-                //                    self.logger.notice("DHT Keys<\(self.dht.keys.count)> [ \n\(self.dht.keys.map { "\($0)" }.joined(separator: ",\n"))]")
-                //                    self.logger.notice("PeerStore<\(peers.count)> [ \n\(peers.map { "\($0.id.b58String)" }.joined(separator: ",\n"))]")
-                //                    return self._pruneProviders().flatMap {
-                //                        self._shareDHTKVs().flatMap {
-                //                            // TODO: Share Provider Records
-                //                            self._searchForPeersLookupStyle()
-                //                        }
-                //                    }
-                //                }.always { _ in
-                //                    self.logger.notice("Heartbeat Finished after \((DispatchTime.now().uptimeNanoseconds - tic.uptimeNanoseconds) / 1_000_000)ms")
-                //                    self.isRunningHeartbeat = false
-                //                }
             }.flatMapError { error in
                 self.logger.warning("Heartbeat encountered error '\(error)'")
                 return self.eventLoop.makeSucceededVoidFuture()
@@ -1127,19 +1108,6 @@ public enum KadDHT {
                             self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3)
                         }.transform(to: ())
                     }.flatten(on: self.eventLoop)
-                }
-            }
-        }
-
-        private func _shareDHTKVsSequentially2() -> EventLoopFuture<Void> {
-            let group = MultiThreadedEventLoopGroup(numberOfThreads: 2)
-            return self.dht.all().flatMap { elements in
-                elements.compactMap { key, value in
-                    group.next().flatSubmit {
-                        self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3).transform(to: ())
-                    }
-                }.flatten(on: self.eventLoop).always { _ in
-                    group.shutdownGracefully(queue: .global()) { _ in print("DHT KV ELG shutdown") }
                 }
             }
         }
