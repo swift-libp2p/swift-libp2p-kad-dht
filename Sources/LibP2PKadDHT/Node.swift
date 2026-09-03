@@ -644,15 +644,12 @@ public enum KadDHT {
             }
         }
 
-        /// Removes (key, provider-peer) entries whose `addedAt` is older
-        /// than `cutoff`. Iterates the timestamp dictionary, builds a
-        /// list of entries to remove, then applies them to the
-        /// `providerStore`.
+        /// Removes (key, provider-peer) entries whose `addedAt` is older than `cutoff`.
+        /// Iterates the timestamp dictionary, builds a list of entries to remove, then applies them to the `providerStore`.
         func _expireOldProviderRecords(before cutoff: Date) -> EventLoopFuture<Void> {
             self.eventLoop.flatSubmit {
-                // Snapshot the timestamp map so we can mutate it without
-                // iterating-while-mutating. Skip records that belong to
-                // us — those are managed by the renewal job.
+                /// Snapshot the timestamp map so we can mutate it without iterating-while-mutating.
+                /// Skip records that belong to us — those are managed by the renewal job.
                 let staleKeys = self.providerRecordAddedAt.compactMap {
                     (compositeKey, addedAt) -> Data? in
                     guard addedAt < cutoff else { return nil }
@@ -663,32 +660,26 @@ public enum KadDHT {
                 }
                 self.logger.debug("Expiring \(staleKeys.count) stale provider record entries")
 
-                // Walk the store entry-by-entry and drop the matching
-                // providers. We don't have a direct (key, peer) → drop
-                // primitive, so do it via getValue/updateValue.
+                /// Walk the store entry-by-entry and drop the matching providers. We don't have a
+                /// direct (key, peer) → drop primitive, so do it via getValue/updateValue.
                 return self.providerStore.all().flatMap {
                     snapshot -> EventLoopFuture<Void> in
                     var updates: [EventLoopFuture<Void>] = []
                     for entry in snapshot {
                         let kid = entry.key
                         let providers = entry.value
-                        // A provider record entry is fresh if its
-                        // composite-keyed addedAt entry is missing
-                        // (never tracked; conservatively kept) or is
-                        // newer than cutoff. Self-published entries
-                        // bypass this check — the renewal job is
-                        // authoritative for our own records.
+                        /// A provider record entry is fresh if its composite-keyed addedAt entry is missing
+                        /// (never tracked; conservatively kept) or is newer than cutoff. Self-published entries
+                        /// bypass this check — the renewal job is authoritative for our own records.
                         let kept = providers.filter { provider in
                             let providerIsSelf = provider.id == Data(self.peerID.id)
                             if self.localProviderKeys.contains(kid) && providerIsSelf {
                                 return true
                             }
-                            /// `DHT.Message.Peer.id` holds the peer's *ID bytes* (see
-                            /// `DHT.Message.Peer.init(_:)`), so it has to be decoded with
-                            /// `fromBytesID`. `PeerID(marshaledPublicKey:)` expects a marshaled
-                            /// protobuf public key and throws on ID bytes — which made this guard
-                            /// drop every remotely-supplied provider on the first heartbeat that
-                            /// saw any stale record.
+                            /// `DHT.Message.Peer.id` holds the peer's *ID bytes* (see `DHT.Message.Peer.init(_:)`),
+                            /// so it has to be decoded with `fromBytesID`. `PeerID(marshaledPublicKey:)` expects a marshaled
+                            /// protobuf public key and throws on ID bytes — which made this guard drop every remotely-supplied
+                            /// provider on the first heartbeat that saw any stale record.
                             guard let pid = try? PeerID(fromBytesID: provider.id.byteArray) else {
                                 // Malformed provider id — drop it.
                                 return false
@@ -705,8 +696,7 @@ public enum KadDHT {
                             updates.append(self.providerStore.updateValue(kept, forKey: kid).map { _ in () })
                         }
                     }
-                    // Drop the timestamp entries we just acted on so the
-                    // map doesn't grow without bound.
+                    // Drop the timestamp entries we just acted on so the map doesn't grow without bound.
                     for staleKey in staleKeys {
                         self.providerRecordAddedAt.removeValue(forKey: staleKey)
                     }
@@ -715,14 +705,12 @@ public enum KadDHT {
             }
         }
 
-        /// Re-issues `ADD_PROVIDER` to the network for every CID in
-        /// ``localProviderKeys`` whose last announcement is older than
-        /// ``providerRecordRepublishInterval``. The local provider
+        /// Re-issues `ADD_PROVIDER` to the network for every CID in ``localProviderKeys`` whose last
+        /// announcement is older than ``providerRecordRepublishInterval``. The local provider
         /// record's `addedAt` is refreshed on success.
         ///
-        /// Best-effort: a single failed announce doesn't stop the
-        /// others. Per-CID failures will be retried on the next
-        /// heartbeat.
+        /// Best-effort: a single failed announce doesn't stop the others. Per-CID failures will be retried on the
+        /// next heartbeat.
         func _republishProviderRecords() -> EventLoopFuture<Void> {
             self.eventLoop.flatSubmit {
                 let cutoff = Date().addingTimeInterval(-self.providerRecordRepublishInterval)
@@ -765,10 +753,10 @@ public enum KadDHT {
                 return self.onReady(req)
             case .data:
                 return self.onData(request: req).flatMapError { error -> EventLoopFuture<LibP2P.Response<ByteBuffer>> in
-                    /// The spec has us reset a stream we failed to serve, rather than closing it
-                    /// cleanly: a clean close reads as "nothing more to say", so the peer would take
-                    /// our silence for a legitimate empty answer instead of a failed request. This
-                    /// matches the `.reset` the decode/auth guards in `onData` already return.
+                    /// The spec has us reset a stream we failed to serve, rather than closing it cleanly: a clean close
+                    /// reads as "nothing more to say", so the peer would take our silence for a legitimate empty
+                    /// answer instead of a failed request. This matches the `.reset` the decode/auth guards in
+                    /// `onData` already return.
                     self.logger.warning("KadDHT::OnData::Error -> \(error)")
                     return req.eventLoop.makeSucceededFuture(.reset(error))
                 }
@@ -811,8 +799,9 @@ public enum KadDHT {
 
                     /// Do we know this peer?
                     ///
-                    /// Nodes, both those operating in client and server mode, add another node to their routing table if and only if that node operates in server mode.
-                    /// This distinction allows restricted nodes to utilize the DHT, i.e. query the DHT, without decreasing the quality of the distributed hash table, i.e. without polluting the routing tables.
+                    /// Nodes, both those operating in client and server mode, add another node to their routing table if and only if
+                    /// that node operates in server mode. This distinction allows restricted nodes to utilize the DHT, i.e. query the
+                    /// DHT, without decreasing the quality of the distributed hash table, i.e. without polluting the routing tables.
                     /// `addPeerIfSpaceOrCloser` makes that server-mode check itself.
                     _ = self.addPeerIfSpaceOrCloser(pInfo)
 
@@ -843,11 +832,10 @@ public enum KadDHT {
 
         /// The addresses we're willing to attribute to `peer` when it dials us.
         ///
-        /// A requester-supplied, or it's observed, address is unverified: for an inbound stream
-        /// `request.addr` is wherever we happened to see the peer, which is usually an ephemeral
-        /// source port nothing can dial back. So we lead with what identify already put in the
-        /// peerstore and keep the observed address only as a trailing fallback, rather than letting
-        /// it be the only thing we record.
+        /// A requester-supplied, or it's observed, address is unverified: for an inbound stream `request.addr` is wherever
+        /// we happened to see the peer, which is usually an ephemeral source port nothing can dial back. So we lead with
+        /// what identify already put in the peerstore and keep the observed address only as a trailing fallback, rather than
+        /// letting it be the only thing we record.
         func trustedAddresses(for peer: PeerID, observedOn observed: Multiaddr) -> EventLoopFuture<PeerInfo> {
             self.peerstore.getPeerInfo(byID: peer.b58String, on: self.eventLoop).map { known -> PeerInfo in
                 guard !known.addresses.isEmpty else { return PeerInfo(peer: peer, addresses: [observed]) }
