@@ -45,7 +45,7 @@ extension LibP2PKadDHTTests {
                 app.servers.use(.tcp(host: "127.0.0.1", port: 0))
             }
         }
-        
+
         // - MARK: Startup
 
         /// The route belongs to the `Application`'s router, which outlives a stop/start cycle of the
@@ -74,14 +74,14 @@ extension LibP2PKadDHTTests {
         @Test func aClientCanBeRestartedAndDoesntRegisterTheRoute() async throws {
             try await withApp(configure: self.host(mode: .client)) { app in
                 let node = app.dht.kadDHT
-                
+
                 let registrations = {
                     app.routes.registeredProtocols.filter { $0.stringValue == KadDHT.multicodec }.count
                 }
-                
+
                 #expect(registrations() == 0, "a client must not register the route")
                 node.stop()
-                
+
                 try node.start()
                 #expect(node.state == .started)
                 #expect(registrations() == 0, "a client must not register the route, even upon restart")
