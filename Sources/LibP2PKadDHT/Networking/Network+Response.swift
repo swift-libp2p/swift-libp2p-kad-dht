@@ -91,16 +91,13 @@ extension KadDHT {
         static func decode(_ bytes: [UInt8]) throws -> Response {
             let prefix = uVarInt(bytes)
             guard prefix.value > 0, prefix.value == (bytes.count - prefix.bytesRead) else {
-                print("Failed to decode bytes: \(bytes.toHexString())")
-                print("Prefix Value: \(prefix.value)")
-                print("Bytes Counts: \(bytes.count)")
+                /// The frame itself is the diagnostic here, and this is a static decoder with no
+                /// logger. `_sendQuery` logs the offending bytes at `.trace` when this throws.
                 throw Errors.DecodingErrorInvalidLength
             }
             let payload: [UInt8] = [UInt8](bytes.dropFirst(prefix.bytesRead))
 
             guard let dht = try? DHT.Message(serializedBytes: payload) else { throw Errors.DecodingErrorInvalidType }
-
-            //print(dht)
 
             switch dht.type {
             case .findNode:

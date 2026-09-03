@@ -681,10 +681,6 @@ class RoutingTable: EventLoopService, @unchecked Sendable {
         }
     }
 
-    func prettyPrint() {
-        print(self.description)
-    }
-
     /// - TODO: Implement me...
     func getDiversityStats() -> [String: Any] {
         [:]

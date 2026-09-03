@@ -35,11 +35,10 @@ extension ID {
         self.distanceBetween(key: self, and: key).zeroPrefixLength()
     }
 
+    /// - Note: See ``KadDHT/Key/distanceBetween(k0:k1:)``, unequal widths have no meaningful
+    ///   distance, so return an empty distance value.
     private func distanceBetween(key key1: [UInt8], and key2: [UInt8]) -> [UInt8] {
-        guard key1.count == key2.count else {
-            print("Error: Keys must be the same length")
-            return []
-        }
+        guard key1.count == key2.count else { return [] }
         return key1.enumerated().map { idx, byte in key2[idx] ^ byte }
     }
 }

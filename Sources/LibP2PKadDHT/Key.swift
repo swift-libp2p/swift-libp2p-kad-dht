@@ -62,13 +62,14 @@ extension KadDHT {
 
 extension KadDHT.Key: Comparable {
     /// Measures the distance between two keys
+    ///
+    /// - Note: Distance is only meaningful between keys of equal width, which every key in the
+    ///   `.xor` keyspace is (they're SHA-256 digests). A mismatch means a caller mixed keyspaces,
+    ///   so we report "no distance" rather than XOR-ing past the end of the shorter key.
     internal static func distanceBetween(k0: KadDHT.Key, k1: KadDHT.Key) -> [UInt8] {
         let k0Bytes = k0.bytes
         let k1Bytes = k1.bytes
-        guard k0Bytes.count == k1Bytes.count else {
-            print("Error: Keys must be the same length")
-            return []
-        }
+        guard k0Bytes.count == k1Bytes.count else { return [] }
         return k0Bytes.enumerated().map { idx, byte in
             k1Bytes[idx] ^ byte
         }
@@ -99,7 +100,6 @@ extension KadDHT.Key: Comparable {
         let p1Bytes = key1.bytes
         let p2Bytes = key2.bytes
         guard p0Bytes.count == p1Bytes.count, p0Bytes.count == p2Bytes.count else {
-            print("Error: Keys must be the same length")
             return .sameDistance
         }
         for (idx, byte) in p0Bytes.enumerated() {
