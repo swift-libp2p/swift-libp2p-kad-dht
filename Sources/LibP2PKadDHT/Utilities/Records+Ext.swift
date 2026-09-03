@@ -29,6 +29,21 @@ extension DHTRecord {
     }
 }
 
+extension DHT.Record {
+
+    /// The record, having checked that its serialized form is less than ``KadDHT/Defaults/maxRecordSize``.
+    ///
+    /// The enclosing frame is separately bounded by ``KadDHT/Defaults/maxMessageSize`` in
+    /// ``KadDHT/FrameDecoder``, so this is a policy limit on the record, not the read buffer.
+    func withinSizeLimit() throws -> DHT.Record {
+        let bytes = try self.serializedData().count
+        guard bytes <= KadDHT.Defaults.maxRecordSize else {
+            throw KadDHT.Errors.recordTooLarge(bytes: bytes, limit: KadDHT.Defaults.maxRecordSize)
+        }
+        return self
+    }
+}
+
 extension DHT.Message.Peer: CustomStringConvertible {
     var description: String {
         if let pid = try? PeerID(fromBytesID: self.id.byteArray) {
