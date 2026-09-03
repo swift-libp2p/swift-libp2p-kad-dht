@@ -76,12 +76,7 @@ extension KadDHT {
 
                 /// In the request `record` is set to the record to be stored and `key` on Message is set to equal `key` of the Record.
                 guard req.key == record.key else { throw Errors.encodingError }
-
-                let serializedRecord = try record.serializedData()
-                guard serializedRecord.count <= KadDHT.Defaults.maxRecordSize else {
-                    throw Errors.recordTooLarge(bytes: serializedRecord.count, limit: KadDHT.Defaults.maxRecordSize)
-                }
-                req.record = serializedRecord
+                req.record = try record.withinSizeLimit()
             //req.providerPeers = try providers.map { try DHT.Message.Peer($0) }
 
             case let .getProviders(key):
@@ -133,10 +128,8 @@ extension KadDHT {
             case .putValue:
                 /// .store
                 /// In the request, record is set to the record to be stored and key on Message is set to equal key of the Record.
-                guard dht.record.count <= KadDHT.Defaults.maxRecordSize else {
-                    throw Errors.recordTooLarge(bytes: dht.record.count, limit: KadDHT.Defaults.maxRecordSize)
-                }
-                let rec = try DHT.Record(serializedBytes: dht.record)
+                guard dht.hasRecord else { throw Errors.DecodingErrorInvalidType }
+                let rec = try dht.record.withinSizeLimit()
                 guard rec.hasValue, rec.hasKey, !rec.value.isEmpty, !rec.key.isEmpty, dht.key == rec.key else {
                     throw Errors.DecodingErrorInvalidType
                 }
@@ -161,7 +154,8 @@ extension KadDHT {
                 /// .ping (deprecated)
                 return Query.ping
 
-            default:
+            case .UNRECOGNIZED:
+                /// A type we don't implement. An absent type doesn't land here, it reads as `.putValue`.
                 throw Errors.DecodingErrorInvalidType
             }
         }
