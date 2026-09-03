@@ -16,7 +16,7 @@ import LibP2P
 
 extension Application.DHTServices.Provider {
 
-    /// Starts the KadDHT in client mode with default options
+    /// Starts the KadDHT in client mode with the default (Amino) configuration
     public static var kadDHT: Self {
         .init {
             $0.dht.use { app -> KadDHT.Node in
@@ -24,7 +24,7 @@ extension Application.DHTServices.Provider {
                     network: app,
                     mode: .client,
                     bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes,
-                    options: KadDHT.NodeOptions()
+                    configuration: .default
                 )
                 app.lifecycle.use(dht)
                 app.discovery.use { _ in dht }  // Does this work??
@@ -36,7 +36,7 @@ extension Application.DHTServices.Provider {
     /// Configures a KadDHT Node with the specified parameters
     public static func kadDHT(
         mode: KadDHT.Mode,
-        options: KadDHT.NodeOptions? = nil,
+        configuration: KadDHT.Configuration = .default,
         bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
         autoUpdate: Bool = true
     ) -> Self {
@@ -46,7 +46,7 @@ extension Application.DHTServices.Provider {
                     network: app,
                     mode: mode,
                     bootstrapPeers: bootstrapPeers,
-                    options: options ?? KadDHT.NodeOptions()
+                    configuration: configuration
                 )
                 dht.autoUpdate = autoUpdate
                 if case .server = mode {
@@ -58,68 +58,6 @@ extension Application.DHTServices.Provider {
                 return dht
             }
         }
-    }
-
-    /// Configures a KadDHT Node with the specified parameters
-    ///
-    /// - Note: Do we pass in out namespaces and validators here?
-    public static func kadDHT(
-        mode: KadDHT.Mode,
-        connectionTimeout: TimeAmount,
-        concurrency: Int,
-        bucketSize: Int,
-        maxPeers: Int,
-        maxKeyValueStoreEntries: Int,
-        autoUpdate: Bool = true,
-        bootstrappedPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes
-    ) -> Self {
-        .init {
-            $0.dht.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(
-                    network: app,
-                    mode: mode,
-                    bootstrapPeers: bootstrappedPeers,
-                    options: KadDHT.NodeOptions(
-                        connectionTimeout: connectionTimeout,
-                        concurrency: concurrency,
-                        bucketSize: bucketSize,
-                        maxPeers: maxPeers,
-                        maxKeyValueStoreEntries: maxKeyValueStoreEntries
-                    )
-                )
-                dht.autoUpdate = autoUpdate
-                if case .server = mode {
-                    let _ = dht.handle(namespace: "pk", validator: KadDHT.PubKeyValidator())
-                    let _ = dht.handle(namespace: "ipns", validator: KadDHT.IPNSValidator())
-                }
-                app.lifecycle.use(dht)
-                app.discovery.use { _ in dht }  // Does this work??
-                return dht
-            }
-        }
-    }
-
-    @available(*, deprecated, message: "`maxConcurrentConnections` is the Kademlia α parameter — use `concurrency:`")
-    public static func kadDHT(
-        mode: KadDHT.Mode,
-        connectionTimeout: TimeAmount,
-        maxConcurrentConnections: Int,
-        bucketSize: Int,
-        maxPeers: Int,
-        maxKeyValueStoreEntries: Int,
-        autoUpdate: Bool = true,
-        bootstrappedPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes
-    ) -> Self {
-        self.kadDHT(
-            mode: mode,
-            connectionTimeout: connectionTimeout,
-            concurrency: maxConcurrentConnections,
-            bucketSize: bucketSize,
-            maxPeers: maxPeers,
-            maxKeyValueStoreEntries: maxKeyValueStoreEntries,
-            autoUpdate: autoUpdate,
-            bootstrappedPeers: bootstrappedPeers
-        )
     }
 }
 
@@ -145,7 +83,7 @@ extension Application.DiscoveryServices.Provider {
                     network: app,
                     mode: .client,
                     bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes,
-                    options: KadDHT.NodeOptions()
+                    configuration: .default
                 )
                 app.lifecycle.use(dht)
                 app.dht.use { _ in dht }  // Does this work??
