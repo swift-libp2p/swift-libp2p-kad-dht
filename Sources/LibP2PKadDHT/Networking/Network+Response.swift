@@ -30,15 +30,6 @@ extension KadDHT {
         /// Deprecated...
         case ping
 
-        /// Serializes `record`, refusing anything over ``KadDHT/maxRecordSize``.
-        private static func serialized(_ record: DHT.Record) throws -> Data {
-            let bytes = try record.serializedData()
-            guard bytes.count <= KadDHT.Defaults.maxRecordSize else {
-                throw Errors.recordTooLarge(bytes: bytes.count, limit: KadDHT.Defaults.maxRecordSize)
-            }
-            return bytes
-        }
-
         /// The spec's responses carry "the k closest peers", so we never put more than k on the wire.
         private static func bounded(_ peers: [DHT.Message.Peer]) -> [DHT.Message.Peer] {
             Array(peers.prefix(KadDHT.Defaults.maxPeersPerMessage))
@@ -57,7 +48,7 @@ extension KadDHT {
                 dht.type = .getValue
                 dht.key = Data(key)
                 if let record = record {
-                    dht.record = try Self.serialized(record)
+                    dht.record = try record.withinSizeLimit()
                 }
                 /// Should we only set this if record is nil? Do we set it even if closerPeers is empty?
                 dht.closerPeers = Self.bounded(closerPeers)
@@ -66,7 +57,7 @@ extension KadDHT {
                 dht.type = .putValue
                 dht.key = Data(key)
                 if let record = record {
-                    dht.record = try Self.serialized(record)
+                    dht.record = try record.withinSizeLimit()
                 }
 
             case let .getProviders(cid, providerPeers, closerPeers):
@@ -91,13 +82,10 @@ extension KadDHT {
             return putUVarInt(UInt64(payload.count)) + payload
         }
 
-        /// The record carried by `dht`, if any, refusing anything over ``KadDHT/maxRecordSize``.
+        /// The record carried by `dht`, if any, refusing anything over ``KadDHT/Defaults/maxRecordSize``.
         private static func record(in dht: DHT.Message) throws -> DHT.Record? {
             guard dht.hasRecord else { return nil }
-            guard dht.record.count <= KadDHT.Defaults.maxRecordSize else {
-                throw Errors.recordTooLarge(bytes: dht.record.count, limit: KadDHT.Defaults.maxRecordSize)
-            }
-            return try DHT.Record(serializedBytes: dht.record)
+            return try dht.record.withinSizeLimit()
         }
 
         static func decode(_ bytes: [UInt8]) throws -> Response {
@@ -157,7 +145,8 @@ extension KadDHT {
                 /// Deprecated...
                 return Response.ping
 
-            default:
+            case .UNRECOGNIZED:
+                /// See `Query.decode`: an unrecognized type is refused, an absent one is a `PUT_VALUE` echo.
                 throw Errors.DecodingErrorInvalidType
             }
         }

@@ -14,7 +14,13 @@
 
 import LibP2P
 
-extension DHT.Record: DHTRecord {}
+/// `author` (field 3) and `signature` (field 4) are gone from the wire schema, and the
+/// spec's `Record` doesn't list them. The `DHTRecord` protocol still declares both,
+/// so we provide empty Data() objects until `swift-libp2p` updates the protocol.
+extension DHT.Record: DHTRecord {
+    var author: Data { Data() }
+    var signature: Data { Data() }
+}
 
 extension DHTRecord {
     func toProtobuf() -> DHT.Record {
@@ -22,10 +28,23 @@ extension DHTRecord {
         return DHT.Record.with { rec in
             rec.key = self.key
             rec.value = self.value
-            rec.author = self.author
-            rec.signature = self.signature
             rec.timeReceived = self.timeReceived
         }
+    }
+}
+
+extension DHT.Record {
+
+    /// The record, having checked that its serialized form is less than ``KadDHT/Defaults/maxRecordSize``.
+    ///
+    /// The enclosing frame is separately bounded by ``KadDHT/Defaults/maxMessageSize`` in
+    /// ``KadDHT/FrameDecoder``, so this is a policy limit on the record, not the read buffer.
+    func withinSizeLimit() throws -> DHT.Record {
+        let bytes = try self.serializedData().count
+        guard bytes <= KadDHT.Defaults.maxRecordSize else {
+            throw KadDHT.Errors.recordTooLarge(bytes: bytes, limit: KadDHT.Defaults.maxRecordSize)
+        }
+        return self
     }
 }
 

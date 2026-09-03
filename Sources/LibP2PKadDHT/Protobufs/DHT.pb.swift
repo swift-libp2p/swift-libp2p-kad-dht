@@ -21,7 +21,11 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -35,54 +39,41 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
 }
 
 enum DHT {
+    /// https://github.com/libp2p/specs/blob/master/kad-dht/README.md
+    /// Record represents a dht record that contains a value for a key value pair
     struct Record: Sendable {
         // SwiftProtobuf.Message conformance is added in an extension below. See the
         // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
         // methods supported on all messages.
         
-        /// adjusted for javascript
+        /// The key that references this record
         var key: Data {
-            get {return _key ?? Data()}
+            get {_key ?? Data()}
             set {_key = newValue}
         }
         /// Returns true if `key` has been explicitly set.
-        var hasKey: Bool {return self._key != nil}
+        var hasKey: Bool {self._key != nil}
         /// Clears the value of `key`. Subsequent reads from it will return its default value.
         mutating func clearKey() {self._key = nil}
         
+        /// The actual value this record is storing
         var value: Data {
-            get {return _value ?? Data()}
+            get {_value ?? Data()}
             set {_value = newValue}
         }
         /// Returns true if `value` has been explicitly set.
-        var hasValue: Bool {return self._value != nil}
+        var hasValue: Bool {self._value != nil}
         /// Clears the value of `value`. Subsequent reads from it will return its default value.
         mutating func clearValue() {self._value = nil}
         
-        var author: Data {
-            get {return _author ?? Data()}
-            set {_author = newValue}
-        }
-        /// Returns true if `author` has been explicitly set.
-        var hasAuthor: Bool {return self._author != nil}
-        /// Clears the value of `author`. Subsequent reads from it will return its default value.
-        mutating func clearAuthor() {self._author = nil}
-        
-        var signature: Data {
-            get {return _signature ?? Data()}
-            set {_signature = newValue}
-        }
-        /// Returns true if `signature` has been explicitly set.
-        var hasSignature: Bool {return self._signature != nil}
-        /// Clears the value of `signature`. Subsequent reads from it will return its default value.
-        mutating func clearSignature() {self._signature = nil}
-        
+        /// Time the record was received, set by receiver
+        /// Formatted according to https://datatracker.ietf.org/doc/html/rfc3339
         var timeReceived: String {
-            get {return _timeReceived ?? String()}
+            get {_timeReceived ?? String()}
             set {_timeReceived = newValue}
         }
         /// Returns true if `timeReceived` has been explicitly set.
-        var hasTimeReceived: Bool {return self._timeReceived != nil}
+        var hasTimeReceived: Bool {self._timeReceived != nil}
         /// Clears the value of `timeReceived`. Subsequent reads from it will return its default value.
         mutating func clearTimeReceived() {self._timeReceived = nil}
         
@@ -92,8 +83,6 @@ enum DHT {
         
         fileprivate var _key: Data? = nil
         fileprivate var _value: Data? = nil
-        fileprivate var _author: Data? = nil
-        fileprivate var _signature: Data? = nil
         fileprivate var _timeReceived: String? = nil
     }
     
@@ -104,46 +93,44 @@ enum DHT {
         
         /// defines what type of message it is.
         var type: Message.MessageType {
-            get {return _type ?? .putValue}
+            get {_type ?? .putValue}
             set {_type = newValue}
         }
         /// Returns true if `type` has been explicitly set.
-        var hasType: Bool {return self._type != nil}
+        var hasType: Bool {self._type != nil}
         /// Clears the value of `type`. Subsequent reads from it will return its default value.
         mutating func clearType() {self._type = nil}
         
         /// defines what coral cluster level this query/response belongs to.
         /// in case we want to implement coral's cluster rings in the future.
         var clusterLevelRaw: Int32 {
-            get {return _clusterLevelRaw ?? 0}
+            get {_clusterLevelRaw ?? 0}
             set {_clusterLevelRaw = newValue}
         }
         /// Returns true if `clusterLevelRaw` has been explicitly set.
-        var hasClusterLevelRaw: Bool {return self._clusterLevelRaw != nil}
+        var hasClusterLevelRaw: Bool {self._clusterLevelRaw != nil}
         /// Clears the value of `clusterLevelRaw`. Subsequent reads from it will return its default value.
         mutating func clearClusterLevelRaw() {self._clusterLevelRaw = nil}
         
         /// Used to specify the key associated with this message.
         /// PUT_VALUE, GET_VALUE, ADD_PROVIDER, GET_PROVIDERS
-        /// adjusted for javascript
         var key: Data {
-            get {return _key ?? Data()}
+            get {_key ?? Data()}
             set {_key = newValue}
         }
         /// Returns true if `key` has been explicitly set.
-        var hasKey: Bool {return self._key != nil}
+        var hasKey: Bool {self._key != nil}
         /// Clears the value of `key`. Subsequent reads from it will return its default value.
         mutating func clearKey() {self._key = nil}
         
         /// Used to return a value
         /// PUT_VALUE, GET_VALUE
-        /// adjusted Record to bytes for js
-        var record: Data {
-            get {return _record ?? Data()}
+        var record: Record {
+            get {_record ?? Record()}
             set {_record = newValue}
         }
         /// Returns true if `record` has been explicitly set.
-        var hasRecord: Bool {return self._record != nil}
+        var hasRecord: Bool {self._record != nil}
         /// Clears the value of `record`. Subsequent reads from it will return its default value.
         mutating func clearRecord() {self._record = nil}
         
@@ -268,11 +255,11 @@ enum DHT {
             
             /// ID of a given peer.
             var id: Data {
-                get {return _id ?? Data()}
+                get {_id ?? Data()}
                 set {_id = newValue}
             }
             /// Returns true if `id` has been explicitly set.
-            var hasID: Bool {return self._id != nil}
+            var hasID: Bool {self._id != nil}
             /// Clears the value of `id`. Subsequent reads from it will return its default value.
             mutating func clearID() {self._id = nil}
             
@@ -281,11 +268,11 @@ enum DHT {
             
             /// used to signal the sender's connection capabilities to the peer
             var connection: Message.ConnectionType {
-                get {return _connection ?? .notConnected}
+                get {_connection ?? .notConnected}
                 set {_connection = newValue}
             }
             /// Returns true if `connection` has been explicitly set.
-            var hasConnection: Bool {return self._connection != nil}
+            var hasConnection: Bool {self._connection != nil}
             /// Clears the value of `connection`. Subsequent reads from it will return its default value.
             mutating func clearConnection() {self._connection = nil}
             
@@ -302,123 +289,113 @@ enum DHT {
         fileprivate var _type: Message.MessageType? = nil
         fileprivate var _clusterLevelRaw: Int32? = nil
         fileprivate var _key: Data? = nil
-        fileprivate var _record: Data? = nil
+        fileprivate var _record: Record? = nil
     }
 }
     
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 extension DHT.Record: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-    static let protoMessageName: String = "Record"
-    static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}value\0\u{1}author\0\u{1}signature\0\u{1}timeReceived\0")
-    
-    mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-        while let fieldNumber = try decoder.nextFieldNumber() {
-            // The use of inline closures is to circumvent an issue where the compiler
-            // allocates stack space for every case branch when no optimizations are
-            // enabled. https://github.com/apple/swift-protobuf/issues/1034
-            switch fieldNumber {
-            case 1: try { try decoder.decodeSingularBytesField(value: &self._key) }()
-            case 2: try { try decoder.decodeSingularBytesField(value: &self._value) }()
-            case 3: try { try decoder.decodeSingularBytesField(value: &self._author) }()
-            case 4: try { try decoder.decodeSingularBytesField(value: &self._signature) }()
-            case 5: try { try decoder.decodeSingularStringField(value: &self._timeReceived) }()
-            default: break
-            }
-        }
+  static let protoMessageName: String = "Record"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}key\0\u{1}value\0\u{2}\u{3}timeReceived\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self._key) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self._value) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._timeReceived) }()
+      default: break
+      }
     }
-    
-    func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-        // The use of inline closures is to circumvent an issue where the compiler
-        // allocates stack space for every if/case branch local when no optimizations
-        // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-        // https://github.com/apple/swift-protobuf/issues/1182
-        try { if let v = self._key {
-            try visitor.visitSingularBytesField(value: v, fieldNumber: 1)
-        } }()
-        try { if let v = self._value {
-            try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
-        } }()
-        try { if let v = self._author {
-            try visitor.visitSingularBytesField(value: v, fieldNumber: 3)
-        } }()
-        try { if let v = self._signature {
-            try visitor.visitSingularBytesField(value: v, fieldNumber: 4)
-        } }()
-        try { if let v = self._timeReceived {
-            try visitor.visitSingularStringField(value: v, fieldNumber: 5)
-        } }()
-        try unknownFields.traverse(visitor: &visitor)
-    }
-    
-    static func ==(lhs: DHT.Record, rhs: DHT.Record) -> Bool {
-        if lhs._key != rhs._key {return false}
-        if lhs._value != rhs._value {return false}
-        if lhs._author != rhs._author {return false}
-        if lhs._signature != rhs._signature {return false}
-        if lhs._timeReceived != rhs._timeReceived {return false}
-        if lhs.unknownFields != rhs.unknownFields {return false}
-        return true
-    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._key {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._value {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._timeReceived {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: DHT.Record, rhs: DHT.Record) -> Bool {
+    if lhs._key != rhs._key {return false}
+    if lhs._value != rhs._value {return false}
+    if lhs._timeReceived != rhs._timeReceived {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension DHT.Message: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-    static let protoMessageName: String = "Message"
-    static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{1}key\0\u{1}record\0\u{2}\u{5}closerPeers\0\u{1}providerPeers\0\u{1}clusterLevelRaw\0")
-    
-    mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-        while let fieldNumber = try decoder.nextFieldNumber() {
-            // The use of inline closures is to circumvent an issue where the compiler
-            // allocates stack space for every case branch when no optimizations are
-            // enabled. https://github.com/apple/swift-protobuf/issues/1034
-            switch fieldNumber {
-            case 1: try { try decoder.decodeSingularEnumField(value: &self._type) }()
-            case 2: try { try decoder.decodeSingularBytesField(value: &self._key) }()
-            case 3: try { try decoder.decodeSingularBytesField(value: &self._record) }()
-            case 8: try { try decoder.decodeRepeatedMessageField(value: &self.closerPeers) }()
-            case 9: try { try decoder.decodeRepeatedMessageField(value: &self.providerPeers) }()
-            case 10: try { try decoder.decodeSingularInt32Field(value: &self._clusterLevelRaw) }()
-            default: break
-            }
-        }
+  static let protoMessageName: String = "Message"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{1}key\0\u{1}record\0\u{2}\u{5}closerPeers\0\u{1}providerPeers\0\u{1}clusterLevelRaw\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularEnumField(value: &self._type) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self._key) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._record) }()
+      case 8: try { try decoder.decodeRepeatedMessageField(value: &self.closerPeers) }()
+      case 9: try { try decoder.decodeRepeatedMessageField(value: &self.providerPeers) }()
+      case 10: try { try decoder.decodeSingularInt32Field(value: &self._clusterLevelRaw) }()
+      default: break
+      }
     }
-    
-    func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-        // The use of inline closures is to circumvent an issue where the compiler
-        // allocates stack space for every if/case branch local when no optimizations
-        // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-        // https://github.com/apple/swift-protobuf/issues/1182
-        try { if let v = self._type {
-            try visitor.visitSingularEnumField(value: v, fieldNumber: 1)
-        } }()
-        try { if let v = self._key {
-            try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
-        } }()
-        try { if let v = self._record {
-            try visitor.visitSingularBytesField(value: v, fieldNumber: 3)
-        } }()
-        if !self.closerPeers.isEmpty {
-            try visitor.visitRepeatedMessageField(value: self.closerPeers, fieldNumber: 8)
-        }
-        if !self.providerPeers.isEmpty {
-            try visitor.visitRepeatedMessageField(value: self.providerPeers, fieldNumber: 9)
-        }
-        try { if let v = self._clusterLevelRaw {
-            try visitor.visitSingularInt32Field(value: v, fieldNumber: 10)
-        } }()
-        try unknownFields.traverse(visitor: &visitor)
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._type {
+      try visitor.visitSingularEnumField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._key {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
+    } }()
+    try { if let v = self._record {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    } }()
+    if !self.closerPeers.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.closerPeers, fieldNumber: 8)
     }
-    
-    static func ==(lhs: DHT.Message, rhs: DHT.Message) -> Bool {
-        if lhs._type != rhs._type {return false}
-        if lhs._clusterLevelRaw != rhs._clusterLevelRaw {return false}
-        if lhs._key != rhs._key {return false}
-        if lhs._record != rhs._record {return false}
-        if lhs.closerPeers != rhs.closerPeers {return false}
-        if lhs.providerPeers != rhs.providerPeers {return false}
-        if lhs.unknownFields != rhs.unknownFields {return false}
-        return true
+    if !self.providerPeers.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.providerPeers, fieldNumber: 9)
     }
+    try { if let v = self._clusterLevelRaw {
+      try visitor.visitSingularInt32Field(value: v, fieldNumber: 10)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: DHT.Message, rhs: DHT.Message) -> Bool {
+    if lhs._type != rhs._type {return false}
+    if lhs._clusterLevelRaw != rhs._clusterLevelRaw {return false}
+    if lhs._key != rhs._key {return false}
+    if lhs._record != rhs._record {return false}
+    if lhs.closerPeers != rhs.closerPeers {return false}
+    if lhs.providerPeers != rhs.providerPeers {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
 }
 
 extension DHT.Message.MessageType: SwiftProtobuf._ProtoNameProviding {

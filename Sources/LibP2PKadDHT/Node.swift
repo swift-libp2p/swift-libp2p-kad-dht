@@ -1316,7 +1316,7 @@ public enum KadDHT {
                                     }
                                     return self.eventLoop.makeSucceededFuture(rec != nil && k == key)
                                 case .failure(let error):
-                                    self.logger.debug("PutValue to \(peer.peer) failed: \(error)")
+                                    self.logger.warning("PutValue to \(peer.peer) failed: \(error)")
                                     return self.eventLoop.makeSucceededFuture(false)
                                 }
                             }
@@ -1429,8 +1429,8 @@ public enum KadDHT {
                 if let record = record {
                     return "Result for key \(key.asString(base: .base16)): `\(record.value.asString(base: .base16))`"
                 } else if !closerPeers.isEmpty {
-                    return
-                        "Closer peers [\(closerPeers.compactMap { try? PeerID(fromBytesID: $0.id.byteArray).b58String }.joined(separator: "\n"))]"
+                    return "Closer peers [\(closerPeers.count)]"
+                    //"Closer peers [\(closerPeers.compactMap { try? PeerID(fromBytesID: $0.id.byteArray).b58String }.joined(separator: "\n"))]"
                 }
                 return "Lookup Exhausted"
             }

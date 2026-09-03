@@ -21,7 +21,11 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -39,71 +43,96 @@ struct IpnsEntry: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var value: Data = Data()
+  /// legacy V1 copy of data[Value]
+  var value: Data {
+    get {_value ?? Data()}
+    set {_value = newValue}
+  }
+  /// Returns true if `value` has been explicitly set.
+  var hasValue: Bool {self._value != nil}
+  /// Clears the value of `value`. Subsequent reads from it will return its default value.
+  mutating func clearValue() {self._value = nil}
 
-  var signatureV1: Data = Data()
+  /// legacy V1 field, verify 'signatureV2' instead
+  var signatureV1: Data {
+    get {_signatureV1 ?? Data()}
+    set {_signatureV1 = newValue}
+  }
+  /// Returns true if `signatureV1` has been explicitly set.
+  var hasSignatureV1: Bool {self._signatureV1 != nil}
+  /// Clears the value of `signatureV1`. Subsequent reads from it will return its default value.
+  mutating func clearSignatureV1() {self._signatureV1 = nil}
 
+  /// legacy V1 copies of data[ValidityType] and data[Validity]
   var validityType: IpnsEntry.ValidityType {
-    get {return _validityType ?? .eol}
+    get {_validityType ?? .eol}
     set {_validityType = newValue}
   }
   /// Returns true if `validityType` has been explicitly set.
-  var hasValidityType: Bool {return self._validityType != nil}
+  var hasValidityType: Bool {self._validityType != nil}
   /// Clears the value of `validityType`. Subsequent reads from it will return its default value.
   mutating func clearValidityType() {self._validityType = nil}
 
   var validity: Data {
-    get {return _validity ?? Data()}
+    get {_validity ?? Data()}
     set {_validity = newValue}
   }
   /// Returns true if `validity` has been explicitly set.
-  var hasValidity: Bool {return self._validity != nil}
+  var hasValidity: Bool {self._validity != nil}
   /// Clears the value of `validity`. Subsequent reads from it will return its default value.
   mutating func clearValidity() {self._validity = nil}
 
+  /// legacy V1 copy of data[Sequence]
   var sequence: UInt64 {
-    get {return _sequence ?? 0}
+    get {_sequence ?? 0}
     set {_sequence = newValue}
   }
   /// Returns true if `sequence` has been explicitly set.
-  var hasSequence: Bool {return self._sequence != nil}
+  var hasSequence: Bool {self._sequence != nil}
   /// Clears the value of `sequence`. Subsequent reads from it will return its default value.
   mutating func clearSequence() {self._sequence = nil}
 
+  /// legacy V1 copy copy of data[TTL]
   var ttl: UInt64 {
-    get {return _ttl ?? 0}
+    get {_ttl ?? 0}
     set {_ttl = newValue}
   }
   /// Returns true if `ttl` has been explicitly set.
-  var hasTtl: Bool {return self._ttl != nil}
+  var hasTtl: Bool {self._ttl != nil}
   /// Clears the value of `ttl`. Subsequent reads from it will return its default value.
   mutating func clearTtl() {self._ttl = nil}
 
-  /// https://pkg.go.dev/github.com/ipfs/go-ipns/pb
+  /// Optional Public Key to be used for signature verification.
+  /// Used for big keys such as old RSA keys. Including the public key as part of
+  /// the record itself makes it verifiable in offline mode, without any additional lookup.
+  /// For newer Ed25519 keys, the public key is small enough that it can be embedded in the
+  /// IPNS Name itself, making this field unnecessary.
   var pubKey: Data {
-    get {return _pubKey ?? Data()}
+    get {_pubKey ?? Data()}
     set {_pubKey = newValue}
   }
   /// Returns true if `pubKey` has been explicitly set.
-  var hasPubKey: Bool {return self._pubKey != nil}
+  var hasPubKey: Bool {self._pubKey != nil}
   /// Clears the value of `pubKey`. Subsequent reads from it will return its default value.
   mutating func clearPubKey() {self._pubKey = nil}
 
+  /// (mandatory V2) signature of the IPNS record
   var signatureV2: Data {
-    get {return _signatureV2 ?? Data()}
+    get {_signatureV2 ?? Data()}
     set {_signatureV2 = newValue}
   }
   /// Returns true if `signatureV2` has been explicitly set.
-  var hasSignatureV2: Bool {return self._signatureV2 != nil}
+  var hasSignatureV2: Bool {self._signatureV2 != nil}
   /// Clears the value of `signatureV2`. Subsequent reads from it will return its default value.
   mutating func clearSignatureV2() {self._signatureV2 = nil}
 
+  /// (mandatory V2) extensible record data in DAG-CBOR format
   var data: Data {
-    get {return _data ?? Data()}
+    get {_data ?? Data()}
     set {_data = newValue}
   }
   /// Returns true if `data` has been explicitly set.
-  var hasData: Bool {return self._data != nil}
+  var hasData: Bool {self._data != nil}
   /// Clears the value of `data`. Subsequent reads from it will return its default value.
   mutating func clearData() {self._data = nil}
 
@@ -143,6 +172,8 @@ struct IpnsEntry: Sendable {
 
   init() {}
 
+  fileprivate var _value: Data? = nil
+  fileprivate var _signatureV1: Data? = nil
   fileprivate var _validityType: IpnsEntry.ValidityType? = nil
   fileprivate var _validity: Data? = nil
   fileprivate var _sequence: UInt64? = nil
@@ -164,8 +195,8 @@ extension IpnsEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementation
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularBytesField(value: &self.value) }()
-      case 2: try { try decoder.decodeSingularBytesField(value: &self.signatureV1) }()
+      case 1: try { try decoder.decodeSingularBytesField(value: &self._value) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self._signatureV1) }()
       case 3: try { try decoder.decodeSingularEnumField(value: &self._validityType) }()
       case 4: try { try decoder.decodeSingularBytesField(value: &self._validity) }()
       case 5: try { try decoder.decodeSingularUInt64Field(value: &self._sequence) }()
@@ -183,12 +214,12 @@ extension IpnsEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementation
     // allocates stack space for every if/case branch local when no optimizations
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.value.isEmpty {
-      try visitor.visitSingularBytesField(value: self.value, fieldNumber: 1)
-    }
-    if !self.signatureV1.isEmpty {
-      try visitor.visitSingularBytesField(value: self.signatureV1, fieldNumber: 2)
-    }
+    try { if let v = self._value {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 1)
+    } }()
+    try { if let v = self._signatureV1 {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
+    } }()
     try { if let v = self._validityType {
       try visitor.visitSingularEnumField(value: v, fieldNumber: 3)
     } }()
@@ -214,8 +245,8 @@ extension IpnsEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementation
   }
 
   static func ==(lhs: IpnsEntry, rhs: IpnsEntry) -> Bool {
-    if lhs.value != rhs.value {return false}
-    if lhs.signatureV1 != rhs.signatureV1 {return false}
+    if lhs._value != rhs._value {return false}
+    if lhs._signatureV1 != rhs._signatureV1 {return false}
     if lhs._validityType != rhs._validityType {return false}
     if lhs._validity != rhs._validity {return false}
     if lhs._sequence != rhs._sequence {return false}
