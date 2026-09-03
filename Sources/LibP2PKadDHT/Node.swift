@@ -289,6 +289,12 @@ public enum KadDHT {
             self.stop()
         }
 
+        /// The lifecycle hook an app built with `Application.make(_:_:)` calls, which can await a
+        /// real shutdown rather than blocking a thread on one.
+        public func shutdownAsync(_ application: Application) async {
+            await self.stop()
+        }
+
         public func start() throws {
             guard self.state == .stopped else {
                 self.logger.warning("Already Started")
@@ -1208,28 +1214,59 @@ public enum KadDHT {
             }
         }
 
-        public func stop() {
-            guard self.state == .started || self.state == .starting else {
-                self.logger.warning("Already stopped")
-                return
-            }
-            self.state = .stopping
-            /// - Note: not waited on, unlike the heartbeat below. `stop()` already blocks on one
-            ///   promise and waiting on a refresh mid-fan-out would hold
-            ///   shutdown for up to `refreshQueryTimeout` per outstanding lookup.
-            self.refreshTask?.cancel()
-            self.refreshTask = nil
-            if self.heartbeatTask != nil {
+        /// Cancels the node's periodic work, resolving once an in-flight heartbeat has finished.
+        ///
+        /// - Returns: A future that always succeeds. A cancellation error is logged rather than propagated
+        public func shutdown() -> EventLoopFuture<Void> {
+            self.eventLoop.flatSubmit {
+                guard self.state == .started || self.state == .starting else {
+                    self.logger.warning("Already stopped")
+                    return self.eventLoop.makeSucceededVoidFuture()
+                }
+                self.state = .stopping
+
+                /// - Note: not waited on, unlike the heartbeat below. Waiting on a refresh
+                ///   mid-fan-out would hold shutdown for up to `refreshQueryTimeout` per
+                ///   outstanding lookup.
+                self.refreshTask?.cancel()
+                self.refreshTask = nil
+
+                guard let heartbeatTask = self.heartbeatTask else {
+                    self.state = .stopped
+                    return self.eventLoop.makeSucceededVoidFuture()
+                }
+                self.heartbeatTask = nil
+
                 let promise = self.eventLoop.makePromise(of: Void.self)
-                self.heartbeatTask?.cancel(promise: promise)
-                do {
-                    try promise.futureResult.wait()
+                heartbeatTask.cancel(promise: promise)
+                return promise.futureResult.flatMapErrorThrowing { error in
+                    self.logger.error("Error encountered while stopping node \(error)")
+                }.always { _ in
+                    self.state = .stopped
                     self.logger.info("Node Stopped")
-                } catch {
-                    self.logger.error("Error encountered while stoping node \(error)")
                 }
             }
-            self.state = .stopped
+        }
+
+        /// Cancels the node's periodic work.
+        ///
+        /// Prefer ``shutdown()`` or its `async` twin: this is the synchronous ``EventLoopService``
+        /// requirement, so it can only report completion by blocking, and it refuses to block the
+        /// event loop it would be waiting on.
+        public func stop() {
+            /// Waiting here would lock, the cancellation we're waiting for completes on this
+            /// very loop. Callers already on the loop get best-effort cancellation instead.
+            guard self.eventLoop.inEventLoop == false else {
+                self.logger.debug("stop() called on the node's event loop, cancelling without waiting")
+                _ = self.shutdown()
+                return
+            }
+
+            do {
+                try self.shutdown().wait()
+            } catch {
+                self.logger.error("Error encountered while stopping node \(error)")
+            }
         }
 
         public func storeNew(_ key: [UInt8], value: DHTRecord) -> EventLoopFuture<Bool> {
