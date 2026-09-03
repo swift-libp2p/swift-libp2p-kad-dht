@@ -424,7 +424,7 @@ extension LibP2PKadDHTTests {
             var message = DHT.Message()
             message.type = .putValue
             message.key = Data(key)
-            message.record = try oversized.serializedData()
+            message.record = oversized
             let payload = try message.serializedData()
 
             #expect(throws: (any Error).self) { try KadDHT.Query.decode([UInt8](payload)) }
