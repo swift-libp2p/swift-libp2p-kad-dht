@@ -14,7 +14,13 @@
 
 import LibP2P
 
-extension DHT.Record: DHTRecord {}
+/// `author` (field 3) and `signature` (field 4) are gone from the wire schema, and the
+/// spec's `Record` doesn't list them. The `DHTRecord` protocol still declares both,
+/// so we provide empty Data() objects until `swift-libp2p` updates the protocol.
+extension DHT.Record: DHTRecord {
+    var author: Data { Data() }
+    var signature: Data { Data() }
+}
 
 extension DHTRecord {
     func toProtobuf() -> DHT.Record {
@@ -22,8 +28,6 @@ extension DHTRecord {
         return DHT.Record.with { rec in
             rec.key = self.key
             rec.value = self.value
-            rec.author = self.author
-            rec.signature = self.signature
             rec.timeReceived = self.timeReceived
         }
     }
