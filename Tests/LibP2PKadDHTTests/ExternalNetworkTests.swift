@@ -375,7 +375,7 @@ extension LibP2PKadDHTTests {
 
             /// Wait a few seconds before querying
             sleep(5)
-            
+
             /// Attempt to retrieve the Public Key Record from the DHT
             /// - Note: We use `lookupValue` instead of `.get(key)` to skip our local cache
             let trace = KadDHT.Node.LookupTrace()
@@ -385,7 +385,7 @@ extension LibP2PKadDHTTests {
 
             #expect(pubKeyRecord != nil)
             print(trace)
-            
+
             /// Stop the node
             lib.shutdown()
 

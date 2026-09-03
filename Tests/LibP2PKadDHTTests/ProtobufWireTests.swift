@@ -192,7 +192,7 @@ extension LibP2PKadDHTTests {
             #expect(roundTripped.hasSequence)
             #expect(roundTripped.sequence == 0)
         }
-        
+
         // MARK: - Hand-assembled protobuf
 
         /// A length-delimited field: `(fieldNumber << 3) | 2`, a uvarint length, then the payload.
