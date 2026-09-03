@@ -20,7 +20,7 @@ extension Application.DHTServices.Provider {
     public static var kadDHT: Self {
         .init {
             $0.dht.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(
+                let dht = KadDHT.Node(
                     network: app,
                     mode: .client,
                     bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes,
@@ -42,7 +42,7 @@ extension Application.DHTServices.Provider {
     ) -> Self {
         .init {
             $0.dht.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(
+                let dht = KadDHT.Node(
                     network: app,
                     mode: mode,
                     bootstrapPeers: bootstrapPeers,
@@ -79,7 +79,7 @@ extension Application.DiscoveryServices.Provider {
     public static var kadDHT: Self {
         .init {
             $0.discovery.use { app -> KadDHT.Node in
-                let dht = try! KadDHT.Node(
+                let dht = KadDHT.Node(
                     network: app,
                     mode: .client,
                     bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes,
