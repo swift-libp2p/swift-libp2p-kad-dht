@@ -34,11 +34,6 @@ public enum KadDHT {
     public class Node: DHTCore, EventLoopService, LifecycleHandler, PeerRouting, ContentRouting, @unchecked Sendable {
         public static let key: String = "KadDHT"
 
-        enum State: Sendable {
-            case started
-            case stopped
-        }
-
         /// A `TimeAmount` expressed in seconds.
         private static func seconds(_ amount: TimeAmount) -> TimeInterval {
             TimeInterval(amount.nanoseconds) / 1_000_000_000
