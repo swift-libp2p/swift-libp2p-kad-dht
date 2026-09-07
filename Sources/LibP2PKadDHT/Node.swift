@@ -34,11 +34,6 @@ public enum KadDHT {
     public class Node: DHTCore, EventLoopService, LifecycleHandler, PeerRouting, ContentRouting, @unchecked Sendable {
         public static let key: String = "KadDHT"
 
-        enum State: Sendable {
-            case started
-            case stopped
-        }
-
         /// A `TimeAmount` expressed in seconds.
         private static func seconds(_ amount: TimeAmount) -> TimeInterval {
             TimeInterval(amount.nanoseconds) / 1_000_000_000
@@ -148,26 +143,29 @@ public enum KadDHT {
         /// Known Peers
         let peerstore: PeerStore
 
-        /// Wether the node should start a timer that triggers the heartbeat method, or if it should wait for an external service to call the heartbeat method explicitly
-        public var autoUpdate: Bool
+        private var handler: LibP2P.ProtocolHandler?
 
         var replacementStrategy: RoutingTable.ReplacementStrategy { self.configuration.replacementStrategy }
 
-        private var heartbeatTask: RepeatedTask?
-
-        /// Refresh runs on a slower interval than the maintenance beat, see `start()`.
-        private var refreshTask: RepeatedTask?
+        /// If the Node is currently in the process of shutting down, this will contain the shutdowns
+        /// future, so concurrent / repeated callers can join this future to be notified.
+        private var pendingShutdown: EventLoopFuture<Void>?
 
         public private(set) var state: ServiceLifecycleState = .stopped
-
-        private var handler: LibP2P.ProtocolHandler?
 
         /// Whether we've registered the route handler already or not, so a restart doesn't
         /// try to register `/ipfs/kad/1.0.0` a second time.
         private var didRegisterRoute: Bool = false
 
+        /// Wether the node should start a timer that triggers the heartbeat method, or if it should wait
+        /// for an external service to call the heartbeat method explicitly
+        public var autoUpdate: Bool
+
+        private var heartbeatTask: RepeatedTask?
         private var isRunningHeartbeat: Bool = false
 
+        /// Refresh runs on a slower interval than the maintenance beat, see `start()`.
+        private var refreshTask: RepeatedTask?
         private var isRunningRefresh: Bool = false
 
         /// [Namespace: Validator]
@@ -1219,6 +1217,11 @@ public enum KadDHT {
         /// - Returns: A future that always succeeds. A cancellation error is logged rather than propagated
         public func shutdown() -> EventLoopFuture<Void> {
             self.eventLoop.flatSubmit {
+                /// If there's a shutdown in progress, join it...
+                if let pendingShutdown = self.pendingShutdown {
+                    return pendingShutdown
+                }
+
                 guard self.state == .started || self.state == .starting else {
                     self.logger.warning("Already stopped")
                     return self.eventLoop.makeSucceededVoidFuture()
@@ -1238,13 +1241,21 @@ public enum KadDHT {
                 self.heartbeatTask = nil
 
                 let promise = self.eventLoop.makePromise(of: Void.self)
-                heartbeatTask.cancel(promise: promise)
-                return promise.futureResult.flatMapErrorThrowing { error in
+                // register a post shutdown callback
+                let shutdown = promise.futureResult.flatMapErrorThrowing { error in
                     self.logger.error("Error encountered while stopping node \(error)")
                 }.always { _ in
+                    // shutdown done, nil out our pendingShutdown
+                    self.pendingShutdown = nil
+                    // update our state
                     self.state = .stopped
                     self.logger.info("Node Stopped")
                 }
+                // store our shutdown future
+                self.pendingShutdown = shutdown
+                // cancel the heartbeat task
+                heartbeatTask.cancel(promise: promise)
+                return shutdown
             }
         }
 
