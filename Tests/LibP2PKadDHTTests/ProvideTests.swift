@@ -295,34 +295,6 @@ extension LibP2PKadDHTTests {
             }
         }
 
-        // MARK: - Helpers
-
-        /// The routing-table key a provider record for `cid` is stored under.
-        ///
-        /// Provider records are keyed by the CID's *multihash*, not by the raw CID bytes, so that every
-        /// CID encoding of the same content converges on one key. Tests have to derive the key the same
-        /// way `provide(cid:announce:)` and `findProviders(cid:count:)` do, a CIDv1's full bytes carry
-        /// a version/codec prefix, so keying off them yields a different (and unreachable) key.
-        private func providerRoutingKey(_ cid: [UInt8]) throws -> KadDHT.Key {
-            KadDHT.Key(try CID(cid).multihash.value, keySpace: .xor)
-        }
-
-        /// Inserts a provider record for a random foreign peer, stamped `age` seconds ago.
-        /// - Returns: The routing-table key the record was stored under.
-        private func stageForeignProvider(
-            _ tag: String,
-            on node: KadDHT.Node,
-            age: TimeInterval
-        ) async throws -> KadDHT.Key {
-            let peerID = try PeerID(.Ed25519)
-            let kid = try providerRoutingKey(try syntheticCID(tag))
-            let provider = try DHT.Message.Peer(PeerInfo(peer: peerID, addresses: []))
-            let _ = try await node.providerStore.updateValue([provider], forKey: kid).get()
-            node.providerRecordAddedAt[KadDHT.Node.providerRecordKey(kid, peerID: peerID)] =
-                Date().addingTimeInterval(-age)
-            return kid
-        }
-
         /// Default app configuration for a DHT Client suitable for the above tests
         var defaultDHTClientConfig: ((Application) async throws -> Void) = { app in
             app.logger.logLevel = .warning
@@ -343,5 +315,33 @@ extension LibP2PKadDHTTests {
             )
             app.servers.use(.tcp(host: "127.0.0.1", port: 0))
         }
+    }
+
+    // MARK: - Provide Test Helpers
+
+    /// The routing-table key a provider record for `cid` is stored under.
+    ///
+    /// Provider records are keyed by the CID's *multihash*, not by the raw CID bytes, so that every
+    /// CID encoding of the same content converges on one key. Tests have to derive the key the same
+    /// way `provide(cid:announce:)` and `findProviders(cid:count:)` do, a CIDv1's full bytes carry
+    /// a version/codec prefix, so keying off them yields a different (and unreachable) key.
+    fileprivate static func providerRoutingKey(_ cid: [UInt8]) throws -> KadDHT.Key {
+        KadDHT.Key(try CID(cid).multihash.value, keySpace: .xor)
+    }
+
+    /// Inserts a provider record for a random foreign peer, stamped `age` seconds ago.
+    /// - Returns: The routing-table key the record was stored under.
+    fileprivate static func stageForeignProvider(
+        _ tag: String,
+        on node: KadDHT.Node,
+        age: TimeInterval
+    ) async throws -> KadDHT.Key {
+        let peerID = try PeerID(.Ed25519)
+        let kid = try providerRoutingKey(try syntheticCID(tag))
+        let provider = try DHT.Message.Peer(PeerInfo(peer: peerID, addresses: []))
+        let _ = try await node.providerStore.updateValue([provider], forKey: kid).get()
+        node.providerRecordAddedAt[KadDHT.Node.providerRecordKey(kid, peerID: peerID)] =
+            Date().addingTimeInterval(-age)
+        return kid
     }
 }
