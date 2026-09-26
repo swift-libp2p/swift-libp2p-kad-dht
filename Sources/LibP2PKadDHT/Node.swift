@@ -1165,28 +1165,25 @@ public enum KadDHT {
             let successfulPuts: NIOLockedValueBox<[PeerID]> = .init([])
             return self._nearest(peerCount, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Bool> in
                 nearestPeers.compactMap { peer -> EventLoopFuture<Bool> in
-                    self._sendQuery(.putValue(key: key.original, record: value), to: peer).flatMapAlways {
-                        result -> EventLoopFuture<Bool> in
-                        switch result {
-                        case .success(let res):
+                    self._sendQuery(.putValue(key: key.original, record: value), to: peer)
+                        .map { res -> Bool in
                             self.logger.debug("Shared key:value with \(peer.peer)")
                             guard case .putValue(let k, let v) = res else {
                                 self.logger.warning("Failed to share key:value with \(peer.peer)")
-                                return self.eventLoop.makeSucceededFuture(false)
+                                return false
                             }
                             guard k == key.original, v != nil else {
                                 self.logger.warning("Failed to share key:value with \(peer.peer)")
-                                return self.eventLoop.makeSucceededFuture(false)
+                                return false
                             }
                             self.logger.debug("They Stored It!")
                             successfulPuts.withLockedValue { $0.append(peer.peer) }
-                            return self.eventLoop.makeSucceededFuture(true)
-
-                        case .failure(let error):
-                            self.logger.warning("Failed to share key:value with \(peer.peer) -> \(error)")
-                            return self.eventLoop.makeSucceededFuture(false)
+                            return true
                         }
-                    }
+                        .recover { error -> Bool in
+                            self.logger.warning("Failed to share key:value with \(peer.peer) -> \(error)")
+                            return false
+                        }
                 }.flatten(on: self.eventLoop).map({ $0.contains(true) }).always { results in
                     self.logger.debug(
                         "Done Sharing Key:\(KadDHT.keyToHumanReadableString(key.original)) with \(successfulPuts.withLockedValue({$0}).count)/\(nearestPeers.count) peers"
