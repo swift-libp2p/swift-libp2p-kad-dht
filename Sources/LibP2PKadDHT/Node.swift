@@ -512,7 +512,7 @@ public enum KadDHT {
                         let necessary = KadDHT.PeerPrunableMetadata.necessary
                         if !necessary.isEmpty {
                             self.logger.trace(
-                                "Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.Prunable.rawValue] == necessary }).count)>"
+                                "Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.prunable.rawValue] == necessary }).count)>"
                             )
                         }
                         self.logger.debug("ProviderStore<\(providerRecordCount)>")
@@ -553,7 +553,7 @@ public enum KadDHT {
             self.eventLoop.makeFailedFuture(Errors.notSupported)
         }
 
-        public func findPeers(supportingService: String, options: Options?) -> EventLoopFuture<DiscoverdPeers> {
+        public func findPeers(supportingService: String, options: Options?) -> EventLoopFuture<DiscoveredPeers> {
             self.eventLoop.makeFailedFuture(Errors.notSupported)
         }
 
@@ -1585,7 +1585,7 @@ public enum KadDHT {
                 return self.eventLoop.makeSucceededVoidFuture()
             }
             return self.peerstore.add(
-                metaKey: MetadataBook.Keys.Prunable.rawValue,
+                metaKey: MetadataBook.Keys.prunable.rawValue,
                 data: value,
                 toPeer: peer,
                 on: self.eventLoop

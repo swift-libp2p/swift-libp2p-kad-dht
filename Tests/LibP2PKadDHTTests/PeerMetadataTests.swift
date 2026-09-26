@@ -125,7 +125,7 @@ extension LibP2PKadDHTTests.PeerMetadataTests {
         let deadline = ContinuousClock.now + timeout
         while true {
             let metadata = try? await app.peers.getMetadata(forPeer: peer).get()
-            if let value = metadata?[MetadataBook.Keys.Prunable.rawValue] { return value }
+            if let value = metadata?[MetadataBook.Keys.prunable.rawValue] { return value }
             if ContinuousClock.now >= deadline { return nil }
             try await Task.sleep(for: .milliseconds(10))
         }

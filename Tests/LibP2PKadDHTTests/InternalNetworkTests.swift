@@ -393,7 +393,7 @@ extension LibP2PKadDHTTests {
         private func makeHost(
             mode: KadDHT.Mode = .client,
             configuration: KadDHT.Configuration = .default,
-            bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
+            bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.ipfsBootNodes,
             autoHeartbeat: Bool = false,
             logLevel: Logger.Level = .notice,
             usingGroup: Application.EventLoopGroupProvider = .singleton
