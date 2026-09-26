@@ -23,7 +23,7 @@ extension Application.DHTServices.Provider {
                 let dht = KadDHT.Node(
                     network: app,
                     mode: .client,
-                    bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes,
+                    bootstrapPeers: BootstrapPeerDiscovery.ipfsBootNodes,
                     configuration: .default
                 )
                 app.lifecycle.use(dht)
@@ -37,7 +37,7 @@ extension Application.DHTServices.Provider {
     public static func kadDHT(
         mode: KadDHT.Mode,
         configuration: KadDHT.Configuration = .default,
-        bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
+        bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.ipfsBootNodes,
         autoUpdate: Bool = true
     ) -> Self {
         .init {
@@ -82,7 +82,7 @@ extension Application.DiscoveryServices.Provider {
                 let dht = KadDHT.Node(
                     network: app,
                     mode: .client,
-                    bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes,
+                    bootstrapPeers: BootstrapPeerDiscovery.ipfsBootNodes,
                     configuration: .default
                 )
                 app.lifecycle.use(dht)
