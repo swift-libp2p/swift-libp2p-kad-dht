@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -141,11 +141,13 @@ extension LibP2PKadDHTTests {
 
 extension LibP2PKadDHTTests {
     static func syntheticCID(_ tag: String) throws -> [UInt8] {
-        try CID(
-            version: .v1,
-            codec: .raw,
-            multihash: try Multihash(raw: tag.bytes, hashedWith: .sha2_256)
-        ).rawBuffer
+        Array(
+            try CID(
+                version: .v1,
+                codec: .raw,
+                multihash: try Multihash(hashing: tag.bytes, codec: .sha2_256)
+            )
+        )
     }
 
     /// Helper method for configuring a DHT Node for the above tests

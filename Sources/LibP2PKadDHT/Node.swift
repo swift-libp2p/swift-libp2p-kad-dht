@@ -478,7 +478,7 @@ public enum KadDHT {
         public func findProviders(cid: [UInt8], count: Int) -> EventLoopFuture<[Multiaddr]> {
             guard let cid = try? CID(cid) else { return self.eventLoop.makeFailedFuture(Errors.invalidCID) }
             /// Provider records are keyed by *multihash*, not by CID, so that every CID encoding of the same
-            /// content converges on one key. `rawBuffer` would include the v1 version/codec prefix.
+            /// content converges on one key. The full CID bytes would include the v1 version/codec prefix.
             return self.lookupProviders(cid.multihash.value, count: count).map { peers in
                 peers.reduce(
                     into: [],

@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -44,11 +44,13 @@ extension LibP2PKadDHTTests {
                 let node = app.dht.kadDHT
 
                 // Use a deterministic CID derived from short content.
-                let cid = try CID(
-                    version: .v1,
-                    codec: .raw,
-                    multihash: try Multihash(raw: "phase-3.0-test".bytes, hashedWith: .sha2_256)
-                ).rawBuffer
+                let cid = Array(
+                    try CID(
+                        version: .v1,
+                        codec: .raw,
+                        multihash: try Multihash(hashing: "phase-3.0-test".bytes, codec: .sha2_256)
+                    )
+                )
 
                 // Provide with announce:false so no network RPCs are sent.
                 try await node.provide(cid: cid, announce: false).get()
@@ -299,8 +301,8 @@ extension LibP2PKadDHTTests {
         ///
         /// Provider records are keyed by the CID's *multihash*, not by the raw CID bytes, so that every
         /// CID encoding of the same content converges on one key. Tests have to derive the key the same
-        /// way `provide(cid:announce:)` and `findProviders(cid:count:)` do — a CIDv1 `rawBuffer` carries
-        /// a version/codec prefix, so keying off it yields a different (and unreachable) key.
+        /// way `provide(cid:announce:)` and `findProviders(cid:count:)` do, a CIDv1's full bytes carry
+        /// a version/codec prefix, so keying off them yields a different (and unreachable) key.
         private func providerRoutingKey(_ cid: [UInt8]) throws -> KadDHT.Key {
             KadDHT.Key(try CID(cid).multihash.value, keySpace: .xor)
         }
