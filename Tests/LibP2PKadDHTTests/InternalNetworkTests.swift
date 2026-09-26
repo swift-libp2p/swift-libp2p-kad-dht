@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -77,7 +77,7 @@ extension LibP2PKadDHTTests {
             //peerRouting.findPeer(peer: node1.peerID)
             let peer = try #require(try? node4.dht.kadDHT.findPeer(peer: node1.peerID).wait())
             #expect(peer.peer == node1.peerID)
-            #expect(peer.addresses == node1.listenAddresses)
+            #expect(peer.addresses.map { $0.decapsulatingPeerID() } == node1.listenAddresses)
 
             node1.shutdown()
             node2.shutdown()
