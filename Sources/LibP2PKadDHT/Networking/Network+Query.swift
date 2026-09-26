@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -94,7 +94,7 @@ extension KadDHT {
 
             let payload = try [UInt8](req.serializedData())
             //return payload
-            return putUVarInt(UInt64(payload.count)) + payload
+            return UInt64(payload.count).varIntBytes.bytes + payload
         }
 
         /// This is someone sending our node a query, the remote peer is the initiator, we're just reacting...
