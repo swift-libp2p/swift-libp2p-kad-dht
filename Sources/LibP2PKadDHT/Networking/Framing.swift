@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -75,22 +75,23 @@ extension ByteBuffer {
                 length: min(Self.maxVarIntBytes, self.readableBytes)
             ) ?? []
 
-        /// A uvarint ends at the first byte with the continuation bit clear.
-        guard peek.contains(where: { $0 & 0x80 == 0 }) else {
-            /// No terminator within 10 bytes can never become valid; anything shorter just hasn't
-            /// fully arrived yet.
+        let value: UInt64
+        let end: Int
+        do {
+            /// `limit` keeps the decoded length indexable, so the `Int` conversion below can't trap.
+            (value, end) = try VarInt.decode(peek, limit: UInt64(Int.max))
+        } catch VarIntError.needsMoreBytes {
+            /// A short read, unless we already hold the 10 bytes a uvarint can never exceed, in
+            /// which case no byte that follows can make it valid.
             guard peek.count < Self.maxVarIntBytes else { throw KadDHT.Errors.DecodingErrorInvalidLength }
             return nil
-        }
-
-        /// With a terminator present, a non-positive `bytesRead` means overflow or a non-minimal
-        /// encoding rather than a short buffer.
-        let (value, bytesRead) = uVarInt(peek)
-        guard bytesRead > 0, value <= UInt64(Int.max) else {
+        } catch {
+            /// Overflow, a non-minimal encoding, or a length we couldn't index with. None of these
+            /// become valid with more bytes, so this is corruption rather than a short read.
             throw KadDHT.Errors.DecodingErrorInvalidLength
         }
 
-        self.moveReaderIndex(forwardBy: bytesRead)
+        self.moveReaderIndex(forwardBy: end)
         return Int(value)
     }
 }
