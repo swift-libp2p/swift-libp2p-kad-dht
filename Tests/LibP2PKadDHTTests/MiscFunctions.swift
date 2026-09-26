@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -28,7 +28,8 @@ import LibP2PCrypto
 /// `decode()` fails with `malformedProtobuf`, because the leading length byte parses as a bogus field
 /// tag. Tests that want a round trip have to unframe first, which is what this helper does.
 func decodeQueryFrame(_ encoded: [UInt8]) throws -> KadDHT.Query {
-    try KadDHT.Query.decode(Array(encoded.dropFirst(uVarInt(encoded).bytesRead)))
+    let (_, end) = try VarInt.decode(encoded)
+    return try KadDHT.Query.decode(Array(encoded[end...]))
 }
 
 func RandomPeerID() -> PeerID {

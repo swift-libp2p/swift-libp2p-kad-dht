@@ -204,17 +204,17 @@ extension KadDHT {
             let namespace = String(data: Data(namespaceBytes), encoding: .utf8)
         {
             if let mh = try? Multihash(Array(key.dropFirst(namespace.count + 2))) {
-                return "/\(namespace)/\(mh.b58String)"
+                return "/\(namespace)/\(mh.asString(base: .base58btc))"
             } else if let cid = try? CID(Array(key.dropFirst(namespace.count + 2))) {
-                return "/\(namespace)/\(cid.multihash.b58String)"
+                return "/\(namespace)/\(cid.multihash.asString(base: .base58btc))"
             } else {
                 return "/\(namespace)/\(key.dropFirst(namespaceBytes.count + 2))"
             }
         } else {
             if let mh = try? Multihash(key) {
-                return "\(mh.b58String)"
+                return "\(mh.asString(base: .base58btc))"
             } else if let cid = try? CID(key) {
-                return "\(cid.multihash.b58String)"
+                return "\(cid.multihash.asString(base: .base58btc))"
             } else {
                 return "\(key)"
             }

@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -23,7 +23,7 @@ extension Application.DHTServices.Provider {
                 let dht = KadDHT.Node(
                     network: app,
                     mode: .client,
-                    bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes,
+                    bootstrapPeers: BootstrapPeerDiscovery.ipfsBootNodes,
                     configuration: .default
                 )
                 app.lifecycle.use(dht)
@@ -37,7 +37,7 @@ extension Application.DHTServices.Provider {
     public static func kadDHT(
         mode: KadDHT.Mode,
         configuration: KadDHT.Configuration = .default,
-        bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
+        bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.ipfsBootNodes,
         autoUpdate: Bool = true
     ) -> Self {
         .init {
@@ -63,13 +63,32 @@ extension Application.DHTServices.Provider {
 
 extension Application.DHTServices {
 
+    /// The shared KadDHT node.
+    ///
+    /// - Warning: Traps when no KadDHT node is installed. Prefer ``kadDHTIfAvailable`` anywhere the
+    ///   code can run while the `Application` is tearing down.
     public var kadDHT: KadDHT.Node {
-        guard let kad = self.service(for: KadDHT.Node.self) else {
+        guard let kad = self.kadDHTIfAvailable else {
+            /// `Application.dht` hands out *empty* subsystem storage from the moment shutdown
+            /// starts, so an absent service there means teardown, not a missing `use(.kadDHT)`.
+            if self.application.isShuttingDown {
+                fatalError(
+                    "KadDHT accessed while the Application was shutting down, its subsystem storage is already gone. Use `app.dht.kadDHTIfAvailable` on paths that can run during teardown."
+                )
+            }
             fatalError(
                 "KadDHT accessed without instantiating it first. Use app.dht.use(.kadDHT) to initialize a shared KadDHT instance."
             )
         }
         return kad
+    }
+
+    /// The shared KadDHT node, or `nil` when none is installed.
+    ///
+    /// Also `nil` once the `Application` starts shutting down, because ``Application/dht`` returns
+    /// empty subsystem storage from that point on.
+    public var kadDHTIfAvailable: KadDHT.Node? {
+        self.service(for: KadDHT.Node.self)
     }
 }
 
@@ -82,7 +101,7 @@ extension Application.DiscoveryServices.Provider {
                 let dht = KadDHT.Node(
                     network: app,
                     mode: .client,
-                    bootstrapPeers: BootstrapPeerDiscovery.IPFSBootNodes,
+                    bootstrapPeers: BootstrapPeerDiscovery.ipfsBootNodes,
                     configuration: .default
                 )
                 app.lifecycle.use(dht)

@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -79,7 +79,7 @@ extension KadDHT {
             let payload = try dht.serializedData()
 
             /// add the uVarInt length prefix
-            return putUVarInt(UInt64(payload.count)) + payload
+            return UInt64(payload.count).varIntBytes.bytes + payload
         }
 
         /// The record carried by `dht`, if any, refusing anything over ``KadDHT/Defaults/maxRecordSize``.
@@ -88,15 +88,21 @@ extension KadDHT {
             return try dht.record.withinSizeLimit()
         }
 
+        /// Decodes a complete, length-prefixed kad frame (`uvarint(len) + protobuf`).
         static func decode(_ bytes: [UInt8]) throws -> Response {
-            let prefix = uVarInt(bytes)
-            guard prefix.value > 0, prefix.value == (bytes.count - prefix.bytesRead) else {
+            guard let prefix = try? VarInt.decode(bytes),
+                prefix.value > 0,
+                prefix.value == (bytes.count - prefix.end)
+            else {
                 /// The frame itself is the diagnostic here, and this is a static decoder with no
                 /// logger. `_sendQuery` logs the offending bytes at `.trace` when this throws.
                 throw Errors.DecodingErrorInvalidLength
             }
-            let payload: [UInt8] = [UInt8](bytes.dropFirst(prefix.bytesRead))
+            return try Self.decode(frame: [UInt8](bytes[prefix.end...]))
+        }
 
+        /// Decodes a single unframed DHT message (the bare protobuf, no length prefix).
+        static func decode(frame payload: [UInt8]) throws -> Response {
             guard let dht = try? DHT.Message(serializedBytes: payload) else { throw Errors.DecodingErrorInvalidType }
 
             switch dht.type {

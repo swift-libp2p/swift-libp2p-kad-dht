@@ -93,7 +93,7 @@ extension LibP2PKadDHTTests {
             print("All Done!")
         }
 
-        /// 20 heartbeats --> Time:  67.5 seconds,  Mem: 20.1,  CPU: 20-40%,  Peers: 295
+        /// 5 heartbeats --> Time:  67.5 seconds,  Mem: 20.1,  CPU: 20-40%,  Peers: 295, swift-libp2p v0.3.0
         /// Errors: 93 `error BaseConnection`
         /// 📒 --------------------------------- 📒
         /// Routing Table [<peer.ID KkDSqg>]
@@ -106,6 +106,25 @@ extension LibP2PKadDHTTests {
         /// b[3] = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
         /// b[4] = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
         /// b[5] = [5, 6, 6, 7, 9, 9, 10, 11, 11, 5, 6]
+        /// ```
+        /// ---------------------------------------
+        ///
+        /// 5 heartbeats --> Time:  104.2 seconds,  Mem: 22.8,  CPU: 20-40%,  Peers: 430, swift-libp2p v0.4.0
+        /// Errors: 442 `error BaseConnection`
+        /// 📒 --------------------------------- 📒
+        /// Routing Table [<peer.ID MzX9jq>]
+        /// Bucket Count: 9 buckets of size: 20
+        /// Total Peers: 145
+        /// ```
+        /// b[0] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        /// b[1] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        /// b[2] = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
+        /// b[3] = []
+        /// b[4] = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+        /// b[5] = [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
+        /// b[6] = [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6]
+        /// b[7] = [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7]
+        /// b[8] = [10, 8, 8, 8, 11, 8, 8, 8, 8, 8, 9, 9, 10, 10, 10, 10]
         /// ```
         /// ---------------------------------------
         @Test(.disabled())
@@ -467,7 +486,7 @@ extension LibP2PKadDHTTests {
         private func makeHost(
             mode: KadDHT.Mode = .client,
             configuration: KadDHT.Configuration = .default,
-            bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.IPFSBootNodes,
+            bootstrapPeers: [PeerInfo] = BootstrapPeerDiscovery.ipfsBootNodes,
             autoHeartbeat: Bool = false,
             usingGroup: Application.EventLoopGroupProvider = .singleton
         ) throws -> Application {

@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -453,11 +453,10 @@ public enum KadDHT {
                         to: peer,
                         on: self.eventLoop
                     )
-                    .flatMapAlways { _ -> EventLoopFuture<Void> in
-                        // Best-effort: per-peer failures are expected.
-                        // The spec only requires some-of-K to succeed for the record to remain discoverable.
-                        self.eventLoop.makeSucceededVoidFuture()
-                    }
+                    .map { _ in () }
+                    // Best-effort: per-peer failures are expected.
+                    // The spec only requires some-of-K to succeed for the record to remain discoverable.
+                    .recover { _ in () }
                 }.flatten(on: self.eventLoop).map { _ in () }
             }
         }
@@ -479,7 +478,7 @@ public enum KadDHT {
         public func findProviders(cid: [UInt8], count: Int) -> EventLoopFuture<[Multiaddr]> {
             guard let cid = try? CID(cid) else { return self.eventLoop.makeFailedFuture(Errors.invalidCID) }
             /// Provider records are keyed by *multihash*, not by CID, so that every CID encoding of the same
-            /// content converges on one key. `rawBuffer` would include the v1 version/codec prefix.
+            /// content converges on one key. The full CID bytes would include the v1 version/codec prefix.
             return self.lookupProviders(cid.multihash.value, count: count).map { peers in
                 peers.reduce(
                     into: [],
@@ -512,7 +511,7 @@ public enum KadDHT {
                         let necessary = KadDHT.PeerPrunableMetadata.necessary
                         if !necessary.isEmpty {
                             self.logger.trace(
-                                "Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.Prunable.rawValue] == necessary }).count)>"
+                                "Necessary Peers<\(peers.filter({ $0.metadata[MetadataBook.Keys.prunable.rawValue] == necessary }).count)>"
                             )
                         }
                         self.logger.debug("ProviderStore<\(providerRecordCount)>")
@@ -553,7 +552,7 @@ public enum KadDHT {
             self.eventLoop.makeFailedFuture(Errors.notSupported)
         }
 
-        public func findPeers(supportingService: String, options: Options?) -> EventLoopFuture<DiscoverdPeers> {
+        public func findPeers(supportingService: String, options: Options?) -> EventLoopFuture<DiscoveredPeers> {
             self.eventLoop.makeFailedFuture(Errors.notSupported)
         }
 
@@ -729,11 +728,11 @@ public enum KadDHT {
                 self.logger.debug("Re-publishing \(due.count) local provider records")
 
                 let announcements = due.map { (kid, cid) -> EventLoopFuture<Void> in
-                    self._announceProviderRecord(cid: cid, key: kid).flatMapAlways {
-                        _ -> EventLoopFuture<Void> in
+                    self._announceProviderRecord(cid: cid, key: kid).always { _ in
                         self.providerRecordAddedAt[Self.providerRecordKey(kid, peerID: self.peerID)] = Date()
-                        return self.eventLoop.makeSucceededVoidFuture()
                     }
+                    /// A failed announce is retried on the next heartbeat.
+                    .recover { _ in () }
                 }
                 return EventLoopFuture.andAllSucceed(announcements, on: self.eventLoop)
             }
@@ -843,7 +842,10 @@ public enum KadDHT {
         func trustedAddresses(for peer: PeerID, observedOn observed: Multiaddr) -> EventLoopFuture<PeerInfo> {
             self.peerstore.getPeerInfo(byID: peer.b58String, on: self.eventLoop).map { known -> PeerInfo in
                 guard !known.addresses.isEmpty else { return PeerInfo(peer: peer, addresses: [observed]) }
-                guard !known.addresses.contains(observed) else { return known }
+                /// The peerstore (swift-libp2p +0.4.0) stores addresses with their PeerID encapsulated by default.
+                /// Therefore we need to decapsulate before comparing the address below.
+                let bare = observed.decapsulatingPeerID()
+                guard !known.addresses.contains(where: { $0.decapsulatingPeerID() == bare }) else { return known }
                 return PeerInfo(peer: peer, addresses: known.addresses + [observed])
             }.flatMapErrorThrowing { _ in
                 /// Nothing on file — the observed address is all we have to go on.
@@ -1030,67 +1032,72 @@ public enum KadDHT {
 
         /// A method to help make sending queries easier
         func _sendQuery(_ query: Query, to: PeerInfo, on: EventLoop? = nil) -> EventLoopFuture<Response> {
+            let eventLoop = on ?? self.eventLoop
+
             guard let network = self.network else {
-                return (on ?? self.eventLoop).makeFailedFuture(Errors.noNetwork)
+                return eventLoop.makeFailedFuture(Errors.noNetwork)
             }
 
             guard let payload = try? query.encode() else {
-                return (on ?? self.eventLoop).makeFailedFuture(Errors.encodingError)
-            }
-
-            let queryPromise = (on ?? self.eventLoop).makePromise(of: Response.self)
-            /// Create our Timeout Task (if our query doesn't complete by our Timeout time, then we fail it)
-            (on ?? self.eventLoop).scheduleTask(in: self.connectionTimeout) {
-                queryPromise.fail(Errors.connectionTimedOut)
+                return eventLoop.makeFailedFuture(Errors.encodingError)
             }
 
             //self.logger.info("Scanning \(to) for dialable addresses...")
+            /// We should loop through the addresses and determine which one to dial
+            /// - Any already open?
+            /// - If not, any preferred transports?
+            ///
+            /// - Note: `dialableAddress` is synchronous as of swift-libp2p 0.4.0 — both the
+            ///   transports and the resolvers answer without a hop, so there's nothing to await.
+            let dialableAddresses = network.dialableAddress(
+                to.addresses,
+                externalAddressesOnly: !self.isRunningLocally,
+                on: eventLoop
+            )
+
+            guard let addy = dialableAddresses.first else {
+                return eventLoop.makeFailedFuture(Errors.noDialableAddressesForPeer)
+            }
+
+            self.logger.info(
+                "Dialable Addresses For \(to.peer): [\(dialableAddresses.map { $0.description }.joined(separator: ","))]"
+            )
+
+            let queryPromise = eventLoop.makePromise(of: Response.self)
+            /// Create our Timeout Task (if our query doesn't complete by our Timeout time, then we fail it)
+            eventLoop.scheduleTask(in: self.connectionTimeout) {
+                queryPromise.fail(Errors.connectionTimedOut)
+            }
+
+            /// An RPC the peer doesn't answer, resolves as soon as our write is out
+            let fireAndForget = query.fireAndForgetResponse
+
+            /// `SingleRequest` no longer guesses at the framing: with
+            /// `KadDHT.FrameDecoder` installed, the first `.data` event is one whole
+            /// prefix-stripped message, which is what `.firstFrame` completes on.
+            /// The outbound payload keeps `Query.encode`'s own prefix, so the request
+            /// is still framed exactly once.
             queryPromise.completeWith(
-                /// We should loop through the addresses and determine which one to dial
-                /// - Any already open?
-                /// - If not, any preferred transports?
-                network.dialableAddress(
-                    to.addresses,
-                    externalAddressesOnly: !self.isRunningLocally,
-                    on: on ?? self.eventLoop
-                ).flatMap { dialableAddresses in
-                    guard !dialableAddresses.isEmpty else {
-                        return (on ?? self.eventLoop).makeFailedFuture(Errors.noDialableAddressesForPeer)
-                    }
-                    guard let addy = dialableAddresses.first else {
-                        return (on ?? self.eventLoop).makeFailedFuture(Errors.peerIDMultiaddrEncapsulationFailed)
-                    }
+                network.newRequest(
+                    /// We encapsulate the multiaddr with the peers expected public key so we can verify the responder is who we're expecting.
+                    to: addy.encapsulating(peer: to.peer),
+                    forProtocol: KadDHT.multicodec,
+                    withRequest: Data(payload),
+                    style: fireAndForget == nil ? .responseExpected : .noResponseExpected,
+                    withHandlers: .handlers([.kadFrameDecoder]),
+                    expecting: .firstFrame,
+                    withTimeout: self.connectionTimeout
+                ).flatMapThrowing { resp -> Response in
+                    if let fireAndForget { return fireAndForget }
+                    let frame = [UInt8](resp)
                     do {
-                        /// We encapsulate the multiaddr with the peers expected public key so we can verify the responder is who we're expecting.
-                        let ma =
-                            addy.getPeerIDString() != nil
-                            ? addy : try addy.encapsulate(proto: .p2p, address: to.peer.b58String)
-                        //let ma = addy.addresses.contains(where: { $0.codec == .p2p }) ? addy : try addy.encapsulate(proto: .p2p, address: to.peer.cidString)
-                        self.logger.info(
-                            "Dialable Addresses For \(to.peer): [\(dialableAddresses.map { $0.description }.joined(separator: ","))]"
-                        )
-                        /// An RPC the peer doesn't answer resolves as soon as our write is out
-                        let fireAndForget = query.fireAndForgetResponse
-                        return network.newRequest(
-                            to: ma,
-                            forProtocol: KadDHT.multicodec,
-                            withRequest: Data(payload),
-                            style: fireAndForget == nil ? .responseExpected : .noResponseExpected,
-                            withTimeout: self.connectionTimeout
-                        ).flatMapThrowing { resp -> Response in
-                            if let fireAndForget { return fireAndForget }
-                            do {
-                                return try Response.decode(resp.byteArray)
-                            } catch {
-                                /// Dump the bytes in trace so we can determine if the decoding error is our fault.
-                                self.logger.trace(
-                                    "Undecodable response from \(to.peer): \(resp.byteArray.toHexString())"
-                                )
-                                throw error
-                            }
-                        }
+                        return try Response.decode(frame: frame)
                     } catch {
-                        return (on ?? self.eventLoop).makeFailedFuture(Errors.peerIDMultiaddrEncapsulationFailed)
+                        /// Dump the bytes in trace so we can determine if the decoding error is our fault.
+                        self.logger.trace(
+                            "Undecodable response from \(to.peer): \(frame.toHexString())"
+                        )
+                        throw error
                     }
                 }
             )
@@ -1106,7 +1113,7 @@ public enum KadDHT {
                     elements.map { key, value in
                         self.eventLoop.next().submit {
                             self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3)
-                        }.transform(to: ())
+                        }.map { _ in () }
                     }.flatten(on: self.eventLoop)
                 }
             }
@@ -1166,28 +1173,25 @@ public enum KadDHT {
             let successfulPuts: NIOLockedValueBox<[PeerID]> = .init([])
             return self._nearest(peerCount, peersToKey: key).flatMap { nearestPeers -> EventLoopFuture<Bool> in
                 nearestPeers.compactMap { peer -> EventLoopFuture<Bool> in
-                    self._sendQuery(.putValue(key: key.original, record: value), to: peer).flatMapAlways {
-                        result -> EventLoopFuture<Bool> in
-                        switch result {
-                        case .success(let res):
+                    self._sendQuery(.putValue(key: key.original, record: value), to: peer)
+                        .map { res -> Bool in
                             self.logger.debug("Shared key:value with \(peer.peer)")
                             guard case .putValue(let k, let v) = res else {
                                 self.logger.warning("Failed to share key:value with \(peer.peer)")
-                                return self.eventLoop.makeSucceededFuture(false)
+                                return false
                             }
                             guard k == key.original, v != nil else {
                                 self.logger.warning("Failed to share key:value with \(peer.peer)")
-                                return self.eventLoop.makeSucceededFuture(false)
+                                return false
                             }
                             self.logger.debug("They Stored It!")
                             successfulPuts.withLockedValue { $0.append(peer.peer) }
-                            return self.eventLoop.makeSucceededFuture(true)
-
-                        case .failure(let error):
-                            self.logger.warning("Failed to share key:value with \(peer.peer) -> \(error)")
-                            return self.eventLoop.makeSucceededFuture(false)
+                            return true
                         }
-                    }
+                        .recover { error -> Bool in
+                            self.logger.warning("Failed to share key:value with \(peer.peer) -> \(error)")
+                            return false
+                        }
                 }.flatten(on: self.eventLoop).map({ $0.contains(true) }).always { results in
                     self.logger.debug(
                         "Done Sharing Key:\(KadDHT.keyToHumanReadableString(key.original)) with \(successfulPuts.withLockedValue({$0}).count)/\(nearestPeers.count) peers"
@@ -1328,17 +1332,13 @@ public enum KadDHT {
 
                     return closestPeers.map { peer in
                         self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop)
-                            .flatMapAlways { res -> EventLoopFuture<Bool> in
-                                switch res {
-                                case .success(let response):
-                                    guard case .putValue(let k, let rec) = response else {
-                                        return self.eventLoop.makeSucceededFuture(false)
-                                    }
-                                    return self.eventLoop.makeSucceededFuture(rec != nil && k == key)
-                                case .failure(let error):
-                                    self.logger.warning("PutValue to \(peer.peer) failed: \(error)")
-                                    return self.eventLoop.makeSucceededFuture(false)
-                                }
+                            .map { response -> Bool in
+                                guard case .putValue(let k, let rec) = response else { return false }
+                                return rec != nil && k == key
+                            }
+                            .recover { error -> Bool in
+                                self.logger.warning("PutValue to \(peer.peer) failed: \(error)")
+                                return false
                             }
                     }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
                         self.logger.debug(
@@ -1496,12 +1496,11 @@ public enum KadDHT {
                             self.lookupClosestPeers(
                                 to: target,
                                 timeout: self.configuration.refreshQueryTimeout
-                            ).flatMapAlways { result -> EventLoopFuture<Void> in
-                                /// Dont fail the rest of our lookups when one of them fails.
-                                if case .failure(let error) = result {
-                                    self.logger.debug("Refresh lookup failed: \(error)")
-                                }
-                                return self.eventLoop.makeSucceededVoidFuture()
+                            )
+                            .map { _ in () }
+                            /// Dont fail the rest of our lookups when one of them fails.
+                            .recover { error in
+                                self.logger.debug("Refresh lookup failed: \(error)")
                             }
                         }
                     }
@@ -1548,9 +1547,7 @@ public enum KadDHT {
                         }
                     }
                 }
-            }.flatMapAlways({ _ in
-                self.eventLoop.makeSucceededVoidFuture()
-            }).hop(to: self.eventLoop)
+            }.recover { _ in () }.hop(to: self.eventLoop)
         }
 
         /// Marks the given peer as necessary in our global peerstore
@@ -1585,7 +1582,7 @@ public enum KadDHT {
                 return self.eventLoop.makeSucceededVoidFuture()
             }
             return self.peerstore.add(
-                metaKey: MetadataBook.Keys.Prunable.rawValue,
+                metaKey: MetadataBook.Keys.prunable.rawValue,
                 data: value,
                 toPeer: peer,
                 on: self.eventLoop
@@ -1598,7 +1595,7 @@ public enum KadDHT {
                     self.metrics.add(event: .peerDiscovered(peer))
                     return peer
                 }
-            }.transform(to: ())
+            }.map { _ in () }
         }
 
         /// Iterates over a collection of peers and attempts to store each one if space or distance permits

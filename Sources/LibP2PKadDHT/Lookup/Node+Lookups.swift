@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import LibP2P
+import NIOConcurrencyHelpers
 
 /// The four lookups every public operation is built on.
 extension KadDHT.Node {
@@ -183,7 +184,9 @@ extension KadDHT.Node {
 
         return stale.map { peer in
             self._sendQuery(.putValue(key: key, record: outbound), to: peer, on: self.eventLoop)
-                .flatMapAlways { _ in self.eventLoop.makeSucceededVoidFuture() }
+                .map { _ in () }
+                /// Best-effort: a peer that refuses the correction doesn't fail the rest.
+                .recover { _ in () }
         }.flatten(on: self.eventLoop)
     }
 

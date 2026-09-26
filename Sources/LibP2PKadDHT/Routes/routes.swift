@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -37,7 +37,14 @@ func registerDHTRoute(_ app: Application) throws {
         // exactly once.
         kad.on("1.0.0", handlers: [.kadFrameDecoder]) { req -> EventLoopFuture<Response<ByteBuffer>> in
 
-            req.application.dht.kadDHT.processRequest(req)
+            /// A stream event can still arrive while the `Application` is tearing down.
+            /// If thats the case just close the stream, don't attempt to access the dht node.
+            guard let dht = req.application.dht.kadDHTIfAvailable else {
+                req.logger.debug("KadDHT is no longer available, closing the inbound stream")
+                return req.eventLoop.makeSucceededFuture(.close)
+            }
+
+            return dht.processRequest(req)
 
         }
     }

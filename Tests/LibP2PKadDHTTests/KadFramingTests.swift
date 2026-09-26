@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -40,10 +40,10 @@ extension LibP2PKadDHTTests {
 
             /// Pairs of (inbound bytes, and the frames they must produce).
             let pairs: [(ByteBuffer, [ByteBuffer])] = [
-                (buffer(small), [expectedFrame(small)]),
-                (buffer(large), [expectedFrame(large)]),
+                (buffer(small), [try expectedFrame(small)]),
+                (buffer(large), [try expectedFrame(large)]),
                 /// Two messages arriving together still come out as two frames.
-                (buffer(small + large), [expectedFrame(small), expectedFrame(large)]),
+                (buffer(small + large), [try expectedFrame(small), try expectedFrame(large)]),
             ]
 
             #expect(throws: Never.self) {
@@ -58,7 +58,7 @@ extension LibP2PKadDHTTests {
         @Test("an emitted frame round-trips through Query.decode")
         func emittedFramesDecode() throws {
             let key = largeKey
-            let frame = expectedFrame(try wireBytes(for: .getValue(key: key)))
+            let frame = try expectedFrame(try wireBytes(for: .getValue(key: key)))
 
             let channel = try decoderChannel()
             _ = try channel.writeInbound(buffer(try wireBytes(for: .getValue(key: key))))
@@ -78,7 +78,7 @@ extension LibP2PKadDHTTests {
         @Test("an oversized length prefix is rejected")
         func rejectsAnOversizedLengthPrefix() throws {
             let channel = try decoderChannel()
-            let announced = buffer(putUVarInt(UInt64(KadDHT.Defaults.maxMessageSize + 1)) + [0x08])
+            let announced = buffer(UInt64(KadDHT.Defaults.maxMessageSize + 1).varIntBytes.bytes + [0x08])
 
             #expect(throws: (any Error).self) { try channel.writeInbound(announced) }
             _ = try? channel.finish()
@@ -93,7 +93,7 @@ extension LibP2PKadDHTTests {
 
             let channel = try decoderChannel()
             _ = try channel.writeInbound(buffer(wire))
-            #expect(try channel.readInbound(as: ByteBuffer.self) == expectedFrame(wire))
+            #expect(try channel.readInbound(as: ByteBuffer.self) == (try expectedFrame(wire)))
             _ = try channel.finish()
         }
 
@@ -130,8 +130,9 @@ extension LibP2PKadDHTTests {
         }
 
         /// The frame a sender's wire bytes should decode to: the payload, minus the length prefix.
-        private func expectedFrame(_ wire: [UInt8]) -> ByteBuffer {
-            self.buffer(Array(wire.dropFirst(uVarInt(wire).bytesRead)))
+        private func expectedFrame(_ wire: [UInt8]) throws -> ByteBuffer {
+            let (_, end) = try VarInt.decode(wire)
+            return self.buffer(Array(wire[end...]))
         }
     }
 

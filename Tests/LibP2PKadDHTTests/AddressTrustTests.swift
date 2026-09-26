@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -58,12 +58,19 @@ extension LibP2PKadDHTTests {
 
                 let trusted = try await app.dht.kadDHT.trustedAddresses(for: peer, observedOn: observed).get()
 
-                #expect(trusted.addresses.first == announced, "identify's address has to win the ordering")
+                /// The peerstore qualifies every address it stores with `/p2p/<peer>`, so what comes
+                /// back out is the canonical version of what we put in.
+                #expect(
+                    trusted.addresses.first == announced.encapsulating(peer: peer),
+                    "identify's address has to win the ordering"
+                )
                 #expect(trusted.addresses.contains(observed), "the observed address is kept as a fallback")
             }
         }
 
         /// Merging shouldn't duplicate an address the peerstore already has.
+        ///
+        /// - Note: the peerstore stores the `/p2p/<peer>` qualified version (swift-libp2p +0.4.0).
         @Test func testObservedAddressIsNotDuplicated() async throws {
             try await withApp(configure: LibP2PKadDHTTests.dhtHost()) { app in
                 let peer = try PeerID(.Ed25519)
@@ -72,7 +79,7 @@ extension LibP2PKadDHTTests {
 
                 let trusted = try await app.dht.kadDHT.trustedAddresses(for: peer, observedOn: observed).get()
 
-                #expect(trusted.addresses == [observed])
+                #expect(trusted.addresses == [observed.encapsulating(peer: peer)])
             }
         }
 

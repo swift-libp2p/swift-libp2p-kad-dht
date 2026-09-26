@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -197,12 +197,12 @@ extension LibP2PKadDHTTests {
 
         /// A length-delimited field: `(fieldNumber << 3) | 2`, a uvarint length, then the payload.
         private static func delimited(_ field: UInt8, _ payload: [UInt8]) -> [UInt8] {
-            [field << 3 | 2] + putUVarInt(UInt64(payload.count)) + payload
+            [field << 3 | 2] + UInt64(payload.count).varIntBytes.bytes + payload
         }
 
         /// A varint field: `(fieldNumber << 3) | 0`, then the value.
         private static func varint(_ field: UInt8, _ value: UInt64) -> [UInt8] {
-            [field << 3 | 0] + putUVarInt(value)
+            [field << 3 | 0] + value.varIntBytes.bytes
         }
 
         /// `Record { key = 1, value = 2, timeReceived = 5 }`, in field order.
@@ -212,7 +212,7 @@ extension LibP2PKadDHTTests {
 
         /// The uvarint-length-prefixed frame both `Query.encode` and `Response.encode` emit.
         private static func framed(_ payload: [UInt8]) -> [UInt8] {
-            putUVarInt(UInt64(payload.count)) + payload
+            UInt64(payload.count).varIntBytes.bytes + payload
         }
     }
 }
