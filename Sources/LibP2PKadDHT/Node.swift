@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -453,11 +453,10 @@ public enum KadDHT {
                         to: peer,
                         on: self.eventLoop
                     )
-                    .flatMapAlways { _ -> EventLoopFuture<Void> in
-                        // Best-effort: per-peer failures are expected.
-                        // The spec only requires some-of-K to succeed for the record to remain discoverable.
-                        self.eventLoop.makeSucceededVoidFuture()
-                    }
+                    .map { _ in () }
+                    // Best-effort: per-peer failures are expected.
+                    // The spec only requires some-of-K to succeed for the record to remain discoverable.
+                    .recover { _ in () }
                 }.flatten(on: self.eventLoop).map { _ in () }
             }
         }
@@ -729,11 +728,11 @@ public enum KadDHT {
                 self.logger.debug("Re-publishing \(due.count) local provider records")
 
                 let announcements = due.map { (kid, cid) -> EventLoopFuture<Void> in
-                    self._announceProviderRecord(cid: cid, key: kid).flatMapAlways {
-                        _ -> EventLoopFuture<Void> in
+                    self._announceProviderRecord(cid: cid, key: kid).always { _ in
                         self.providerRecordAddedAt[Self.providerRecordKey(kid, peerID: self.peerID)] = Date()
-                        return self.eventLoop.makeSucceededVoidFuture()
                     }
+                    /// A failed announce is retried on the next heartbeat.
+                    .recover { _ in () }
                 }
                 return EventLoopFuture.andAllSucceed(announcements, on: self.eventLoop)
             }
@@ -1106,7 +1105,7 @@ public enum KadDHT {
                     elements.map { key, value in
                         self.eventLoop.next().submit {
                             self._shareDHTKVWithNearestPeers(key: key, value: value, nearestPeers: 3)
-                        }.transform(to: ())
+                        }.map { _ in () }
                     }.flatten(on: self.eventLoop)
                 }
             }
@@ -1328,17 +1327,13 @@ public enum KadDHT {
 
                     return closestPeers.map { peer in
                         self._sendQuery(.putValue(key: key, record: record), to: peer, on: self.eventLoop)
-                            .flatMapAlways { res -> EventLoopFuture<Bool> in
-                                switch res {
-                                case .success(let response):
-                                    guard case .putValue(let k, let rec) = response else {
-                                        return self.eventLoop.makeSucceededFuture(false)
-                                    }
-                                    return self.eventLoop.makeSucceededFuture(rec != nil && k == key)
-                                case .failure(let error):
-                                    self.logger.warning("PutValue to \(peer.peer) failed: \(error)")
-                                    return self.eventLoop.makeSucceededFuture(false)
-                                }
+                            .map { response -> Bool in
+                                guard case .putValue(let k, let rec) = response else { return false }
+                                return rec != nil && k == key
+                            }
+                            .recover { error -> Bool in
+                                self.logger.warning("PutValue to \(peer.peer) failed: \(error)")
+                                return false
                             }
                     }.flatten(on: self.eventLoop).flatMap { results -> EventLoopFuture<Bool> in
                         self.logger.debug(
@@ -1496,12 +1491,11 @@ public enum KadDHT {
                             self.lookupClosestPeers(
                                 to: target,
                                 timeout: self.configuration.refreshQueryTimeout
-                            ).flatMapAlways { result -> EventLoopFuture<Void> in
-                                /// Dont fail the rest of our lookups when one of them fails.
-                                if case .failure(let error) = result {
-                                    self.logger.debug("Refresh lookup failed: \(error)")
-                                }
-                                return self.eventLoop.makeSucceededVoidFuture()
+                            )
+                            .map { _ in () }
+                            /// Dont fail the rest of our lookups when one of them fails.
+                            .recover { error in
+                                self.logger.debug("Refresh lookup failed: \(error)")
                             }
                         }
                     }
@@ -1548,9 +1542,7 @@ public enum KadDHT {
                         }
                     }
                 }
-            }.flatMapAlways({ _ in
-                self.eventLoop.makeSucceededVoidFuture()
-            }).hop(to: self.eventLoop)
+            }.recover { _ in () }.hop(to: self.eventLoop)
         }
 
         /// Marks the given peer as necessary in our global peerstore
@@ -1598,7 +1590,7 @@ public enum KadDHT {
                     self.metrics.add(event: .peerDiscovered(peer))
                     return peer
                 }
-            }.transform(to: ())
+            }.map { _ in () }
         }
 
         /// Iterates over a collection of peers and attempts to store each one if space or distance permits
