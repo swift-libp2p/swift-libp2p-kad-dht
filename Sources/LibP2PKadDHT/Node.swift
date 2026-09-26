@@ -842,7 +842,10 @@ public enum KadDHT {
         func trustedAddresses(for peer: PeerID, observedOn observed: Multiaddr) -> EventLoopFuture<PeerInfo> {
             self.peerstore.getPeerInfo(byID: peer.b58String, on: self.eventLoop).map { known -> PeerInfo in
                 guard !known.addresses.isEmpty else { return PeerInfo(peer: peer, addresses: [observed]) }
-                guard !known.addresses.contains(observed) else { return known }
+                /// The peerstore (swift-libp2p +0.4.0) stores addresses with their PeerID encapsulated by default.
+                /// Therefore we need to decapsulate before comparing the address below.
+                let bare = observed.decapsulatingPeerID()
+                guard !known.addresses.contains(where: { $0.decapsulatingPeerID() == bare }) else { return known }
                 return PeerInfo(peer: peer, addresses: known.addresses + [observed])
             }.flatMapErrorThrowing { _ in
                 /// Nothing on file — the observed address is all we have to go on.
@@ -1029,67 +1032,72 @@ public enum KadDHT {
 
         /// A method to help make sending queries easier
         func _sendQuery(_ query: Query, to: PeerInfo, on: EventLoop? = nil) -> EventLoopFuture<Response> {
+            let eventLoop = on ?? self.eventLoop
+
             guard let network = self.network else {
-                return (on ?? self.eventLoop).makeFailedFuture(Errors.noNetwork)
+                return eventLoop.makeFailedFuture(Errors.noNetwork)
             }
 
             guard let payload = try? query.encode() else {
-                return (on ?? self.eventLoop).makeFailedFuture(Errors.encodingError)
-            }
-
-            let queryPromise = (on ?? self.eventLoop).makePromise(of: Response.self)
-            /// Create our Timeout Task (if our query doesn't complete by our Timeout time, then we fail it)
-            (on ?? self.eventLoop).scheduleTask(in: self.connectionTimeout) {
-                queryPromise.fail(Errors.connectionTimedOut)
+                return eventLoop.makeFailedFuture(Errors.encodingError)
             }
 
             //self.logger.info("Scanning \(to) for dialable addresses...")
+            /// We should loop through the addresses and determine which one to dial
+            /// - Any already open?
+            /// - If not, any preferred transports?
+            ///
+            /// - Note: `dialableAddress` is synchronous as of swift-libp2p 0.4.0 — both the
+            ///   transports and the resolvers answer without a hop, so there's nothing to await.
+            let dialableAddresses = network.dialableAddress(
+                to.addresses,
+                externalAddressesOnly: !self.isRunningLocally,
+                on: eventLoop
+            )
+
+            guard let addy = dialableAddresses.first else {
+                return eventLoop.makeFailedFuture(Errors.noDialableAddressesForPeer)
+            }
+
+            self.logger.info(
+                "Dialable Addresses For \(to.peer): [\(dialableAddresses.map { $0.description }.joined(separator: ","))]"
+            )
+
+            let queryPromise = eventLoop.makePromise(of: Response.self)
+            /// Create our Timeout Task (if our query doesn't complete by our Timeout time, then we fail it)
+            eventLoop.scheduleTask(in: self.connectionTimeout) {
+                queryPromise.fail(Errors.connectionTimedOut)
+            }
+
+            /// An RPC the peer doesn't answer, resolves as soon as our write is out
+            let fireAndForget = query.fireAndForgetResponse
+
+            /// `SingleRequest` no longer guesses at the framing: with
+            /// `KadDHT.FrameDecoder` installed, the first `.data` event is one whole
+            /// prefix-stripped message, which is what `.firstFrame` completes on.
+            /// The outbound payload keeps `Query.encode`'s own prefix, so the request
+            /// is still framed exactly once.
             queryPromise.completeWith(
-                /// We should loop through the addresses and determine which one to dial
-                /// - Any already open?
-                /// - If not, any preferred transports?
-                network.dialableAddress(
-                    to.addresses,
-                    externalAddressesOnly: !self.isRunningLocally,
-                    on: on ?? self.eventLoop
-                ).flatMap { dialableAddresses in
-                    guard !dialableAddresses.isEmpty else {
-                        return (on ?? self.eventLoop).makeFailedFuture(Errors.noDialableAddressesForPeer)
-                    }
-                    guard let addy = dialableAddresses.first else {
-                        return (on ?? self.eventLoop).makeFailedFuture(Errors.peerIDMultiaddrEncapsulationFailed)
-                    }
+                network.newRequest(
+                    /// We encapsulate the multiaddr with the peers expected public key so we can verify the responder is who we're expecting.
+                    to: addy.encapsulating(peer: to.peer),
+                    forProtocol: KadDHT.multicodec,
+                    withRequest: Data(payload),
+                    style: fireAndForget == nil ? .responseExpected : .noResponseExpected,
+                    withHandlers: .handlers([.kadFrameDecoder]),
+                    expecting: .firstFrame,
+                    withTimeout: self.connectionTimeout
+                ).flatMapThrowing { resp -> Response in
+                    if let fireAndForget { return fireAndForget }
+                    let frame = [UInt8](resp)
                     do {
-                        /// We encapsulate the multiaddr with the peers expected public key so we can verify the responder is who we're expecting.
-                        let ma =
-                            addy.getPeerIDString() != nil
-                            ? addy : try addy.encapsulate(proto: .p2p, address: to.peer.b58String)
-                        //let ma = addy.addresses.contains(where: { $0.codec == .p2p }) ? addy : try addy.encapsulate(proto: .p2p, address: to.peer.cidString)
-                        self.logger.info(
-                            "Dialable Addresses For \(to.peer): [\(dialableAddresses.map { $0.description }.joined(separator: ","))]"
-                        )
-                        /// An RPC the peer doesn't answer resolves as soon as our write is out
-                        let fireAndForget = query.fireAndForgetResponse
-                        return network.newRequest(
-                            to: ma,
-                            forProtocol: KadDHT.multicodec,
-                            withRequest: Data(payload),
-                            style: fireAndForget == nil ? .responseExpected : .noResponseExpected,
-                            withTimeout: self.connectionTimeout
-                        ).flatMapThrowing { resp -> Response in
-                            if let fireAndForget { return fireAndForget }
-                            do {
-                                return try Response.decode(resp.byteArray)
-                            } catch {
-                                /// Dump the bytes in trace so we can determine if the decoding error is our fault.
-                                self.logger.trace(
-                                    "Undecodable response from \(to.peer): \(resp.byteArray.toHexString())"
-                                )
-                                throw error
-                            }
-                        }
+                        return try Response.decode(frame: frame)
                     } catch {
-                        return (on ?? self.eventLoop).makeFailedFuture(Errors.peerIDMultiaddrEncapsulationFailed)
+                        /// Dump the bytes in trace so we can determine if the decoding error is our fault.
+                        self.logger.trace(
+                            "Undecodable response from \(to.peer): \(frame.toHexString())"
+                        )
+                        throw error
                     }
                 }
             )
