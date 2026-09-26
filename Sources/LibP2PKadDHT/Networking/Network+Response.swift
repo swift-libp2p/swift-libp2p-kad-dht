@@ -88,6 +88,7 @@ extension KadDHT {
             return try dht.record.withinSizeLimit()
         }
 
+        /// Decodes a complete, length-prefixed kad frame (`uvarint(len) + protobuf`).
         static func decode(_ bytes: [UInt8]) throws -> Response {
             let prefix = uVarInt(bytes)
             guard prefix.value > 0, prefix.value == (bytes.count - prefix.bytesRead) else {
@@ -95,8 +96,11 @@ extension KadDHT {
                 /// logger. `_sendQuery` logs the offending bytes at `.trace` when this throws.
                 throw Errors.DecodingErrorInvalidLength
             }
-            let payload: [UInt8] = [UInt8](bytes.dropFirst(prefix.bytesRead))
+            return try Self.decode(frame: [UInt8](bytes.dropFirst(prefix.bytesRead)))
+        }
 
+        /// Decodes a single unframed DHT message (the bare protobuf, no length prefix).
+        static func decode(frame payload: [UInt8]) throws -> Response {
             guard let dht = try? DHT.Message(serializedBytes: payload) else { throw Errors.DecodingErrorInvalidType }
 
             switch dht.type {
