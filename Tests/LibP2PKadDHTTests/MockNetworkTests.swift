@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -330,7 +330,7 @@ extension LibP2PKadDHTTests {
         /// go's length bound (1...80).
         @Test func testDHTFauxNetworkQuery_GetProviders_AcceptsAnyMultihash() throws {
             /// A sha2-256 multihash (this one happens to also be a valid CIDv0)...
-            let sha256Multihash = try Multihash(raw: "provider test", hashedWith: .sha2_256).value
+            let sha256Multihash = try Multihash(hashing: "provider test", codec: .sha2_256).value
 
             /// ...and a blake3-256 multihash, hand-assembled as `varint(code) + varint(length) + digest`.
             /// We build the bytes directly because what matters here is that we accept an arbitrary
@@ -365,7 +365,7 @@ extension LibP2PKadDHTTests {
 
         /// A GET_PROVIDERS response must be able to carry providers *and* closer peers at the same time.
         @Test func testDHTFauxNetworkResponse_GetProviders_CarriesProvidersAndCloserPeers() throws {
-            let key = try Multihash(raw: "provider test", hashedWith: .sha2_256).value
+            let key = try Multihash(hashing: "provider test", codec: .sha2_256).value
             let providers = try (0..<2).map { _ in try DHT.Message.Peer(try generateRandomPeerInfo()) }
             let closer = try (0..<3).map { _ in try DHT.Message.Peer(try generateRandomPeerInfo()) }
 
@@ -386,7 +386,7 @@ extension LibP2PKadDHTTests {
         /// ADD_PROVIDER carries the provider's own PeerInfo in `providerPeers` — that's where a receiving node
         /// learns the provider's dialable addresses from.
         @Test func testDHTFauxNetworkQuery_AddProvider_RoundTripsProviderPeers() throws {
-            let key = try Multihash(raw: "provider test", hashedWith: .sha2_256).value
+            let key = try Multihash(hashing: "provider test", codec: .sha2_256).value
             let me = try generateRandomPeerInfo()
 
             let decoded = try decodeQueryFrame(
