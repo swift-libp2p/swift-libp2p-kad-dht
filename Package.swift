@@ -35,8 +35,8 @@ let package = Package(
         // Testing dependencies
         // NIOTestUtils, for `ByteToMessageDecoderVerifier`
         .package(url: "https://github.com/apple/swift-nio.git", .upToNextMajor(from: "2.87.0")),
-        .package(url: "https://github.com/swift-libp2p/swift-libp2p-noise.git", .upToNextMinor(from: "0.3.0")),
-        .package(url: "https://github.com/swift-libp2p/swift-libp2p-yamux.git", .upToNextMinor(from: "0.3.2")),
+        .package(url: "https://github.com/swift-libp2p/swift-libp2p-noise.git", .upToNextMinor(from: "0.4.0")),
+        .package(url: "https://github.com/swift-libp2p/swift-libp2p-yamux.git", .upToNextMinor(from: "0.4.0")),
         .package(url: "https://github.com/swift-libp2p/swift-libp2p-crypto.git", .upToNextMinor(from: "0.2.0")),
     ],
     targets: [
